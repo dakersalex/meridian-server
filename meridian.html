@@ -294,6 +294,7 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
           <option value="180">Last 6 months</option>
           <option value="30">Last 30 days</option>
           <option value="7">Last 7 days</option>
+          <option value="7">Last 7 days</option>
           <option value="365">Last year</option>
           <option value="9999">All time</option>
         </select>
@@ -462,7 +463,7 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
       <div style="font-size:13px;color:var(--ink-3);text-align:center;padding:20px">Ask me anything about your saved articles</div>
     </div>
     <div style="padding:12px 20px;border-top:1px solid var(--rule)">
-      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid var(--rule)"><span style="font-size:11px;color:var(--ink-3);text-transform:uppercase;letter-spacing:1px">Analysing:</span><select id="ai-date-filter" onchange="buildPresets()" style="font-size:11px;padding:3px 8px;border:1px solid var(--rule);background:var(--paper);color:var(--ink-2);font-family:IBM Plex Sans,sans-serif;cursor:pointer"><option value="30">Last 30 days</option><option value="180" selected>Last 6 months</option><option value="365">Last year</option><option value="9999">All time</option></select></div><div id="ai-presets" style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap"></div>
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid var(--rule)"><span style="font-size:11px;color:var(--ink-3);text-transform:uppercase;letter-spacing:1px">Analysing:</span><select id="ai-date-filter" onchange="buildPresets()" style="font-size:11px;padding:3px 8px;border:1px solid var(--rule);background:var(--paper);color:var(--ink-2);font-family:IBM Plex Sans,sans-serif;cursor:pointer"><option value="7">Last 7 days</option><option value="30">Last 30 days</option><option value="180" selected>Last 6 months</option><option value="365">Last year</option><option value="9999">All time</option></select></div><div id="ai-presets" style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap"></div>
       <div style="display:flex;gap:8px">
         <input id="ai-input" type="text" placeholder="Ask a question about your articles…" style="flex:1;padding:8px 10px;border:1px solid var(--rule);background:var(--paper);color:var(--ink);font-family:IBM Plex Sans,sans-serif;font-size:13px;outline:none" onkeydown="if(event.key==='Enter')sendAIMessage()"/>
         <button onclick="sendAIMessage()" class="btn btn-dark" style="padding:8px 16px" id="ai-send-btn">Ask</button>
@@ -1260,7 +1261,13 @@ function updateAIProgress(el){
   bar.style.opacity=pct>1?'1':'0';
 }
 function askPreset(btn){
-  document.getElementById('ai-input').value=btn.textContent;
+  const text = btn.textContent;
+  // Weekly digest auto-selects Last 7 days
+  if(text === 'Weekly digest'){
+    const sel = document.getElementById('ai-date-filter');
+    if(sel){ sel.value = '7'; buildPresets(); }
+  }
+  document.getElementById('ai-input').value = text;
   sendAIMessage();
 }
 async function sendAIMessage(){
@@ -1300,7 +1307,19 @@ async function sendAIMessage(){
     const aiCutoff=Date.now()-aiDays*24*60*60*1000;
     const aiFiltered=articles.filter(a=>a.summary&&(aiDays===9999||a.ts>=aiCutoff));
     const dateLabel=aiDays===9999?'all time':'last '+aiDays+' days';
-    const context=aiFiltered.sort((a,b)=>b.ts-a.ts).map(a=>'['+a.source+', '+(a.pub_date||'date unknown')+'] '+a.title+': '+(a.summary||'')).join(' | ');
+    const articleContext=aiFiltered.sort((a,b)=>b.ts-a.ts).map(a=>'['+a.source+', '+(a.pub_date||'date unknown')+'] '+a.title+': '+(a.summary||'')).join(' | ');
+    // Fetch newsletters within same time window
+    let newsletterContext='';
+    try{
+      const nr=await fetch(SERVER+'/newsletters?limit=50');
+      const nd=await nr.json();
+      const nlCutoff=new Date(Date.now()-aiDays*24*60*60*1000).toISOString();
+      const nlFiltered=(nd.newsletters||[]).filter(n=>!n.received_at||n.received_at>=nlCutoff);
+      if(nlFiltered.length>0){
+        newsletterContext=' | NEWSLETTERS: '+nlFiltered.map(n=>'['+n.source+', '+(n.received_at||'').slice(0,10)+'] '+n.subject+': '+(n.body_text||'').slice(0,300)).join(' | ');
+      }
+    }catch(e){}
+    const context=articleContext+newsletterContext;
     const resp=await fetch(SERVER+'/api/claude',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:3500,system:'You are an expert intelligence analyst producing professional briefings. Structure your response EXACTLY as follows:\n\n1. EXECUTIVE SUMMARY (2-3 sentences capturing the single most important insight)\n\n2. KEY THEMES (each theme as ## Header, with bullet points, always cite [Source, Date] for every statistic or claim)\n\n3. IMPLICATIONS (2-3 bullet points on what this means going forward)\n\nALWAYS cite sources and dates. Prioritise the most recent articles. Aim for exactly 4 KEY THEMES each with 4 bullet points, and 3 IMPLICATIONS of 2-3 sentences each. Total response should be approximately 600-700 words.',messages:[{role:'user',content:'My saved articles ('+aiFiltered.length+' articles, '+dateLabel+'): '+context+' Question: '+question}]})});
     const data=await resp.json();
     const text=(data.content?.map(c=>c.text||'').join('')||'').trim();
