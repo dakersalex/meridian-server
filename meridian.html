@@ -1,0 +1,1385 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Meridian</title>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --ink: #1a1a1a; --ink-2: #4a4a4a; --ink-3: #8a8a8a;
+  --paper: #faf8f4; --paper-2: #f2efe8; --paper-3: #e8e4da;
+  --accent: #c4783a; --accent-light: #f5ede4;
+  --rule: rgba(0,0,0,0.1);
+  --blue: #1e4d8c; --blue-bg: #e8eef6;
+  --green: #2d6b45; --green-bg: #e4f0e9;
+  --red: #8c2020; --red-bg: #f5e4e4;
+  --purple: #5c2d8c; --purple-bg: #ede8f5;
+  --gold: #8c6a20; --gold-bg: #f5f0e4;
+  --archive: #5a5a5a; --archive-bg: #efefef;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ink: #f0ece4; --ink-2: #c0bbb0; --ink-3: #807b72;
+    --paper: #1a1917; --paper-2: #232220; --paper-3: #2e2c29;
+    --rule: rgba(255,255,255,0.1); --accent-light: #2e1e0e;
+    --blue-bg: #1a2a40; --green-bg: #1a2e22; --red-bg: #2e1a1a;
+    --purple-bg: #261a38; --gold-bg: #2e2610;
+    --archive-bg: #2a2a2a; --archive: #909090;
+  }
+}
+body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color: var(--ink); min-height: 100vh; font-size: 14px; line-height: 1.6; }
+.masthead { border-bottom: 2px solid var(--ink); padding: 14px 20px 10px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+.masthead-left { display: flex; align-items: baseline; gap: 12px; }
+.logo { font-family: 'Playfair Display', serif; font-size: 26px; font-weight: 600; letter-spacing: -0.5px; }
+.logo span { color: var(--accent); }
+.tagline { font-size: 11px; color: var(--ink-3); text-transform: uppercase; letter-spacing: 1.5px; }
+.masthead-right { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.date-line { font-size: 11px; color: var(--ink-3); }
+.btn { border: none; padding: 7px 14px; font-family: 'IBM Plex Sans', sans-serif; font-size: 12px; font-weight: 500; cursor: pointer; letter-spacing: 0.3px; transition: opacity 0.15s; }
+.btn-dark { background: var(--ink); color: var(--paper); }
+.btn-dark:hover { opacity: 0.8; }
+.btn-outline { background: none; border: 1px solid var(--rule); color: var(--ink-2); }
+.btn-outline:hover { border-color: var(--ink-3); color: var(--ink); }
+.btn:disabled { opacity: 0.4; cursor: default; }
+.server-bar { background: var(--paper-2); border-bottom: 1px solid var(--rule); padding: 7px 20px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.server-status { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink-3); }
+.status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ink-3); flex-shrink: 0; }
+.status-dot.connected { background: #2d6b45; }
+.status-dot.error { background: var(--red); }
+.status-dot.syncing { background: var(--accent); animation: pulse 1s ease-in-out infinite; }
+@keyframes pulse { 0%,100%{opacity:1}50%{opacity:0.4} }
+.sync-sources { display: flex; gap: 6px; margin-left: auto; align-items: center; flex-wrap: wrap; }
+.source-sync-btn { font-size: 11px; padding: 3px 9px; background: none; border: 1px solid var(--rule); color: var(--ink-3); cursor: pointer; font-family: 'IBM Plex Sans', sans-serif; transition: all 0.15s; }
+.source-sync-btn:hover, .source-sync-btn.syncing { border-color: var(--accent); color: var(--accent); }
+.last-sync { font-size: 11px; color: var(--ink-3); }
+.main-nav { border-bottom: 1px solid var(--rule); padding: 0 20px; display: flex; align-items: center; gap: 0; overflow-x: auto; scrollbar-width: none; }
+.main-nav::-webkit-scrollbar { display: none; }
+.nav-tab { padding: 10px 14px; font-size: 12px; color: var(--ink-3); cursor: pointer; border-bottom: 2px solid transparent; white-space: nowrap; letter-spacing: 0.5px; text-transform: uppercase; transition: all 0.15s; background: none; border-top: none; border-left: none; border-right: none; font-family: 'IBM Plex Sans', sans-serif; display: flex; align-items: center; gap: 5px; }
+.nav-tab:hover { color: var(--ink); }
+.nav-tab.active { color: var(--ink); font-weight: 500; border-bottom: 2px solid var(--accent); }
+.nav-count { font-size: 10px; background: var(--paper-3); color: var(--ink-3); padding: 1px 5px; border-radius: 8px; }
+.nav-tab.active .nav-count { background: var(--accent-light); color: var(--accent); }
+.add-folder-btn { margin-left: auto; padding: 6px 12px; font-size: 11px; background: none; border: 1px dashed var(--rule); color: var(--ink-3); cursor: pointer; font-family: 'IBM Plex Sans', sans-serif; white-space: nowrap; transition: all 0.15s; }
+.add-folder-btn:hover { border-color: var(--accent); color: var(--accent); }
+.main-layout { display: grid; grid-template-columns: 1fr 260px; min-height: calc(100vh - 120px); }
+@media (max-width: 700px) { .main-layout { grid-template-columns: 1fr; } .sidebar { display: none; } }
+.feed-area { padding: 20px; border-right: 1px solid var(--rule); }
+.detail-view { display: none; padding: 20px; }
+.detail-view.open { display: block; }
+.feed-area.hidden { display: none; }
+.feed-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; padding-bottom: 10px; border-bottom: 1px solid var(--rule); }
+.feed-title { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--ink-3); font-weight: 500; }
+.feed-controls { display: flex; gap: 8px; align-items: center; }
+.filter-select { font-size: 11px; padding: 3px 8px; border: 1px solid var(--rule); background: var(--paper); color: var(--ink-2); font-family: 'IBM Plex Sans', sans-serif; cursor: pointer; }
+.article-card { padding: 14px 0; border-bottom: 1px solid var(--rule); cursor: pointer; transition: opacity 0.15s; }
+.article-card:hover { opacity: 0.75; }
+.article-meta { display: flex; align-items: center; gap: 7px; margin-bottom: 5px; flex-wrap: wrap; }
+.topic-pill { font-size: 10px; font-weight: 500; padding: 2px 7px; text-transform: uppercase; letter-spacing: 0.8px; border-radius: 2px; }
+.pill-Economics { background: var(--blue-bg); color: var(--blue); }
+.pill-Markets { background: var(--green-bg); color: var(--green); }
+.pill-Geopolitics { background: var(--red-bg); color: var(--red); }
+.pill-Technology { background: var(--purple-bg); color: var(--purple); }
+.pill-Finance { background: var(--gold-bg); color: var(--gold); }
+.pill-other { background: var(--paper-3); color: var(--ink-3); }
+.pill-ForeignAffairs { background: #e8eef6; color: #1e4d8c; }
+.recency-badge { font-size: 10px; padding: 2px 6px; border-radius: 2px; font-weight: 500; }
+.badge-new { background: #e8f5e4; color: #2d6b45; }
+.badge-recent { background: var(--accent-light); color: var(--accent); }
+.source-label { font-size: 11px; color: var(--ink-3); }
+.article-date-label { font-size: 11px; color: var(--ink-3); margin-left: auto; }
+.article-title { font-family: 'Playfair Display', serif; font-size: 17px; font-weight: 500; line-height: 1.35; margin-bottom: 5px; }
+.article-summary { font-size: 13px; color: var(--ink-2); line-height: 1.6; margin-bottom: 6px; }
+.article-footer { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.article-tags { display: flex; gap: 5px; flex-wrap: wrap; flex: 1; }
+.tag { font-size: 10px; color: var(--ink-3); border: 1px solid var(--rule); padding: 1px 5px; }
+.folder-badge { font-size: 10px; padding: 2px 7px; background: var(--accent-light); color: var(--accent); border-radius: 2px; cursor: pointer; }
+.fa-badge { font-size: 10px; padding: 2px 7px; background: var(--blue-bg); color: var(--blue); border-radius: 2px; }
+.ai-suggestion { background: var(--accent-light); border: 1px solid rgba(196,120,58,0.2); padding: 8px 12px; margin: 6px 0; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; border-radius: 2px; }
+.ai-suggestion-text { color: var(--ink-2); flex: 1; }
+.ai-suggestion-text strong { color: var(--accent); }
+.suggestion-actions { display: flex; gap: 6px; }
+.sug-btn { font-size: 11px; padding: 3px 10px; cursor: pointer; font-family: 'IBM Plex Sans', sans-serif; border-radius: 2px; }
+.sug-confirm { background: var(--accent); color: white; border: none; }
+.sug-dismiss { background: none; border: none; color: var(--ink-3); font-size: 14px; cursor: pointer; padding: 0; }
+.featured-card { background: var(--paper-2); border: 1px solid var(--rule); padding: 18px; margin-bottom: 14px; cursor: pointer; transition: opacity 0.15s; }
+.featured-card:hover { opacity: 0.8; }
+.featured-label { font-size: 10px; text-transform: uppercase; letter-spacing: 1.5px; font-weight: 500; color: var(--accent); margin-bottom: 6px; }
+.featured-title { font-family: 'Playfair Display', serif; font-size: 21px; font-weight: 600; line-height: 1.25; margin-bottom: 8px; }
+.featured-summary { font-size: 13px; color: var(--ink-2); line-height: 1.7; }
+.sidebar { padding: 16px; border-left: 1px solid var(--rule); }
+.sidebar-section { margin-bottom: 20px; }
+.sidebar-heading { font-size: 10px; text-transform: uppercase; letter-spacing: 1.5px; font-weight: 500; color: var(--ink-3); border-bottom: 1px solid var(--rule); padding-bottom: 5px; margin-bottom: 10px; }
+.stat-row { display: flex; align-items: center; padding: 4px 0; font-size: 12px; }
+.stat-name { color: var(--ink-2); min-width: 75px; font-size: 11px; }
+.stat-bar-wrap { flex: 1; margin: 0 8px; height: 3px; background: var(--paper-3); }
+.stat-bar { height: 3px; background: var(--accent); }
+.stat-count { font-size: 11px; color: var(--ink-3); min-width: 20px; text-align: right; }
+.source-row { display: flex; align-items: center; gap: 7px; padding: 5px 0; border-bottom: 1px solid var(--rule); }
+.source-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.source-name { font-size: 12px; color: var(--ink-2); flex: 1; }
+.source-count { font-size: 11px; color: var(--ink-3); }
+.server-note { font-size: 11px; color: var(--ink-3); line-height: 1.6; }
+.server-note strong { color: var(--ink-2); }
+.archive-search { display: flex; gap: 8px; margin-bottom: 16px; }
+.archive-search input { flex: 1; padding: 7px 10px; border: 1px solid var(--rule); background: var(--paper); color: var(--ink); font-family: 'IBM Plex Sans', sans-serif; font-size: 13px; outline: none; }
+.archive-search input:focus { border-color: var(--ink-3); }
+.empty-state { padding: 40px 20px; text-align: center; color: var(--ink-3); }
+.empty-title { font-family: 'Playfair Display', serif; font-size: 17px; margin-bottom: 6px; color: var(--ink); }
+.empty-sub { font-size: 13px; line-height: 1.7; }
+.back-btn { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--ink-3); cursor: pointer; margin-bottom: 18px; background: none; border: none; font-family: 'IBM Plex Sans', sans-serif; padding: 0; text-transform: uppercase; letter-spacing: 0.5px; }
+.back-btn:hover { color: var(--ink); }
+.detail-title { font-family: 'Playfair Display', serif; font-size: 24px; font-weight: 600; line-height: 1.25; margin-bottom: 10px; }
+.detail-body { font-size: 14px; line-height: 1.8; color: var(--ink-2); }
+.detail-body p { margin-bottom: 12px; }
+.key-points { background: var(--paper-2); border-left: 3px solid var(--accent); padding: 12px 14px; margin: 16px 0; }
+.key-points-title { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; font-weight: 500; color: var(--accent); margin-bottom: 8px; }
+.key-point { font-size: 13px; color: var(--ink-2); padding: 3px 0; border-bottom: 1px solid var(--rule); display: flex; gap: 7px; }
+.key-point:last-child { border-bottom: none; }
+.key-point-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); margin-top: 7px; flex-shrink: 0; }
+.related-item { padding: 7px 0; border-bottom: 1px solid var(--rule); cursor: pointer; font-size: 13px; color: var(--blue); font-family: 'Playfair Display', serif; }
+.related-item:hover { opacity: 0.7; }
+.folder-assign-panel { background: var(--paper-2); border: 1px solid var(--rule); padding: 14px; margin: 10px 0; }
+.folder-assign-title { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--ink-3); margin-bottom: 8px; }
+.folder-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.folder-chip { font-size: 12px; padding: 4px 10px; border: 1px solid var(--rule); cursor: pointer; transition: all 0.15s; background: var(--paper); color: var(--ink-2); }
+.folder-chip:hover { border-color: var(--accent); color: var(--accent); }
+.folder-chip.active { background: var(--accent); color: white; border-color: var(--accent); }
+.modal-backdrop { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 100; align-items: flex-start; justify-content: center; padding: 50px 20px; overflow: hidden; }
+.modal-backdrop.open { display: flex; }
+.modal { background: var(--paper); width: 100%; max-width: 560px; padding: 22px; border: 1px solid var(--rule); max-height: 85vh; overflow-y: auto; }
+.modal-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; border-bottom: 1px solid var(--rule); padding-bottom: 10px; }
+.modal-title { font-family: 'Playfair Display', serif; font-size: 17px; font-weight: 500; }
+.close-btn { background: none; border: none; font-size: 20px; cursor: pointer; color: var(--ink-3); padding: 0; }
+.form-group { margin-bottom: 14px; }
+.form-label { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--ink-3); font-weight: 500; margin-bottom: 5px; }
+.form-input, .form-textarea, .form-select { width: 100%; padding: 8px 10px; border: 1px solid var(--rule); background: var(--paper); color: var(--ink); font-family: 'IBM Plex Sans', sans-serif; font-size: 13px; outline: none; }
+.form-input:focus, .form-textarea:focus { border-color: var(--ink-3); }
+.form-textarea { min-height: 110px; resize: vertical; }
+.input-tabs { display: flex; border-bottom: 1px solid var(--rule); margin-bottom: 14px; }
+.input-tab { padding: 7px 12px; font-size: 12px; color: var(--ink-3); cursor: pointer; border-bottom: 2px solid transparent; text-transform: uppercase; letter-spacing: 0.5px; background: none; border-top: none; border-left: none; border-right: none; font-family: 'IBM Plex Sans', sans-serif; transition: all 0.15s; }
+.input-tab.active { color: var(--ink); font-weight: 500; border-bottom: 2px solid var(--accent); }
+.input-pane { display: none; }
+.input-pane.active { display: block; }
+.submit-btn { background: var(--ink); color: var(--paper); border: none; padding: 10px 20px; font-family: 'IBM Plex Sans', sans-serif; font-size: 13px; font-weight: 500; cursor: pointer; width: 100%; transition: opacity 0.15s; }
+.submit-btn:hover { opacity: 0.8; }
+.submit-btn:disabled { opacity: 0.5; cursor: default; }
+.drop-zone { border: 1.5px dashed var(--rule); padding: 28px; text-align: center; cursor: pointer; background: var(--paper-2); transition: all 0.15s; display: block; width: 100%; box-sizing: border-box; }
+.drop-zone:hover { border-color: var(--accent); }
+.drop-zone input { display: none; }
+.drop-label { font-size: 13px; color: var(--ink-3); line-height: 1.6; }
+.drop-label strong { color: var(--ink-2); }
+.drop-icon { font-size: 28px; margin-bottom: 8px; opacity: 0.4; }
+.pdf-preview { margin-top: 10px; font-size: 12px; color: var(--green); }
+.pdf-info-box { background: var(--blue-bg); border: 1px solid rgba(30,77,140,0.15); padding: 12px 14px; margin-bottom: 14px; font-size: 12px; color: var(--blue); line-height: 1.6; border-radius: 2px; }
+.processing-steps { margin: 14px 0; }
+.step { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--rule); font-size: 13px; color: var(--ink-2); }
+.step:last-child { border-bottom: none; }
+.step-icon { width: 20px; height: 20px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 10px; flex-shrink: 0; }
+.step-pending { background: var(--paper-3); color: var(--ink-3); }
+.step-active { background: var(--accent-light); color: var(--accent); animation: pulse 1s ease-in-out infinite; }
+.step-done { background: var(--green-bg); color: var(--green); }
+.step-error { background: var(--red-bg); color: var(--red); }
+.articles-preview { margin-top: 14px; }
+.preview-article { padding: 10px 12px; border: 1px solid var(--rule); margin-bottom: 8px; background: var(--paper); }
+.preview-article-title { font-family: 'Playfair Display', serif; font-size: 14px; font-weight: 500; margin-bottom: 4px; }
+.preview-article-meta { font-size: 11px; color: var(--ink-3); display: flex; gap: 8px; align-items: center; }
+.preview-include { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
+.preview-include input { cursor: pointer; }
+.preview-include label { font-size: 12px; color: var(--ink-2); cursor: pointer; }
+.status-badge { font-size: 10px; padding: 2px 6px; border-radius: 2px; font-weight: 500; border: 1px solid; }
+.status-badge.full-text { background: var(--green-bg); color: var(--green); border-color: rgba(45,107,69,0.2); }
+.status-badge.title-only { background: var(--paper-3); color: var(--ink-3); border-color: var(--rule); }
+.spinner { display: inline-block; width: 12px; height: 12px; border: 1.5px solid var(--rule); border-top-color: var(--ink-3); border-radius: 50%; animation: spin 0.8s linear infinite; margin-right: 5px; vertical-align: middle; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.toast { position: fixed; bottom: 20px; right: 20px; background: var(--ink); color: var(--paper); padding: 10px 16px; font-size: 13px; z-index: 200; opacity: 0; transition: opacity 0.3s; pointer-events: none; max-width: 300px; line-height: 1.5; }
+.toast.show { opacity: 1; }
+
+.activity-label { font-weight: 500; color: var(--ink-2); margin-right: 4px; }
+.activity-source { display: flex; align-items: center; gap: 6px; }
+.activity-new { 
+  background: #e8f5e4; color: #2d6b45; 
+  padding: 1px 6px; border-radius: 8px; 
+  font-weight: 500;
+}
+.activity-new.none { background: var(--paper-3); color: var(--ink-3); }
+.activity-warning { color: #c47838; font-weight: 500; }
+.activity-sync-time { margin-left: auto; font-size: 10px; }
+
+
+.act-inline {
+  font-size: 11px;
+  color: var(--ink-3);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: 16px;
+}
+.activity-new {
+  padding: 1px 5px;
+  border-radius: 8px;
+  font-weight: 500;
+  font-size: 11px;
+  background: #e8f5e4;
+  color: #2d6b45;
+}
+.activity-new.none {
+  background: var(--paper-3);
+  color: var(--ink-3);
+}
+.activity-warning { color: #c47838; font-weight: 500; }
+
+</style>
+</head>
+<body>
+<div class="masthead">
+  <div class="masthead-left">
+    <div class="logo">Meri<span>dian</span></div>
+    <div class="tagline">Intelligence Aggregator</div>
+  </div>
+  <div class="masthead-right">
+    <div class="date-line" id="date-display"></div>
+    <button class="btn btn-outline" onclick="openModal()">+ Add Article</button>
+
+  </div>
+</div>
+<div class="server-bar">
+  <div class="server-status">
+    <div class="status-dot" id="status-dot"></div>
+    <span id="status-text">Checking server…</span>
+  </div>
+  <div class="sync-sources">
+
+    <span class="last-sync" id="last-sync-label"></span><button class="btn btn-dark" onclick="openAIPanel()" style="margin-left:auto;background:var(--accent);font-size:12px;padding:5px 14px">✦ AI Analysis</button>
+  </div>
+
+</div>
+<div class="main-nav" id="main-nav">
+  <button class="nav-tab active" onclick="setView('feed',this)">Feed <span class="nav-count" id="count-feed">0</span></button>
+  <button class="nav-tab" onclick="setView('archive',this)">Archive <span class="nav-count" id="count-archive">0</span></button>
+  <button class="nav-tab" onclick="setView('newsletters',this)">Newsletters <span class="nav-count" id="count-newsletters">0</span></button>
+  <div id="folder-tabs"></div>
+  <button class="add-folder-btn" onclick="promptNewFolder()">+ New Folder</button>
+</div>
+<div class="activity-bar" id="activity-bar" style="display:flex;align-items:center;gap:16px;padding:7px 20px;background:var(--paper-2);border-bottom:1px solid var(--rule);font-size:11px;">
+  <span class="activity-label">Last 24h:</span>
+  <span class="activity-source"><span style="color:var(--ft-color,#0d4a8a);font-weight:500">FT</span> <span class="activity-new" id="act-ft">+0</span></span>
+  <span class="activity-source"><span style="color:#8b1a1a;font-weight:500">Economist</span> <span class="activity-new" id="act-eco">+0</span></span>
+
+  <span class="activity-warning" id="act-warning" style="display:none">⚠ FT sync found 0 articles</span>
+  <span class="activity-sync-time" id="act-sync-time"></span>
+  <div style="margin-left:auto;display:flex;gap:4px">
+    <button class="btn btn-outline" onclick="syncSource('ft')" style="font-size:10px;padding:3px 7px">🔄 FT</button>
+    <button class="btn btn-outline" onclick="syncSource('economist')" style="font-size:10px;padding:3px 7px">🔄 Economist</button>
+
+    <button class="btn btn-outline" onclick="syncSource('fa')" style="font-size:10px;padding:3px 7px">🔄 Foreign Affairs</button>
+    <button class="btn btn-outline" onclick="syncNewsletters()" style="font-size:10px;padding:3px 7px">🔄 Newsletters</button>
+  </div>
+</div>
+<div class="main-layout">
+  <div class="feed-area" id="feed-area">
+    <div class="feed-header">
+      <span class="feed-title" id="feed-title" style="display:none"></span>
+      <div class="feed-controls" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+        <select class="filter-select" id="status-filter" onchange="renderFeed()"><option value="all">All articles</option><option value="full_text">Full text only</option><option value="title_only">Title only</option></select>
+        <select class="filter-select" id="source-filter" onchange="renderFeed()">
+          <option value="all">All sources</option>
+          <option value="Financial Times">FT</option>
+          <option value="The Economist">Economist</option>
+
+          <option value="Foreign Affairs">Foreign Affairs</option>
+        </select>
+        <select class="filter-select" id="date-filter" onchange="renderFeed()">
+          <option value="180">Last 6 months</option>
+          <option value="30">Last 30 days</option>
+          <option value="7">Last 7 days</option>
+          <option value="365">Last year</option>
+          <option value="9999">All time</option>
+        </select>
+        <div style="margin-left:auto;display:flex;gap:4px;align-items:center">
+          <button class="btn btn-outline" onclick="selectAll()" style="font-size:11px;padding:4px 8px" id="select-all-btn">Select all</button>
+          <button class="btn btn-outline" onclick="deleteSelected()" style="font-size:11px;padding:4px 8px;display:none;border-color:var(--red);color:var(--red)" id="delete-selected-btn">Delete selected</button>
+        </div>
+      </div>
+    </div><div id="feed-counter" style="font-size:11px;color:var(--ink-3);margin-bottom:10px;"></div><div id="autoclip-progress" style="display:none;font-size:12px;color:var(--muted);margin-bottom:8px;padding:6px 8px;background:var(--surface);border-radius:4px;border:1px solid var(--border)"></div><div id="feed-content"></div>
+  </div>
+  <div class="detail-view" id="detail-view">
+    <button class="back-btn" onclick="closeDetail()">← Back</button>
+    <div id="detail-content"></div>
+  </div>
+  <div class="sidebar">
+    <div class="sidebar-section">
+      <div class="sidebar-heading">Topics</div>
+      <div id="topic-stats"></div>
+    </div>
+    <div class="sidebar-section">
+      <div class="sidebar-heading">Sources</div>
+      <div id="source-list"></div>
+    </div>
+    <div class="sidebar-section">
+      <div class="sidebar-heading">Server</div>
+      <div class="server-note">Server runs automatically on login via launchd.<br>Auto-syncs every <strong>6 hours</strong>.</div>
+    </div>
+  </div>
+</div>
+
+<!-- ADD ARTICLE MODAL -->
+<div class="modal-backdrop" id="modal" onclick="handleBackdropClick(event)">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">Add Article</div>
+      <button class="close-btn" onclick="closeModal()">×</button>
+    </div>
+    <div class="input-tabs">
+      <button class="input-tab active" onclick="switchTab('url',this)">URL</button>
+      <button class="input-tab" onclick="switchTab('text',this)">Paste text</button>
+      <button class="input-tab" onclick="switchTab('screenshot',this)">Screenshot</button>
+      <button class="input-tab" onclick="switchTab('pdf',this)">PDF</button>
+    </div>
+
+    <div class="input-pane active" id="pane-url">
+      <div class="form-group">
+        <label class="form-label">Article URL</label>
+        <input class="form-input" id="input-url" type="url" placeholder="https://www.ft.com/content/…" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">Paste article text (for paywalled content)</label>
+        <textarea class="form-textarea" id="input-url-text" placeholder="Paste full article text here…"></textarea>
+      </div>
+      <button class="submit-btn" id="submit-btn-url" onclick="submitArticle('url')">Analyse & Save</button>
+      <div id="submit-status-url" style="margin-top:8px;font-size:12px;color:var(--ink-3);text-align:center;"></div>
+    </div>
+
+    <div class="input-pane" id="pane-text">
+      <div class="form-group">
+        <label class="form-label">Article text</label>
+        <textarea class="form-textarea" id="input-text" style="min-height:130px" placeholder="Paste the full article text here…"></textarea>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Source</label>
+        <input class="form-input" id="input-text-source" placeholder="e.g. The Economist, FT…" />
+      </div>
+      <button class="submit-btn" id="submit-btn-text" onclick="submitArticle('text')">Analyse & Save</button>
+      <div id="submit-status-text" style="margin-top:8px;font-size:12px;color:var(--ink-3);text-align:center;"></div>
+    </div>
+
+    <div class="input-pane" id="pane-screenshot">
+      <div class="form-group">
+        <label class="form-label">Screenshot</label>
+        <label class="drop-zone" for="screenshot-input">
+          <input type="file" id="screenshot-input" accept="image/*" onchange="handleImageUpload(this)"/>
+          <div class="drop-icon">⎙</div>
+          <div class="drop-label">Click to upload · <strong>PNG, JPG, WEBP</strong></div>
+          <div id="image-preview" class="pdf-preview"></div>
+        </label>
+      </div>
+      <button class="submit-btn" id="submit-btn-screenshot" onclick="submitArticle('screenshot')">Analyse & Save</button>
+      <div id="submit-status-screenshot" style="margin-top:8px;font-size:12px;color:var(--ink-3);text-align:center;"></div>
+    </div>
+
+    <!-- PDF TAB -->
+    <div class="input-pane" id="pane-pdf">
+      <div class="pdf-info-box">
+        Upload a single Foreign Affairs article as a PDF. The AI will extract the title, author, summary, key points and tags automatically. Note: full issue PDFs cannot be processed — please export or print individual articles to PDF.
+      </div>
+      <div class="form-group">
+        <label class="drop-zone" for="pdf-input" id="pdf-drop-zone">
+          <input type="file" id="pdf-input" accept=".pdf" onchange="handlePDFUpload(this)"/>
+          <div class="drop-icon">📄</div>
+          <div class="drop-label">Click to upload <strong>Foreign Affairs PDF</strong><br>Single article only (not full issues)</div>
+          <div id="pdf-preview" class="pdf-preview"></div>
+        </label>
+      </div>
+
+      <!-- Processing steps — shown during analysis -->
+      <div id="pdf-processing" style="display:none">
+        <div class="processing-steps">
+          <div class="step" id="step-read">
+            <div class="step-icon step-pending" id="step-read-icon">1</div>
+            <span>Reading PDF content</span>
+          </div>
+          <div class="step" id="step-identify">
+            <div class="step-icon step-pending" id="step-identify-icon">2</div>
+            <span>Identifying essays vs non-editorial content</span>
+          </div>
+          <div class="step" id="step-analyse">
+            <div class="step-icon step-pending" id="step-analyse-icon">3</div>
+            <span>Analysing and summarising each essay</span>
+          </div>
+          <div class="step" id="step-save">
+            <div class="step-icon step-pending" id="step-save-icon">4</div>
+            <span>Saving to Meridian</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Article preview — shown after analysis, before saving -->
+      <div id="pdf-articles-preview" style="display:none">
+        <div style="font-size:12px;color:var(--ink-3);margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid var(--rule)">
+          Found <span id="pdf-article-count" style="font-weight:500;color:var(--ink)">0</span> essays. Uncheck any you don't want to save.
+        </div>
+        <div id="pdf-articles-list"></div>
+        <button class="submit-btn" id="pdf-save-btn" onclick="savePDFArticles()" style="margin-top:12px">Save Selected Essays</button>
+      </div>
+
+      <div id="submit-status-pdf" style="margin-top:8px;font-size:12px;color:var(--ink-3);text-align:center;"></div>
+    </div>
+
+  </div>
+</div>
+
+<!-- FOLDER MODAL -->
+<div class="modal-backdrop" id="folder-modal" onclick="if(event.target===this)closeFolderModal()">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">New Folder</div>
+      <button class="close-btn" onclick="closeFolderModal()">×</button>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Folder name</label>
+      <input class="form-input" id="folder-name-input" placeholder="e.g. Iran War, US Tariffs, European Tech…" />
+    </div>
+    <div class="form-group">
+      <label class="form-label">Keywords (AI uses these to auto-assign articles)</label>
+      <input class="form-input" id="folder-keywords-input" placeholder="e.g. Iran, sanctions, nuclear, IRGC…" />
+    </div>
+    <button class="submit-btn" onclick="createFolder()">Create Folder</button>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+<div id="ai-panel" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:150;align-items:center;justify-content:center;padding:40px 20px">
+  <div style="background:var(--paper);width:100%;max-width:700px;max-height:85vh;display:flex;flex-direction:column;border:1px solid var(--rule)">
+    <div style="padding:16px 20px;border-bottom:1px solid var(--rule);display:flex;align-items:center;justify-content:space-between">
+      <div>
+        <div style="font-family:Playfair Display,serif;font-size:18px;font-weight:600">✦ AI Analysis</div>
+        <div style="font-size:11px;color:var(--ink-3);margin-top:2px">Ask questions across your saved articles</div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center"><button onclick="downloadBriefing()" id="download-btn" style="display:none;background:var(--accent);color:white;border:none;cursor:pointer;font-size:11px;padding:5px 12px;font-family:IBM Plex Sans,sans-serif;font-weight:500;border-radius:2px">↓ Download PDF</button><button onclick="closeAIPanel()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--ink-3)">×</button></div>
+    </div>
+    <div id="ai-messages" style="flex:1;overflow-y:auto;padding:16px 20px;display:flex;flex-direction:column;gap:12px;min-height:200px">
+      <div style="font-size:13px;color:var(--ink-3);text-align:center;padding:20px">Ask me anything about your saved articles</div>
+    </div>
+    <div style="padding:12px 20px;border-top:1px solid var(--rule)">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid var(--rule)"><span style="font-size:11px;color:var(--ink-3);text-transform:uppercase;letter-spacing:1px">Analysing:</span><select id="ai-date-filter" onchange="buildPresets()" style="font-size:11px;padding:3px 8px;border:1px solid var(--rule);background:var(--paper);color:var(--ink-2);font-family:IBM Plex Sans,sans-serif;cursor:pointer"><option value="30">Last 30 days</option><option value="180" selected>Last 6 months</option><option value="365">Last year</option><option value="9999">All time</option></select></div><div id="ai-presets" style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap"></div>
+      <div style="display:flex;gap:8px">
+        <input id="ai-input" type="text" placeholder="Ask a question about your articles…" style="flex:1;padding:8px 10px;border:1px solid var(--rule);background:var(--paper);color:var(--ink);font-family:IBM Plex Sans,sans-serif;font-size:13px;outline:none" onkeydown="if(event.key==='Enter')sendAIMessage()"/>
+        <button onclick="sendAIMessage()" class="btn btn-dark" style="padding:8px 16px" id="ai-send-btn">Ask</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const SERVER='http://localhost:4242';
+const LOCAL_KEY='meridian_v4';
+const FOLDERS_KEY='meridian_folders_v4';
+const PENDING_KEY='meridian_pending_v4';
+let articles=[],folders=[],pendingSuggestions={},currentView='feed',currentFolder=null,serverOnline=false,selectedImage=null;
+let pdfArticles=[];
+let selectedPDFData=null;
+
+function loadAll(){
+  try{articles=JSON.parse(localStorage.getItem(LOCAL_KEY)||'[]');}catch(e){articles=[];}
+  try{folders=JSON.parse(localStorage.getItem(FOLDERS_KEY)||'[]');}catch(e){folders=[];}
+  try{pendingSuggestions=JSON.parse(localStorage.getItem(PENDING_KEY)||'{}');}catch(e){pendingSuggestions={};}
+}
+function saveAll(){
+  try{localStorage.setItem(LOCAL_KEY,JSON.stringify(articles));}catch(e){}
+  try{localStorage.setItem(FOLDERS_KEY,JSON.stringify(folders));}catch(e){}
+  try{localStorage.setItem(PENDING_KEY,JSON.stringify(pendingSuggestions));}catch(e){}
+}
+function toast(msg,d=3500){const el=document.getElementById('toast');el.textContent=msg;el.classList.add('show');setTimeout(()=>el.classList.remove('show'),d);}
+function daysAgo(ts){return(Date.now()-ts)/(1000*60*60*24);}
+function recencyBadge(ts){const d=daysAgo(ts);if(d<=7)return'<span class="recency-badge badge-new">New</span>';if(d<=30)return'<span class="recency-badge badge-recent">Recent</span>';return'';}
+function formatDate(ts){return new Date(ts).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'});}
+function formatPubDate(a){if(a.pub_date&&a.pub_date!=='null'&&a.pub_date!==''){const d=new Date(a.pub_date);if(!isNaN(d))return d.toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'});return a.pub_date;}if(a.saved_at)return formatDate(a.saved_at);return formatDate(Date.now());}
+
+async function checkServer(){
+  try{const r=await fetch(SERVER+'/api/health',{signal:AbortSignal.timeout(3000)});if(r.ok){serverOnline=true;document.getElementById('status-dot').className='status-dot connected';document.getElementById('status-text').textContent='Server connected · localhost:4242';return true;}}catch(e){}
+  serverOnline=false;document.getElementById('status-dot').className='status-dot error';document.getElementById('status-text').textContent='Server offline — open Terminal: python3 ~/meridian-server/server.py';return false;
+}
+
+async function loadFromServer(){
+  if(!serverOnline){renderAll();return;}
+  try{
+    const r=await fetch(SERVER+'/api/articles?limit=2000');const data=await r.json();
+    const sa=(data.articles||[]).map(a=>({id:a.id,ts:(()=>{if(!a.pub_date)return a.saved_at;try{const d=new Date(a.pub_date);if(!isNaN(d.getTime()))return d.getTime();return a.saved_at;}catch(e){return a.saved_at;}})(),pub_date:a.pub_date||'',source:a.source||'Unknown',url:a.url||'',title:a.title||'Untitled',summary:a.summary||a.body?.slice(0,200)||'',fullSummary:a.body||'',keyPoints:[],tags:a.tags||[],topic:a.topic||'',folder:a.folder||'',status:a.status||'title_only',fromServer:true}));
+    const sids=new Set(sa.map(a=>a.id));
+    articles=[...sa,...articles.filter(a=>!sids.has(a.id))].sort((a,b)=>b.ts-a.ts);
+    const needs=articles.filter(a=>!a.folder&&!pendingSuggestions[a.id]&&a.title);
+    if(needs.length>0&&folders.length>0)suggestFoldersForArticles(needs.slice(0,20));
+    saveAll();renderAll();
+    document.getElementById('last-sync-label').textContent='Synced '+new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
+    // Update newsletter count
+    try {
+      const nr = await fetch(SERVER+'/newsletters?limit=1');
+      const nd = await nr.json();
+      document.getElementById('count-newsletters').textContent = nd.total || 0;
+    } catch(e) {}
+  }catch(e){renderAll();}
+}
+
+async function suggestFoldersForArticles(arts){
+  if(folders.length===0)return;
+  const fl=folders.map(f=>`"${f.name}"${f.keywords.length?' (keywords: '+f.keywords.join(', ')+')':''}`).join(', ');
+  try{
+    const resp=await fetch(SERVER+'/api/claude',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:800,system:`You are a research assistant. Given articles and folders, suggest the best folder for each. Respond ONLY with JSON mapping article id to folder name or null. Available folders: ${fl}`,messages:[{role:'user',content:`Articles:\n${JSON.stringify(arts.map(a=>({id:a.id,title:a.title,source:a.source})))}`}]})});
+    const data=await resp.json();const text=(data.content?.map(c=>c.text||'').join('')||'').trim();
+    const suggestions=JSON.parse(text.replace(/```json|```/g,''));
+    let changed=false;
+    for(const[id,folder]of Object.entries(suggestions)){if(folder&&!pendingSuggestions[id]){pendingSuggestions[id]=folder;changed=true;}}
+    if(changed){saveAll();renderAll();}
+  }catch(e){}
+}
+async function syncNewsletters(){
+  if(!serverOnline){toast('Server offline');return;}
+  const btn = event.target;
+  const orig = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Syncing…';
+  try {
+    const resp = await fetch(SERVER + '/api/newsletters/sync', {method:'POST'});
+    const data = await resp.json();
+    btn.textContent = '✓ Done';
+    setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 2500);
+  } catch(e) {
+    btn.textContent = 'Error';
+    setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 2500);
+  }
+}
+
+async function syncSource(source){
+  if(!serverOnline){toast('Server offline');return;}
+  const btn=document.getElementById('sync-'+source);btn.classList.add('syncing');btn.textContent+=' …';
+  try{await fetch(SERVER+'/api/sync',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({source})});toast('Syncing '+source+'…');setTimeout(()=>{btn.classList.remove('syncing');btn.textContent=btn.textContent.replace(' …','');loadFromServer();},20000);}
+  catch(e){btn.classList.remove('syncing');toast('Could not reach server');}
+}
+async function pollSyncStatus(){
+  let attempts=0;const iv=setInterval(async()=>{attempts++;
+    try{const r=await fetch(SERVER+'/api/sync/status');const s=await r.json();
+      if(!Object.values(s).some(x=>x.running)||attempts>40){clearInterval(iv);document.getElementById('status-dot').className='status-dot connected';await loadFromServer();toast('Sync complete');}}
+    catch(e){clearInterval(iv);}},5000);
+}
+
+function promptNewFolder(){document.getElementById('folder-modal').classList.add('open');setTimeout(()=>document.getElementById('folder-name-input').focus(),100);}
+function closeFolderModal(){document.getElementById('folder-modal').classList.remove('open');document.getElementById('folder-name-input').value='';document.getElementById('folder-keywords-input').value='';}
+function createFolder(){
+  const name=document.getElementById('folder-name-input').value.trim();if(!name)return;
+  const keywords=document.getElementById('folder-keywords-input').value.split(',').map(k=>k.trim()).filter(Boolean);
+  folders.push({id:'folder_'+Date.now(),name,keywords});saveAll();closeFolderModal();renderNav();toast(`Folder "${name}" created`);
+  const needs=articles.filter(a=>!a.folder&&!pendingSuggestions[a.id]&&a.title);
+  if(needs.length>0)suggestFoldersForArticles(needs.slice(0,30));
+}
+function assignFolder(articleId,folderName){
+  const art=articles.find(a=>a.id===articleId);if(!art)return;
+  art.folder=folderName;delete pendingSuggestions[articleId];saveAll();renderAll();toast(`Moved to "${folderName}"`);
+}
+function dismissSuggestion(articleId){pendingSuggestions[articleId]='__dismissed__';saveAll();renderAll();}
+
+async function renderNewsletters(){
+  const area = document.getElementById('feed-area');
+  area.innerHTML = '<div style="padding:20px;color:var(--text-muted)">Loading newsletters…</div>';
+  try {
+    const r = await fetch(SERVER+'/newsletters?limit=50');
+    const data = await r.json();
+    const items = data.newsletters || [];
+    if(items.length === 0){
+      area.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-muted)">No newsletters yet.<br><br>Newsletters forwarded to meridian.newsletters@icloud.com will appear here.</div>';
+      return;
+    }
+    let expandedId = null;
+    const render = () => {
+      area.innerHTML = items.map(n => {
+        const date = n.received_at ? new Date(n.received_at).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'}) : '';
+        const isExpanded = expandedId === n.id;
+        const preview = (n.body_text||'').replace(/\s+/g,' ').slice(0,200);
+        const htmlContent = (n.body_html||'').replace(/"/g,'&quot;');
+        return `<div class="article-card" style="margin-bottom:12px">
+          <div style="cursor:pointer" onclick="window._toggleNewsletter(${n.id})">
+            <div class="article-meta" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+              <span style="font-size:11px;font-weight:600;color:var(--accent);text-transform:uppercase;letter-spacing:.05em">${n.source||'Newsletter'}</span>
+              <span style="font-size:11px;color:var(--text-muted)">${date}</span>
+            </div>
+            <div class="article-title" style="font-size:18px;font-weight:700;margin-bottom:8px">${n.subject||'(no subject)'}</div>
+            ${!isExpanded ? `<div style="font-size:14px;color:var(--text-secondary);line-height:1.6">${preview}...</div>` : ''}
+          </div>
+          ${isExpanded ? `<iframe srcdoc="${htmlContent}" style="width:100%;height:800px;border:none;margin-top:12px;border-radius:4px" sandbox="allow-same-origin"></iframe>
+            <div style="font-size:12px;color:var(--text-muted);margin-top:8px;cursor:pointer" onclick="window._toggleNewsletter(${n.id})">▲ Collapse</div>` : ''}
+        </div>`;
+      }).join('');
+    };
+    window._toggleNewsletter = (id) => {
+      expandedId = expandedId === id ? null : id;
+      render();
+    };
+        render();
+  } catch(e) {
+    area.innerHTML = '<div style="padding:20px;color:var(--text-muted)">Error loading newsletters.</div>';
+  }
+}
+
+function setView(view,el){currentView=view;currentFolder=null;document.querySelectorAll('.nav-tab').forEach(t=>t.classList.remove('active'));if(el)el.classList.add('active');closeDetail();if(view==='newsletters'){renderNewsletters();}else{renderFeed();}}
+function setFolderView(folderId,el){currentView='folder';currentFolder=folderId;document.querySelectorAll('.nav-tab').forEach(t=>t.classList.remove('active'));if(el)el.classList.add('active');closeDetail();renderFeed();}
+
+function topicClass(t){return'pill-'+(t||'other').replace(/[^a-zA-Z]/g,'')||'pill-other';}
+function topicStyle(t){const colors=[['#1e4d8c','#e8eef6'],['#2d6b45','#e4f0e9'],['#8c2020','#f5e4e4'],['#5c2d8c','#ede8f5'],['#8c6a20','#f5f0e4'],['#c4783a','#f5ede4'],['#1a6b8c','#e4f0f5'],['#6b1a6b','#f5e4f5']];let h=0;for(let x of(t||''))h=(h*31+x.charCodeAt(0))&0xffff;const c=colors[h%colors.length];return'background:'+c[1]+';color:'+c[0]+';';}
+function sourceColor(s){const c=['#d63f3f','#2d6b45','#1e4d8c','#8c2020','#5c2d8c','#8c6a20','#c4783a','#1a6b8c'];let h=0;for(let x of(s||''))h=(h*31+x.charCodeAt(0))&0xffff;return c[h%c.length];}
+
+function renderAll(){renderNav();renderFeed();renderSidebar();}
+function renderNav(){
+  const cutoff=Date.now()-180*24*60*60*1000;
+  document.getElementById('count-feed').textContent=articles.filter(a=>a.ts>=cutoff).length;
+
+  document.getElementById('count-archive').textContent=articles.filter(a=>a.ts<cutoff).length;
+  document.getElementById('folder-tabs').innerHTML=folders.map(f=>{
+    const count=articles.filter(a=>a.folder===f.name).length;
+    return`<button class="nav-tab${currentView==='folder'&&currentFolder===f.id?' active':''}" onclick="setFolderView('${f.id}',this)">${f.name} <span class="nav-count">${count}</span></button>`;
+  }).join('');
+}
+
+function renderFeed(){
+  const dayLimit=parseInt(document.getElementById('date-filter')?.value||'180');
+  const sourceFilter=document.getElementById('source-filter')?.value||'all';
+  const cutoff=Date.now()-dayLimit*24*60*60*1000;
+  let arts=[...articles].sort((a,b)=>b.ts-a.ts);
+  if(sourceFilter!=='all')arts=arts.filter(a=>a.source===sourceFilter);
+  const statusFilter=document.getElementById('status-filter')?.value||'all';
+  if(statusFilter==='no_date')arts=arts.filter(a=>!a.pub_date||a.pub_date==='');else if(statusFilter==='title_only')arts=arts.filter(a=>a.status==='title_only'||a.status==='fetched');else if(statusFilter!=='all')arts=arts.filter(a=>a.status===statusFilter);
+  let filtered;
+  if(currentView==='feed')filtered=arts.filter(a=>a.ts>=cutoff);
+  else if(currentView==='archive')filtered=arts.filter(a=>a.ts<cutoff);
+  else if(currentView==='folder'){const f=folders.find(x=>x.id===currentFolder);filtered=f?arts.filter(a=>a.folder===f.name):[];}
+  else filtered=arts;
+  const titles={feed:'Last '+dayLimit+' days',archive:'Archive — older articles',folder:folders.find(x=>x.id===currentFolder)?.name||''};
+  document.getElementById('feed-title').textContent=titles[currentView]||'';
+  const counterEl=document.getElementById('feed-counter');
+  if(counterEl){
+    const full=filtered.filter(a=>a.status==='full_text').length;
+    const titleOnly=filtered.filter(a=>a.status==='title_only').length;
+    const noDate=filtered.filter(a=>!a.pub_date||a.pub_date==='').length;
+    const titleOnlyCount=filtered.filter(a=>a.status==='title_only').length;counterEl.textContent=filtered.length+' articles · '+titleOnlyCount+' to clip';
+  }
+  const el=document.getElementById('feed-content');
+  if(currentView==='archive'){
+    el.innerHTML=`<div class="archive-search"><input id="archive-search-input" placeholder="Search archive…" oninput="filterArchive(this.value)" /></div><div id="archive-list"></div>`;
+    renderArchiveList(filtered,'');return;
+  }
+  if(!filtered.length){el.innerHTML=`<div class="empty-state"><div class="empty-title">${currentView==='folder'?'No articles in this folder yet':'No articles'}</div><div class="empty-sub">${serverOnline?currentView==='folder'?'Articles will be routed here automatically when you sync.':'Articles sync automatically every 6 hours.':'Start the server: open Terminal and run <strong>python3 ~/meridian-server/server.py</strong>'}</div></div>`;return;}
+  let html='';
+  for(let i=0;i<filtered.length;i++){
+    const a=filtered[i];const pending=pendingSuggestions[a.id];const folderName=a.folder;
+    const isFA=a.source==='Foreign Affairs';
+    const sug=pending&&pending!=='__dismissed__'?`<div class="ai-suggestion" onclick="event.stopPropagation()"><span class="ai-suggestion-text">AI suggests: <strong>📁 ${pending}</strong></span><div class="suggestion-actions"><button class="sug-btn sug-confirm" onclick="assignFolder('${a.id}','${pending}')">✓ Confirm</button></div><button class="sug-dismiss" onclick="dismissSuggestion('${a.id}')">×</button></div>`:'';
+    const faBadge=isFA?'<span class="fa-badge">Foreign Affairs</span>':'';
+    if(i===0){html+=`<div class="featured-card" style="position:relative;padding-top:20px" data-id="${a.id}" onclick="openDetail('${a.id}')"><div class="featured-label">Latest · ${a.source}</div><button onclick="event.stopPropagation();deleteArticle('${a.id}')" style="position:absolute;top:2px;right:6px;background:none;border:1px solid var(--rule);color:var(--ink-3);cursor:pointer;font-size:10px;padding:1px 4px;opacity:0.4;line-height:1;border-radius:2px" title="Delete">✕</button><div class="article-meta" style="margin-top:0px"><span class="source-label">${a.source}</span><span class="article-date-label" style="margin-left:auto">${formatPubDate(a)}</span><span class="status-badge ${a.status==='full_text'?'full-text':'title-only'}" style="margin-left:8px">${a.status==='full_text'?'Full text':'Title only'}</span></div><div class="article-meta" style="margin-top:3px">${a.topic?`<span class="topic-pill ${topicClass(a.topic)}" style="${topicStyle(a.topic)}">${a.topic}</span>`:''}</div><div style="position:absolute;top:8px;right:8px"></div><div class="featured-title">${a.title}</div><div class="featured-summary">${a.summary}</div>${folderName?`<div style="margin-top:8px"><span class="folder-badge">📁 ${folderName}</span></div>`:''}${sug}</div>`;}
+    else{html+=`<div class="article-card" style="position:relative;padding-top:20px" data-id="${a.id}" onclick="openDetail('${a.id}')"><button onclick="event.stopPropagation();deleteArticle('${a.id}')" style="position:absolute;top:2px;right:6px;background:none;border:1px solid var(--rule);color:var(--ink-3);cursor:pointer;font-size:10px;padding:1px 4px;opacity:0.4;line-height:1;border-radius:2px" title="Delete">✕</button><div class="article-meta" style="margin-top:0px"><span class="source-label">${a.source}</span><span class="article-date-label" style="margin-left:auto">${formatPubDate(a)}</span><span class="status-badge ${a.status==='full_text'?'full-text':'title-only'}" style="margin-left:8px">${a.status==='full_text'?'Full text':'Title only'}</span></div><div class="article-meta" style="margin-top:3px">${a.topic?`<span class="topic-pill ${topicClass(a.topic)}" style="${topicStyle(a.topic)}">${a.topic}</span>`:''}</div><div style="position:absolute;top:8px;right:8px"></div><div class="article-title">${a.title}${a.url?'<a href="'+a.url+'" target="_blank" onclick="event.stopPropagation()" style="font-size:11px;color:var(--ink-3);text-decoration:none;margin-left:5px">↗</a>':''}</div><div class="article-summary">${a.summary}</div><div class="article-footer"><div class="article-tags">${(a.tags||[]).map(t=>`<span class="tag">${t}</span>`).join('')}</div>${folderName?`<span class="folder-badge">📁 ${folderName}</span>`:''}</div>${sug}</div>`;}
+  }
+  el.innerHTML=html;
+}
+
+function filterArchive(query){
+  const cutoff=Date.now()-180*24*60*60*1000;
+  const filtered=articles.filter(a=>a.ts<cutoff);
+  const q=query.toLowerCase();
+  renderArchiveList(q?filtered.filter(a=>(a.title+a.summary+a.source).toLowerCase().includes(q)):filtered,query);
+}
+function renderArchiveList(arts,query){
+  const el=document.getElementById('archive-list');if(!el)return;
+  if(!arts.length){el.innerHTML=`<div class="empty-state"><div class="empty-title">No articles found</div></div>`;return;}
+  el.innerHTML=arts.slice(0,100).map(a=>`<div class="article-card" style="position:relative;padding-top:20px" data-id="${a.id}" onclick="openDetail('${a.id}')"><div class="article-meta">${a.topic?`<span class="topic-pill ${topicClass(a.topic)}" style="${topicStyle(a.topic)}">${a.topic}</span>`:''}<span class="source-label">${a.source}</span><span class="article-date-label" style="margin-left:auto">${formatPubDate(a)}</span></div><div class="article-meta" style="margin-top:3px"></div><div style="position:absolute;top:8px;right:8px"></div><div class="article-title">${a.title}${a.url?'<a href="'+a.url+'" target="_blank" onclick="event.stopPropagation()" style="font-size:11px;color:var(--ink-3);text-decoration:none;margin-left:5px">↗</a>':''}</div><div class="article-summary">${a.summary}</div>${folders.length?`<div style="margin-top:6px;display:flex;gap:5px;flex-wrap:wrap">${folders.map(f=>`<span class="folder-chip${a.folder===f.name?' active':''}" onclick="event.stopPropagation();assignFolder('${a.id}','${f.name}')">${f.name}</span>`).join('')}</div>`:''}</div>`).join('');
+}
+
+function renderSidebar(){
+  const tc={},sc={};articles.forEach(a=>{if(a.topic)tc[a.topic]=(tc[a.topic]||0)+1;if(a.source)sc[a.source]=(sc[a.source]||0)+1;});
+  const maxT=Math.max(...Object.values(tc),1);
+  document.getElementById('topic-stats').innerHTML=Object.entries(tc).sort((a,b)=>b[1]-a[1]).slice(0,6).map(([t,c])=>`<div class="stat-row"><span class="stat-name">${t}</span><div class="stat-bar-wrap"><div class="stat-bar" style="width:${Math.round(c/maxT*100)}%"></div></div><span class="stat-count">${c}</span></div>`).join('')||'<div style="font-size:12px;color:var(--ink-3)">No articles yet</div>';
+  const srcEntries=Object.entries(sc).sort((a,b)=>b[1]-a[1]).slice(0,8);
+  const ftCounts={};articles.forEach(a=>{if(a.status==='full_text')ftCounts[a.source]=(ftCounts[a.source]||0)+1;});
+  const totalAll=srcEntries.reduce((s,[,c])=>s+c,0);
+  const totalFt=srcEntries.reduce((s,[src])=>s+(ftCounts[src]||0),0);
+  const rows=srcEntries.map(([s,c])=>`<div class="source-row"><div class="source-dot" style="background:${sourceColor(s)}"></div><span class="source-name">${s}</span><span class="source-count" style="width:48px;text-align:right">${c}</span><span class="source-count" style="width:60px;text-align:right;color:var(--ink-3)">${ftCounts[s]||0}</span></div>`).join('');
+  const header='<div class="source-row" style="font-size:10px;color:var(--ink-3);margin-bottom:4px"><span style="flex:1"></span><span style="width:48px;text-align:right">Total</span><span style="width:60px;text-align:right">Full text</span></div>';
+  const footer=`<div class="source-row" style="border-top:1px solid var(--rule);margin-top:4px;padding-top:4px;font-weight:500"><span class="source-name">Total</span><span class="source-count" style="width:48px;text-align:right">${totalAll}</span><span class="source-count" style="width:60px;text-align:right;color:var(--ink-3)">${totalFt}</span></div>`;
+  document.getElementById('source-list').innerHTML=(rows?header+rows+footer:'<div style="font-size:12px;color:var(--ink-3)">No sources yet</div>');
+}
+
+function openDetail(id){
+  const a=articles.find(x=>x.id===id);if(!a)return;
+  const related=articles.filter(x=>x.id!==id&&(x.folder===a.folder||x.source===a.source)).slice(0,3);
+  const authorLine=a.author?`<div style="font-size:13px;color:var(--ink-3);margin-bottom:14px;font-style:italic">By ${a.author}</div>`:'';
+  document.getElementById('detail-content').innerHTML=`
+    <div class="article-meta" style="margin-bottom:10px">
+      ${a.topic?`<span class="topic-pill ${topicClass(a.topic)}" style="${topicStyle(a.topic)}">${a.topic}</span>`:''}
+      <span class="source-label">${a.source}</span>
+      ${a.source==='Foreign Affairs'?'<span class="fa-badge">Foreign Affairs</span>':''}
+      ${recencyBadge(a.ts)}
+      <span class="article-date-label">${formatPubDate(a)}</span>
+    </div>
+    <div class="detail-title">${a.title}</div>
+    ${authorLine}
+    ${a.url?`<div style="font-size:12px;color:var(--blue);margin-bottom:14px;word-break:break-all"><a href="${a.url}" target="_blank" style="color:inherit">${a.url}</a></div>`:''}
+    ${a.keyPoints?.length?`<div class="key-points"><div class="key-points-title">Key points</div>${a.keyPoints.map(p=>`<div class="key-point"><div class="key-point-dot"></div><span>${p}</span></div>`).join('')}</div>`:''}
+    <div class="detail-body">${(a.fullSummary||a.summary).split('\n').filter(Boolean).map(p=>`<p>${p}</p>`).join('')}</div>
+    ${folders.length?`<div class="folder-assign-panel"><div class="folder-assign-title">Assign to folder</div><div class="folder-chips">${folders.map(f=>`<span class="folder-chip${a.folder===f.name?' active':''}" onclick="assignFolder('${a.id}','${f.name}')">${f.name}</span>`).join('')}</div></div>`:''}
+    ${related.length?`<div style="margin-top:20px;border-top:1px solid var(--rule);padding-top:14px"><div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--ink-3);margin-bottom:10px">Related</div>${related.map(r=>`<div class="related-item" onclick="openDetail('${r.id}')">${r.title}</div>`).join('')}</div>`:''}
+  `;
+  document.getElementById('feed-area').classList.add('hidden');document.getElementById('detail-view').classList.add('open');window.scrollTo(0,0);
+}
+function closeDetail(){document.getElementById('feed-area').classList.remove('hidden');document.getElementById('detail-view').classList.remove('open');}
+
+// ── MODAL ─────────────────────────────────────────────────────────────
+function openModal(){
+  document.body.style.overflow='hidden';
+  document.getElementById('modal').classList.add('open');
+  resetPDFPane();
+}
+function closeModal(){
+  document.body.style.overflow='';
+  document.getElementById('modal').classList.remove('open');
+  selectedImage=null;selectedPDFData=null;pdfArticles=[];
+  ['input-url','input-url-text','input-text','input-text-source'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
+  document.getElementById('image-preview').textContent='';
+  ['url','text','screenshot','pdf'].forEach(t=>{const el=document.getElementById('submit-status-'+t);if(el)el.textContent='';});
+}
+function handleBackdropClick(e){if(e.target===document.getElementById('modal'))closeModal();}
+function switchTab(tab,el){
+  document.querySelectorAll('.input-tab').forEach(t=>t.classList.remove('active'));
+  document.querySelectorAll('.input-pane').forEach(p=>p.classList.remove('active'));
+  el.classList.add('active');document.getElementById('pane-'+tab).classList.add('active');
+}
+function handleImageUpload(input){
+  if(!input.files||!input.files[0])return;
+  const reader=new FileReader();
+  reader.onload=e=>{selectedImage={data:e.target.result.split(',')[1],type:input.files[0].type};document.getElementById('image-preview').textContent='✓ '+input.files[0].name;};
+  reader.readAsDataURL(input.files[0]);
+}
+
+// ── PDF HANDLING ───────────────────────────────────────────────────────
+function resetPDFPane(){
+  document.getElementById('pdf-processing').style.display='none';
+  document.getElementById('pdf-articles-preview').style.display='none';
+  document.getElementById('pdf-preview').textContent='';
+  document.getElementById('submit-status-pdf').textContent='';
+  pdfArticles=[];selectedPDFData=null;
+  ['read','identify','analyse','save'].forEach(s=>{
+    document.getElementById('step-'+s+'-icon').className='step-icon step-pending';
+    document.getElementById('step-'+s+'-icon').textContent=(['read','identify','analyse','save'].indexOf(s)+1);
+  });
+}
+
+function handlePDFUpload(input){
+  if(!input.files||!input.files[0])return;
+  const file=input.files[0];
+  document.getElementById('pdf-preview').textContent='✓ '+file.name+' ('+Math.round(file.size/1024)+' KB)';
+  const reader=new FileReader();
+  reader.onload=e=>{
+    selectedPDFData={data:e.target.result.split(',')[1],name:file.name};
+    processPDF();
+  };
+  reader.readAsDataURL(file);
+}
+
+function setStep(step, state){
+  const icons={read:'1',identify:'2',analyse:'3',save:'4'};
+  const icon=document.getElementById('step-'+step+'-icon');
+  icon.className='step-icon step-'+state;
+  if(state==='done')icon.textContent='✓';
+  else if(state==='error')icon.textContent='✗';
+  else icon.textContent=icons[step];
+}
+
+async function processPDF(){
+  if(!selectedPDFData)return;
+  document.getElementById('pdf-processing').style.display='block';
+  document.getElementById('pdf-articles-preview').style.display='none';
+  document.getElementById('submit-status-pdf').textContent='';
+
+  // Step 1: Read
+  setStep('read','active');
+  await new Promise(r=>setTimeout(r,300));
+
+  try {
+    // Step 2: Identify essays
+    setStep('read','done');
+    setStep('identify','active');
+
+    const folderNames=folders.map(f=>f.name).join(', ');
+
+    const systemPrompt=`You are a research assistant. You will receive the text of a single Foreign Affairs article as a PDF.
+
+Your task is to:
+1. Extract: title, author name, a 2-3 sentence summary, a 4-6 paragraph detailed analysis, 4 key points, relevant tags, and publication date.
+2. Suggest which folder best fits from this list (or null if none fit): ${folderNames||'none set yet'}
+
+Respond ONLY with a JSON object (no markdown):
+{
+  "essays": [
+    {
+      "title": "Essay title",
+      "author": "Author name",
+      "summary": "2-3 sentence summary",
+      "fullSummary": "4-6 paragraph detailed analysis",
+      "keyPoints": ["point 1", "point 2", "point 3", "point 4"],
+      "tags": ["tag1", "tag2", "tag3"],
+      "suggestedFolder": "folder name or null",
+      "wordCount": 1500,
+      "publicationDate": "Month Year e.g. March 2026 or null"
+    }
+  ],
+  "issueDate": "Month Year or null",
+  "totalFound": 5,
+  "excluded": ["ad for X", "contents page", "editor note"]
+}`;
+
+    const resp=await fetch(SERVER+'/api/claude',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        model:'claude-sonnet-4-20250514',
+        max_tokens:4000,
+        system:systemPrompt,
+        messages:[{
+          role:'user',
+          content:[
+            {type:'document',source:{type:'base64',media_type:'application/pdf',data:selectedPDFData.data}},
+            {type:'text',text:'Please identify and analyse all substantive essays in this Foreign Affairs PDF.'}
+          ]
+        }]
+      })
+    });
+
+    const data=await resp.json();
+    const text=(data.content?.map(c=>c.text||'').join('')||'').trim();
+    let parsed;
+    try{parsed=JSON.parse(text.replace(/```json|```/g,''));}
+    catch(e){throw new Error('Could not parse AI response');}
+
+    setStep('identify','done');
+
+    // Step 3: Analyse (already done above, show progress)
+    setStep('analyse','active');
+    await new Promise(r=>setTimeout(r,500));
+    setStep('analyse','done');
+
+    // Show preview
+    pdfArticles=parsed.essays||[];
+    document.getElementById('pdf-article-count').textContent=pdfArticles.length;
+
+    if(pdfArticles.length===0){
+      document.getElementById('submit-status-pdf').textContent='No essays found in this PDF.';
+      setStep('save','error');
+      return;
+    }
+
+    const listEl=document.getElementById('pdf-articles-list');
+    listEl.innerHTML=pdfArticles.map((art,i)=>`
+      <div class="preview-article">
+        <div class="preview-article-title">${art.title}</div>
+        <div class="preview-article-meta">
+          ${art.author?`<span>By ${art.author}</span>`:''}
+          ${art.wordCount?`<span>~${art.wordCount.toLocaleString()} words</span>`:''}
+          ${art.suggestedFolder&&art.suggestedFolder!=='null'?`<span class="folder-badge">📁 ${art.suggestedFolder}</span>`:''}
+        </div>
+        <div style="font-size:12px;color:var(--ink-2);margin-top:4px;line-height:1.5">${art.summary}</div>
+        <div class="preview-include">
+          <input type="checkbox" id="include-${i}" checked />
+          <label for="include-${i}">Include in Meridian</label>
+        </div>
+      </div>
+    `).join('');
+
+    document.getElementById('pdf-articles-preview').style.display='block';
+    if(parsed.issueDate){
+      document.getElementById('submit-status-pdf').textContent=`Issue: ${parsed.issueDate} · ${pdfArticles.length} essays found`;
+    }
+
+  } catch(err){
+    setStep('identify','error');
+    document.getElementById('submit-status-pdf').innerHTML=`<span style="color:var(--red)">Error: ${err.message}</span>`;
+  }
+}
+
+async function savePDFArticles(){
+  const selected=pdfArticles.filter((_,i)=>document.getElementById('include-'+i)?.checked);
+  if(!selected.length){toast('No essays selected');return;}
+
+  setStep('save','active');
+
+  let savedCount=0;
+  for(const art of selected){
+    const article={
+      id:'fa_'+Date.now()+'_'+Math.random().toString(36).slice(2,7),
+      ts:Date.now(),
+      source:'Foreign Affairs',
+      url:'',
+      title:art.title,
+      author:art.author||'',
+      summary:art.summary||'',
+      fullSummary:art.fullSummary||'',
+      keyPoints:art.keyPoints||[],
+      tags:art.tags||[],
+      topic:art.suggestedFolder&&art.suggestedFolder!=='null'?art.suggestedFolder:'',
+      pub_date:art.publicationDate||parsed.issueDate||'',
+      folder:'',
+    };
+
+    // Save to Flask backend (meridian.db) if server is online
+    if(serverOnline){
+      try{
+        const resp=await fetch(SERVER+'/api/articles',{
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body:JSON.stringify(article)
+        });
+        if(resp.ok){
+          savedCount++;
+          log('Saved to server: '+article.title);
+        } else {
+          console.warn('Server save failed for: '+article.title);
+          // Fall back to localStorage
+          articles.unshift(article);
+          if(article.topic){pendingSuggestions[article.id]=article.topic;}
+        }
+      }catch(err){
+        console.warn('Server unreachable, saving locally: '+err);
+        articles.unshift(article);
+        if(article.topic){pendingSuggestions[article.id]=article.topic;}
+      }
+    } else {
+      // Server offline — save to localStorage only
+      articles.unshift(article);
+      if(article.topic){pendingSuggestions[article.id]=article.topic;}
+    }
+  }
+
+  setStep('save','done');
+  saveAll();
+
+  // Reload articles from server so the new ones appear immediately
+  if(serverOnline){
+    try{
+      const r=await fetch(SERVER+'/api/articles?limit=500');
+      const data=await r.json();
+      if(data.articles){articles=data.articles;}
+    }catch(e){}
+  }
+
+  renderAll();
+  document.getElementById('submit-status-pdf').textContent='';
+  toast(`Saved ${selected.length} essay${selected.length>1?'s':''} from Foreign Affairs ✓`);
+  setTimeout(()=>closeModal(), 1200);
+  renderAll();
+}
+
+// ── STANDARD ARTICLE SUBMIT ────────────────────────────────────────────
+async function submitArticle(mode){
+  const btn=document.getElementById('submit-btn-'+mode);
+  const status=document.getElementById('submit-status-'+mode);
+  let contentForAI='',urlValue='',sourceValue='';
+
+  if(mode==='url'){
+    urlValue=document.getElementById('input-url').value.trim();
+    const pt=document.getElementById('input-url-text').value.trim();
+    if(!urlValue&&!pt){status.textContent='Please enter a URL or paste text.';return;}
+    contentForAI=pt||`URL: ${urlValue}`;
+    try{sourceValue=new URL(urlValue).hostname.replace('www.','');}catch(e){}
+  } else if(mode==='text'){
+    contentForAI=document.getElementById('input-text').value.trim();
+    sourceValue=document.getElementById('input-text-source').value.trim();
+    if(!contentForAI){status.textContent='Please paste article text.';return;}
+  } else if(mode==='screenshot'){
+    if(!selectedImage){status.textContent='Please upload a screenshot.';return;}
+  }
+
+  btn.disabled=true;status.innerHTML='<span class="spinner"></span>Analysing…';
+  try{
+    const fl=folders.map(f=>f.name).join(', ');
+    const sys=`You are an expert intelligence analyst. Respond ONLY with a JSON object (no markdown): {"title":"headline","summary":"2-3 sentence summary","fullSummary":"4-6 paragraph analysis","keyPoints":["p1","p2","p3"],"source":"publication","tags":["t1","t2"],"suggestedFolder":${fl?'"best matching folder from: '+fl+', or null"':'"null"'}}`;
+    let messages;
+    if(mode==='screenshot'&&selectedImage){messages=[{role:'user',content:[{type:'image',source:{type:'base64',media_type:selectedImage.type,data:selectedImage.data}},{type:'text',text:'Analyse this article.'}]}];}
+    else{messages=[{role:'user',content:contentForAI}];}
+    const resp=await fetch(SERVER+'/api/claude',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:1000,system:sys,messages})});
+    const data=await resp.json();const text=(data.content?.map(c=>c.text||'').join('')||'').trim();
+    const parsed=JSON.parse(text.replace(/```json|```/g,''));
+    const article={id:'local_'+Date.now(),ts:Date.now(),url:urlValue,source:parsed.source||sourceValue||'Unknown',title:parsed.title||'Untitled',summary:parsed.summary||'',fullSummary:parsed.fullSummary||'',keyPoints:parsed.keyPoints||[],tags:parsed.tags||[],topic:'',folder:''};
+    articles.unshift(article);
+    if(parsed.suggestedFolder&&parsed.suggestedFolder!=='null')pendingSuggestions[article.id]=parsed.suggestedFolder;
+    saveAll();closeModal();renderAll();toast('Article saved');
+  }catch(err){status.innerHTML=`<span style="color:var(--red)">Error: ${err.message}</span>`;}
+  finally{btn.disabled=false;}
+}
+
+function deleteArticle(id){
+  if(!confirm('Delete this article?'))return;
+  fetch(SERVER+'/api/articles/'+id,{method:'DELETE'})
+    .then(()=>{articles=articles.filter(a=>a.id!==id);saveAll();renderAll();toast('Article deleted');})
+    .catch(()=>toast('Delete failed'));
+}
+let selectedIds=new Set();
+function selectAll(){
+  const visible=document.querySelectorAll('.article-card, .featured-card');
+  visible.forEach(card=>{const id=card.dataset.id;if(id)selectedIds.add(id);card.style.outline='2px solid var(--accent)';});
+  document.getElementById('delete-selected-btn').style.display='';
+  document.getElementById('select-all-btn').textContent='Deselect all ('+selectedIds.size+')';
+}
+function deleteSelected(){
+  if(selectedIds.size===0){toast('No articles selected');return;}
+  if(!confirm('Delete '+selectedIds.size+' articles? This cannot be undone.'))return;
+  const ids=[...selectedIds];
+  Promise.all(ids.map(id=>fetch(SERVER+'/api/articles/'+id,{method:'DELETE'}))).then(()=>{articles=articles.filter(a=>!ids.includes(a.id));selectedIds.clear();saveAll();renderAll();document.getElementById('delete-selected-btn').style.display='none';document.getElementById('select-all-btn').textContent='Select all';toast(ids.length+' articles deleted');});
+}
+async function syncSource(src){
+  toast('Syncing ' + src.toUpperCase() + '...');
+  try {
+    await fetch(SERVER+'/api/sync', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({source:src})});
+    setTimeout(() => { loadArticles(); }, 5000);
+  } catch(e) {
+    toast('Sync error: ' + e.message);
+  }
+}
+
+async function autoClipAll(){
+  const btn = document.getElementById('autoclip-btn');
+  const progress = document.getElementById('autoclip-progress');
+  btn.disabled = true;
+  progress.style.display = 'block';
+
+  // Get all FT title-only articles
+  let ftArts = articles.filter(a => a.url && (a.status === 'title_only' || a.status === 'fetched') && a.source === 'Financial Times');
+  const total = ftArts.length;
+
+  if(total === 0){
+    progress.textContent = '✓ No FT articles to clip';
+    btn.disabled = false;
+    setTimeout(() => { progress.style.display = 'none'; }, 3000);
+    return;
+  }
+
+  let clipped = 0;
+  const batchSize = 5;
+  const attempted = new Set();
+
+  while(ftArts.length > 0){
+    // Skip articles already attempted this session
+    const batch = ftArts.filter(a => !attempted.has(a.id)).slice(0, batchSize);
+    if (batch.length === 0) break;
+    batch.forEach(a => attempted.add(a.id));
+    ftArts = ftArts.slice(batchSize);
+
+    progress.textContent = `⚡ Clipping ${clipped + 1}–${Math.min(clipped + batchSize, total)} of ${total}... (tabs will open and close)`;
+
+    // Open all tabs synchronously (must happen before any await)
+    const openedTabs = batch.map((a, i) => {
+      const w = window.open(a.url + (a.url.includes('?') ? '&' : '?') + 'meridian_autoclip=1', '_blank');
+      return { id: a.id, url: a.url, win: w };
+    });
+
+    // Poll until all batch articles are full_text (max 45 seconds)
+    const batchIds = batch.map(a => a.id);
+    let waited = 0;
+    while(waited < 45000){
+      await new Promise(r => setTimeout(r, 3000));
+      waited += 3000;
+      try {
+        const resp = await fetch(SERVER + '/api/articles?limit=2000');
+        const data = await resp.json();
+        const serverArts = data.articles || [];
+        const done = batchIds.filter(id => {
+          const art = serverArts.find(a => a.id === id);
+          return art && art.status === 'full_text';
+        });
+        progress.textContent = `⚡ Clipping ${clipped + 1}–${Math.min(clipped + batchSize, total)} of ${total}... (${done.length}/${batch.length} done)`;
+        if(done.length >= batch.length) break;
+      } catch(e){}
+    }
+
+    // Close the tabs
+    openedTabs.forEach(t => { try { t.win && t.win.close(); } catch(e){} });
+    clipped += batch.length;
+
+    // Refresh local articles
+    await loadFromServer();
+    ftArts = articles.filter(a => a.url && (a.status === 'title_only' || a.status === 'fetched') && a.source === 'Financial Times');
+  }
+
+  progress.textContent = `✓ Auto-clip complete — ${clipped} articles clipped`;
+  btn.disabled = false;
+  setTimeout(() => { progress.style.display = 'none'; }, 5000);
+}
+
+function openBatch(){
+  const sourceFilter=document.getElementById('source-filter')?.value||'all';
+  const statusFilter=document.getElementById('status-filter')?.value||'all';
+  let arts=[...articles].filter(a=>a.url);
+  if(sourceFilter!=='all')arts=arts.filter(a=>a.source===sourceFilter);
+  if(statusFilter==='no_date')arts=arts.filter(a=>!a.pub_date||a.pub_date==='');
+  else if(statusFilter==='title_only')arts=arts.filter(a=>a.status==='title_only'||a.status==='fetched');else if(statusFilter!=='all')arts=arts.filter(a=>a.status===statusFilter);
+  else arts=arts.filter(a=>a.status==='title_only');
+  const batch=arts.slice(0,5);
+  batch.forEach((a,i)=>setTimeout(()=>window.open(a.url,'_blank'),i*100));
+}
+function markdownToHtml(md){
+  let html = md
+    .replace(/^## \*\*(.+?)\*\*/gm,'<h2>$1</h2>')
+    .replace(/^### \*\*(.+?)\*\*/gm,'<h3>$1</h3>')
+    .replace(/^# (.*)/gm,'<h1>$1</h1>')
+    .replace(/^## (.*)/gm,'<h2>$1</h2>')
+    .replace(/^### (.*)/gm,'<h3>$1</h3>')
+    .replace(/^\d+\.\s+([A-Z][A-Z ]+)$/gm,'<h2>$1</h2>')
+    .replace(/\*\*(.*?)\*\*/g,'<strong>$1</strong>')
+    .replace(/^[-•] (.*)/gm,'<li>$1</li>');
+  html = html.replace(/\n\n/g,'</p><p>');
+  html = html.replace(/\n/g,' ');
+  return '<p>'+html+'</p>';
+}
+
+function downloadBriefing(){
+  const messages=document.getElementById('ai-messages');
+  const question=document.getElementById('ai-input').placeholder||'Intelligence Briefing';
+  const responses=messages.querySelectorAll('div[style*="border-top"]');
+  if(!responses.length)return;
+  const lastResponse=responses[responses.length-1].innerHTML.replace(/## /g,'').replace(/### /g,'');
+  const date=new Date().toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
+  const lastQuestion=[...messages.querySelectorAll('div[style*="paper-2"]')].pop()?.innerText||'Intelligence Briefing';
+  
+  const html=`<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Meridian Intelligence Briefing</title>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600;700&family=IBM+Plex+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'IBM Plex Sans', sans-serif; color: #1a1a1a; background: #fff; max-width: 750px; margin: 0 auto; padding: 60px 50px; font-size: 13px; line-height: 1.7; }
+  .header { border-bottom: 3px solid #1a1a1a; padding-bottom: 20px; margin-bottom: 30px; }
+  .logo { font-family: 'Playfair Display', serif; font-size: 32px; font-weight: 700; letter-spacing: -0.5px; }
+  .logo span { color: #c4783a; }
+  .tagline { font-size: 10px; text-transform: uppercase; letter-spacing: 2px; color: #8a8a8a; margin-top: 2px; }
+  .briefing-title { font-family: 'Playfair Display', serif; font-size: 22px; font-weight: 600; margin-top: 16px; }
+  .briefing-date { font-size: 11px; color: #8a8a8a; margin-top: 4px; text-transform: uppercase; letter-spacing: 1px; }
+  .content { margin-top: 30px; }
+  h1 { font-family: 'IBM Plex Sans', sans-serif; font-size: 12px; font-weight: 700; color: #1a1a1a; text-transform: uppercase; letter-spacing: 1px; margin: 20px 0 6px; border-bottom: 1.5px solid #e8e4da; padding-bottom: 4px; }
+  h2 { font-family: 'IBM Plex Sans', sans-serif; font-size: 12px; font-weight: 700; color: #1a1a1a; text-transform: uppercase; letter-spacing: 1px; margin: 20px 0 6px; border-bottom: 1.5px solid #e8e4da; padding-bottom: 4px; }
+  h3 { font-family: 'Playfair Display', serif; font-size: 13px; font-weight: 700; margin: 8px 0 3px; color: #1a1a1a; }
+  p { margin-bottom: 6px; color: #4a4a4a; }
+  ul { margin: 4px 0 8px 20px; }
+  li { margin-bottom: 3px; color: #4a4a4a; }
+  strong { color: #1a1a1a; font-weight: 500; }
+  .executive-summary { background: #faf8f4; border-left: 3px solid #c4783a; padding: 16px 20px; margin-bottom: 28px; font-size: 14px; line-height: 1.8; color: #1a1a1a; }
+  .footer { margin-top: 50px; padding-top: 16px; border-top: 1px solid #e8e4da; font-size: 10px; color: #8a8a8a; text-transform: uppercase; letter-spacing: 1px; display: flex; justify-content: space-between; }
+  @media print { body { padding: 20px; } @page { size: A4; margin: 1cm; } }
+</style>
+</head>
+<body>
+<div class="header">
+  <div class="header-top">
+    <div>
+      <div class="logo">Meri<span>dian</span></div>
+      <div class="tagline">Intelligence Aggregator</div>
+    </div>
+    <div class="briefing-meta">
+      <div class="briefing-title">${lastQuestion}</div>
+      <div class="briefing-date">${date}</div>
+    </div>
+  </div>
+</div>
+<div class="content">
+${lastResponse}
+</div>
+<div class="footer">
+  <span>Meridian Intelligence Briefing</span>
+  <span>${date}</span>
+</div>
+</body>
+</html>`;
+
+  const win=window.open('','_blank');
+  win.document.write(html);
+  win.document.close();
+  setTimeout(()=>win.print(),800);
+}
+
+function buildPresets(){
+  const fixed=['Weekly digest','Key themes','Markets overview','What am I missing?'];
+  const days=parseInt(document.getElementById('ai-date-filter')?.value||'180');
+  const cutoff=Date.now()-days*24*60*60*1000;
+  const filtered=articles.filter(a=>days===9999||a.ts>=cutoff);
+  const topicCounts={};
+  filtered.forEach(a=>{if(a.topic&&a.topic.length>0&&a.topic.length<30)topicCounts[a.topic]=(topicCounts[a.topic]||0)+1;});
+  // Normalize helper: lowercase, remove spaces/punctuation for fuzzy dedup
+  const norm=s=>(s||'').toLowerCase().replace(/[^a-z]/g,'');
+  const fixedNorms=fixed.map(norm);
+  const seenNorms=new Set(fixedNorms);
+  const topTopics=Object.entries(topicCounts).sort((a,b)=>b[1]-a[1]).slice(0,8).map(([t])=>'Summarise: '+t);
+  // Get top tags for more specific suggestions
+  const tagCounts={};
+  filtered.forEach(a=>{(a.tags||[]).forEach(tag=>{
+    if(tag&&tag.length>1&&tag.length<30){
+      const key=tag.toLowerCase().trim();
+      tagCounts[key]=(tagCounts[key]||0)+1;
+    }
+  });});
+  const sortedTags=Object.entries(tagCounts).sort((a,b)=>b[1]-a[1]).map(([t])=>t.charAt(0).toUpperCase()+t.slice(1));
+  const dedupedTags=[];
+  sortedTags.forEach(t=>{
+    const tl=norm(t);
+    // Skip if too similar to a fixed preset or already added dynamic tag
+    const isFixedDupe=seenNorms.has(tl)||[...seenNorms].some(f=>f.includes(tl)||tl.includes(f)||tl.startsWith(f.slice(0,6))||f.startsWith(tl.slice(0,6)));
+    if(isFixedDupe)return;
+    const isDupe=dedupedTags.some(other=>{
+      const ol=norm(other);
+      return ol.includes(tl)||tl.includes(ol);
+    });
+    if(!isDupe){dedupedTags.push(t);seenNorms.add(tl);}
+  });
+  const topTags=dedupedTags.slice(0,6);
+  const dynamic=topTags.length>=2?topTags:topTopics;
+  const all=[...fixed,...dynamic];
+  const el=document.getElementById('ai-presets');
+  if(el)el.innerHTML=all.map(t=>`<button onclick="askPreset(this)" class="btn btn-outline" style="font-size:11px;padding:3px 10px">${t}</button>`).join('');
+}
+function openAIPanel(){
+  document.getElementById('ai-messages').innerHTML='<div style="font-size:13px;color:var(--ink-3);text-align:center;padding:20px">Ask me anything about your saved articles</div>';
+  document.getElementById('download-btn').style.display='none';
+  document.getElementById('ai-panel').style.display='flex';
+  buildPresets();
+  setTimeout(()=>document.getElementById('ai-input').focus(),100);
+}
+function closeAIPanel(){
+  document.getElementById('ai-panel').style.display='none';
+}
+function updateAIProgress(el){
+  const bar=document.getElementById('ai-progress-bar');
+  if(!bar)return;
+  const scrollable=el.scrollHeight-el.clientHeight;
+  if(scrollable<=0){bar.style.opacity='0';return;}
+  const pct=(el.scrollTop/scrollable)*100;
+  bar.style.height=pct+'%';
+  bar.style.opacity=pct>1?'1':'0';
+}
+function askPreset(btn){
+  document.getElementById('ai-input').value=btn.textContent;
+  sendAIMessage();
+}
+async function sendAIMessage(){
+  const input=document.getElementById('ai-input');
+  const question=input.value.trim();
+  if(!question)return;
+  const btn=document.getElementById('ai-send-btn');
+  btn.disabled=true;btn.textContent='...';
+  input.value='';
+  const messages=document.getElementById('ai-messages');
+  messages.innerHTML+='<div style="background:var(--paper-2);padding:10px 14px;border-radius:2px;font-size:13px;align-self:flex-end;max-width:80%">'+question+'</div>';
+  const aiDaysEarly=parseInt(document.getElementById('ai-date-filter')?.value||'180');
+  const aiCutoffEarly=Date.now()-aiDaysEarly*24*60*60*1000;
+  const aiFilteredEarly=articles.filter(a=>a.summary&&(aiDaysEarly===9999||a.ts>=aiCutoffEarly));
+  const dateLabelEarly=aiDaysEarly===9999?'all time':'last '+aiDaysEarly+' days';
+  const thinkingSteps=[
+    '✦ Reading '+aiFilteredEarly.length+' articles ('+dateLabelEarly+')...',
+    '✦ Identifying key themes across sources...',
+    '✦ Cross-referencing dates and claims...',
+    '✦ Synthesising insights...',
+    '✦ Generating implications...'
+  ];
+  let stepIndex=0;
+  messages.innerHTML+='<div id="ai-thinking" style="font-size:12px;color:var(--ink-3);font-style:italic;line-height:1.8">'+thinkingSteps[0]+'</div>';
+  const thinkingInterval=setInterval(()=>{
+    stepIndex++;
+    if(stepIndex<thinkingSteps.length){
+      const el=document.getElementById('ai-thinking');
+      if(el)el.innerHTML+=('<br>'+thinkingSteps[stepIndex]);
+    } else {
+      clearInterval(thinkingInterval);
+    }
+  },1200);
+  /* no auto-scroll during stream */
+  try{
+    const aiDays=parseInt(document.getElementById('ai-date-filter')?.value||'180');
+    const aiCutoff=Date.now()-aiDays*24*60*60*1000;
+    const aiFiltered=articles.filter(a=>a.summary&&(aiDays===9999||a.ts>=aiCutoff));
+    const dateLabel=aiDays===9999?'all time':'last '+aiDays+' days';
+    const context=aiFiltered.sort((a,b)=>b.ts-a.ts).map(a=>'['+a.source+', '+(a.pub_date||'date unknown')+'] '+a.title+': '+(a.summary||'')).join(' | ');
+    const resp=await fetch(SERVER+'/api/claude',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:3500,system:'You are an expert intelligence analyst producing professional briefings. Structure your response EXACTLY as follows:\n\n1. EXECUTIVE SUMMARY (2-3 sentences capturing the single most important insight)\n\n2. KEY THEMES (each theme as ## Header, with bullet points, always cite [Source, Date] for every statistic or claim)\n\n3. IMPLICATIONS (2-3 bullet points on what this means going forward)\n\nALWAYS cite sources and dates. Prioritise the most recent articles. Aim for exactly 4 KEY THEMES each with 4 bullet points, and 3 IMPLICATIONS of 2-3 sentences each. Total response should be approximately 600-700 words.',messages:[{role:'user',content:'My saved articles ('+aiFiltered.length+' articles, '+dateLabel+'): '+context+' Question: '+question}]})});
+    const data=await resp.json();
+    const text=(data.content?.map(c=>c.text||'').join('')||'').trim();
+    clearInterval(thinkingInterval);
+    document.getElementById('ai-thinking')?.remove();
+    messages.innerHTML+='<div style="font-size:13px;line-height:1.7;color:var(--ink-2);padding:10px 0;border-top:1px solid var(--rule)">'+markdownToHtml(text)+'</div>';
+    /* no auto-scroll during stream */
+  }catch(err){
+    clearInterval(thinkingInterval);
+    clearInterval(thinkingInterval);
+    document.getElementById('ai-thinking')?.remove();
+    messages.innerHTML+='<div style="font-size:13px;color:var(--red)">Error: '+err.message+'</div>';
+  }finally{
+    btn.disabled=false;btn.textContent='Ask';
+  document.getElementById('download-btn').style.display='';
+  }
+}
+document.getElementById('date-display').textContent=new Date().toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
+loadAll();checkServer().then(loadFromServer);setInterval(checkServer,30000);window.scrollTo(0,0);
+
+async function updateActivityBar() {
+  try {
+    const [artR, syncR] = await Promise.all([
+      fetch(SERVER + '/api/articles?limit=2000'),
+      fetch(SERVER + '/api/sync/status')
+    ]);
+    const artD = await artR.json();
+    const sync = await syncR.json();
+    const articles = artD.articles || [];
+    const cutoff = Date.now() - 24*60*60*1000;
+
+    const counts = {
+      'Financial Times': 0,
+      'The Economist': 0,
+
+    };
+    articles.forEach(a => {
+      if (counts[a.source] !== undefined && new Date(a.saved_at).getTime() > cutoff) {
+        counts[a.source]++;
+      }
+    });
+
+    const ftEl  = document.getElementById('act-ft');
+    const ecoEl = document.getElementById('act-eco');
+
+    function setCount(el, n) {
+      el.textContent = n === 0 ? '0 new' : '+' + n;
+      el.className = 'activity-new' + (n === 0 ? ' none' : '');
+    }
+    setCount(ftEl,  counts['Financial Times']);
+    setCount(ecoEl, counts['The Economist']);
+
+    // Warn if FT sync found 0 articles (likely cookie issue)
+    const ftWarn = document.getElementById('act-warning');
+    if (sync.ft && sync.ft.articles_found === 0 && sync.ft.last_run) {
+      ftWarn.style.display = '';
+    } else {
+      ftWarn.style.display = 'none';
+    }
+
+    // Last sync time
+    const times = ['ft','economist']
+      .map(k => sync[k]?.last_run)
+      .filter(Boolean)
+      .sort()
+      .pop();
+    if (times) {
+      const d = new Date(times);
+      document.getElementById('act-sync-time').textContent = 
+        'Last sync: ' + d.toLocaleTimeString('en-GB', {hour:'2-digit', minute:'2-digit'});
+    }
+  } catch(e) {
+    console.warn('Activity bar error:', e);
+  }
+}
+
+updateActivityBar();
+setInterval(updateActivityBar, 5*60*1000);
+</script>
+
+</body>
+</html>

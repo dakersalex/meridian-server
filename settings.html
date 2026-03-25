@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Meridian · Settings</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@300;400;500&display=swap');
+  :root {
+    --bg: #faf9f7; --surface: #ffffff; --border: #e8e4dc;
+    --text: #1a1a18; --muted: #8a8880; --accent: #d4510a;
+    --green: #2d7a3a; --amber: #b45309; --red: #c0392b; --radius: 6px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: 'IBM Plex Sans', sans-serif; font-size: 14px; line-height: 1.6; min-height: 100vh; }
+  header { border-bottom: 1px solid var(--border); padding: 0 32px; height: 52px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; background: var(--bg); z-index: 10; }
+  .logo { font-family: 'IBM Plex Mono', monospace; font-size: 13px; font-weight: 500; letter-spacing: 0.08em; color: var(--accent); text-decoration: none; }
+  .logo span { color: var(--muted); }
+  .back-link { font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--muted); text-decoration: none; letter-spacing: 0.06em; transition: color 0.15s; }
+  .back-link:hover { color: var(--text); }
+  main { max-width: 720px; margin: 0 auto; padding: 48px 32px 80px; }
+  .page-title { font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
+  .page-heading { font-size: 22px; font-weight: 300; color: var(--text); margin-bottom: 4px; }
+  .page-desc { color: var(--muted); font-size: 13px; margin-bottom: 40px; line-height: 1.7; }
+  .alert-banner { display: none; background: #fef2f2; border: 1px solid #fecaca; border-radius: var(--radius); padding: 12px 16px; margin-bottom: 32px; font-size: 13px; color: #991b1b; gap: 10px; align-items: flex-start; }
+  .alert-banner.visible { display: flex; }
+  .section { margin-bottom: 10px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; transition: border-color 0.15s; }
+  .section:hover { border-color: #d0ccc4; }
+  .section-header { padding: 16px 20px; display: flex; align-items: center; justify-content: space-between; cursor: pointer; user-select: none; gap: 12px; }
+  .section-left { display: flex; align-items: center; gap: 14px; flex: 1; min-width: 0; }
+  .pub-icon { width: 32px; height: 32px; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-family: 'IBM Plex Mono', monospace; font-size: 10px; font-weight: 500; flex-shrink: 0; }
+  .pub-icon.ft  { background: #fff1e0; color: #c4390a; border: 1px solid #f5d9b8; }
+  .pub-icon.eco { background: #e8f0fe; color: #1a3c6e; border: 1px solid #c7d9f8; }
+  .pub-name { font-size: 14px; font-weight: 500; color: var(--text); }
+  .pub-meta { font-size: 11px; color: var(--muted); font-family: 'IBM Plex Mono', monospace; }
+  .status-pill { font-family: 'IBM Plex Mono', monospace; font-size: 10px; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; padding: 3px 8px; border-radius: 20px; }
+  .status-pill.ok      { background: #dcfce7; color: var(--green); }
+  .status-pill.aging   { background: #fef9c3; color: var(--amber); }
+  .status-pill.expired { background: #fee2e2; color: var(--red); }
+  .status-pill.none    { background: #f3f4f6; color: var(--muted); }
+  .chevron { color: var(--muted); font-size: 11px; transition: transform 0.2s; }
+  .section.open .chevron { transform: rotate(180deg); }
+  .section-body { display: none; padding: 0 20px 20px; border-top: 1px solid var(--border); }
+  .section.open .section-body { display: block; }
+  .field-label { font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); margin: 16px 0 6px; }
+  .url-display { font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--muted); background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 8px 12px; word-break: break-all; line-height: 1.5; }
+  .cookie-help { font-size: 12px; color: var(--muted); margin-bottom: 8px; line-height: 1.6; }
+  .cookie-help a { color: var(--accent); text-decoration: none; }
+  .cookie-help a:hover { text-decoration: underline; }
+  textarea { width: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: 4px; color: var(--text); font-family: 'IBM Plex Mono', monospace; font-size: 11px; line-height: 1.5; padding: 10px 12px; resize: vertical; min-height: 80px; transition: border-color 0.15s; outline: none; }
+  textarea:focus { border-color: var(--accent); }
+  textarea::placeholder { color: #c8c4bc; }
+  .section-footer { display: flex; align-items: center; justify-content: space-between; margin-top: 12px; gap: 12px; }
+  .last-updated { font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: var(--muted); }
+  .btn { font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 500; letter-spacing: 0.06em; padding: 7px 16px; border-radius: 4px; border: none; cursor: pointer; transition: all 0.15s; text-transform: uppercase; }
+  .btn-save { background: var(--accent); color: #fff; }
+  .btn-save:hover { background: #b84008; }
+  .btn-save:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-test { background: transparent; color: var(--muted); border: 1px solid var(--border); }
+  .btn-test:hover { color: var(--text); border-color: #c0bbb4; }
+  .save-feedback { font-family: 'IBM Plex Mono', monospace; font-size: 11px; opacity: 0; transition: opacity 0.3s; }
+  .save-feedback.ok  { color: var(--green); opacity: 1; }
+  .save-feedback.err { color: var(--red);   opacity: 1; }
+  .sync-bar { margin-top: 40px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 20px; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+  .sync-title { font-size: 13px; font-weight: 500; color: var(--text); margin-bottom: 2px; }
+  .sync-meta { font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: var(--muted); }
+  .btn-sync { background: transparent; color: var(--accent); border: 1px solid rgba(212,81,10,0.3); font-family: 'IBM Plex Mono', monospace; font-size: 11px; padding: 7px 14px; border-radius: 4px; cursor: pointer; transition: all 0.15s; text-transform: uppercase; letter-spacing: 0.06em; white-space: nowrap; }
+  .btn-sync:hover { background: rgba(212,81,10,0.06); border-color: var(--accent); }
+  .btn-sync:disabled { opacity: 0.4; cursor: not-allowed; }
+  .spinner { display: inline-block; width: 10px; height: 10px; border: 1.5px solid rgba(212,81,10,0.3); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.7s linear infinite; margin-right: 6px; vertical-align: middle; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .how-to { margin-top: 48px; padding-top: 32px; border-top: 1px solid var(--border); }
+  .how-to-title { font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); margin-bottom: 16px; }
+  .steps { display: flex; flex-direction: column; gap: 10px; }
+  .step { display: flex; gap: 14px; align-items: flex-start; }
+  .step-num { font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--accent); flex-shrink: 0; margin-top: 2px; width: 18px; }
+  .step-text { font-size: 13px; color: var(--muted); line-height: 1.6; }
+  .step-text code { font-family: 'IBM Plex Mono', monospace; font-size: 11px; background: var(--bg); border: 1px solid var(--border); padding: 1px 5px; border-radius: 3px; color: var(--text); }
+  .step-text strong { color: var(--text); font-weight: 500; }
+</style>
+</head>
+<body>
+<header>
+  <a href="meridian.html" class="logo">Meridian <span>/ Settings</span></a>
+  <a href="meridian.html" class="back-link">← Back to feed</a>
+</header>
+<main>
+  <p class="page-title">Configuration</p>
+  <h1 class="page-heading">Cookie Management</h1>
+  <p class="page-desc">Meridian fetches your saved articles every 6 hours using session cookies from each publication. Paste fresh cookies below when prompted.</p>
+  <div class="alert-banner" id="globalAlert">
+    <span>⚠ </span><span id="alertText">One or more publication cookies have expired. Refresh them below to resume syncing.</span>
+  </div>
+  <!-- FT -->
+  <div class="section" id="section-ft">
+    <div class="section-header" onclick="toggleSection('ft')">
+      <div class="section-left">
+        <div class="pub-icon ft">FT</div>
+        <div><div class="pub-name">Financial Times</div><div class="pub-meta" id="meta-ft">No cookies saved</div></div>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;flex-shrink:0;">
+        <span class="status-pill none" id="status-ft">None</span>
+        <span class="chevron">▼</span>
+      </div>
+    </div>
+    <div class="section-body">
+      <div class="field-label">Bookmarks URL</div>
+      <div class="url-display">https://www.ft.com/myft/saved-articles/197493b5-7e8e-4f13-8463-3c046200835c</div>
+      <div class="field-label">Session Cookies</div>
+      <p class="cookie-help">Paste the full cookie string from Chrome DevTools. <a href="#how-to">How to get this ↓</a></p>
+      <textarea id="cookies-ft" placeholder="FTSession=abc123; FTSession_s=xyz..."></textarea>
+      <div class="section-footer">
+        <span class="last-updated" id="updated-ft"></span>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <span class="save-feedback" id="feedback-ft"></span>
+          <button class="btn btn-test" onclick="testCookies('ft')">Test</button>
+          <button class="btn btn-save" onclick="saveCookies('ft')">Save</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- Economist -->
+  <div class="section" id="section-eco">
+    <div class="section-header" onclick="toggleSection('eco')">
+      <div class="section-left">
+        <div class="pub-icon eco">ECO</div>
+        <div><div class="pub-name">The Economist</div><div class="pub-meta" id="meta-eco">No cookies saved</div></div>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;flex-shrink:0;">
+        <span class="status-pill none" id="status-eco">None</span>
+        <span class="chevron">▼</span>
+      </div>
+    </div>
+    <div class="section-body">
+      <div class="field-label">Bookmarks URL</div>
+      <div class="url-display">https://www.economist.com/for-you/bookmarks</div>
+      <div class="field-label">Session Cookies</div>
+      <p class="cookie-help">Paste the full cookie string from Chrome DevTools. <a href="#how-to">How to get this ↓</a></p>
+      <textarea id="cookies-eco" placeholder="sessionid=abc123; csrftoken=xyz..."></textarea>
+      <div class="section-footer">
+        <span class="last-updated" id="updated-eco"></span>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <span class="save-feedback" id="feedback-eco"></span>
+          <button class="btn btn-test" onclick="testCookies('eco')">Test</button>
+          <button class="btn btn-save" onclick="saveCookies('eco')">Save</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Sync bar -->
+  <div class="sync-bar">
+    <div>
+      <div class="sync-title">Bookmarks Sync</div>
+      <div class="sync-meta" id="lastSyncMeta">Runs automatically every 6 hours · Last run: —</div>
+    </div>
+    <button class="btn-sync" id="syncBtn" onclick="runSync()">Run now</button>
+  </div>
+  <!-- How to -->
+  <div class="how-to" id="how-to">
+    <div class="how-to-title">How to get your session cookies</div>
+    <div class="steps">
+      <div class="step"><span class="step-num">01</span><span class="step-text">Open Chrome and make sure you're logged into the publication.</span></div>
+      <div class="step"><span class="step-num">02</span><span class="step-text">Visit the saved articles page (e.g. <code>ft.com/myft/saved-articles/...</code>).</span></div>
+      <div class="step"><span class="step-num">03</span><span class="step-text">Open DevTools: <code>⌘ + Option + I</code>, then go to the <code>Network</code> tab.</span></div>
+      <div class="step"><span class="step-num">04</span><span class="step-text">Reload the page. Click the first request in the list (the HTML document).</span></div>
+      <div class="step"><span class="step-num">05</span><span class="step-text">In the <code>Headers</code> tab, find <code>Request Headers</code> → <code>cookie:</code>. Copy the entire value.</span></div>
+      <div class="step"><span class="step-num">06</span><span class="step-text">Paste it into the field above and click <strong>Save</strong>.</span></div>
+    </div>
+  </div>
+</main>
+<script>
+const API = 'http://localhost:4242';
+function toggleSection(key) {
+  document.getElementById('section-' + key).classList.toggle('open');
+}
+async function loadStatus() {
+  try {
+    const res = await fetch(API + '/api/cookies/status');
+    if (!res.ok) return;
+    const data = await res.json();
+    let anyBad = false;
+    ['ft','eco'].forEach(key => {
+      const pub = data[key]; if (!pub) return;
+      updateStatusPill(key, pub.status);
+      if (pub.updated_at) {
+        document.getElementById('updated-' + key).textContent = 'Last saved: ' + formatDate(pub.updated_at);
+        document.getElementById('meta-' + key).textContent = 'Updated ' + formatDate(pub.updated_at);
+      }
+      if (pub.status === 'expired' || pub.status === 'failed') anyBad = true;
+    });
+    if (data.last_sync) document.getElementById('lastSyncMeta').textContent = 'Runs automatically every 6 hours · Last run: ' + formatDate(data.last_sync);
+    if (anyBad) document.getElementById('globalAlert').classList.add('visible');
+  } catch(e) { console.warn('Status load failed:', e); }
+}
+function updateStatusPill(key, status) {
+  const pill = document.getElementById('status-' + key);
+  pill.className = 'status-pill ' + status;
+  pill.textContent = {ok:'Active', aging:'Aging', expired:'Expired', failed:'Failed', none:'None'}[status] || status;
+}
+async function saveCookies(key) {
+  const val = document.getElementById('cookies-' + key).value.trim();
+  if (!val) return;
+  const btn = document.querySelector('#section-' + key + ' .btn-save');
+  btn.disabled = true; btn.textContent = 'Saving…';
+  try {
+    const res = await fetch(API + '/api/cookies', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({publication: key, cookies: val}) });
+    const data = await res.json();
+    if (data.ok) { showFeedback(key,'Saved ✓','ok'); updateStatusPill(key,'ok'); document.getElementById('updated-' + key).textContent = 'Last saved: just now'; document.getElementById('meta-' + key).textContent = 'Updated just now'; document.getElementById('cookies-' + key).value = ''; }
+    else showFeedback(key,'Error saving','err');
+  } catch(e) { showFeedback(key,'Server unreachable','err'); }
+  btn.disabled = false; btn.textContent = 'Save';
+}
+async function testCookies(key) {
+  const btn = document.querySelector('#section-' + key + ' .btn-test');
+  btn.disabled = true; btn.textContent = 'Testing…';
+  try {
+    const res = await fetch(API + '/api/cookies/test', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({publication: key}) });
+    const data = await res.json();
+    if (data.ok) { showFeedback(key, data.found + ' articles found ✓', 'ok'); updateStatusPill(key,'ok'); }
+    else { showFeedback(key, data.error || 'Test failed', 'err'); updateStatusPill(key,'expired'); }
+  } catch(e) { showFeedback(key,'Server unreachable','err'); }
+  btn.disabled = false; btn.textContent = 'Test';
+}
+async function runSync() {
+  const btn = document.getElementById('syncBtn');
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>Syncing…';
+  try {
+    const res = await fetch(API + '/api/bookmarks/sync', { method: 'POST' });
+    const data = await res.json();
+    const msg = data.added > 0 ? data.added + ' new article' + (data.added !== 1 ? 's' : '') + ' added' : 'No new articles found';
+    document.getElementById('lastSyncMeta').textContent = 'Runs automatically every 6 hours · Last run: just now · ' + msg;
+  } catch(e) { document.getElementById('lastSyncMeta').textContent = 'Sync failed — is the server running?'; }
+  btn.disabled = false; btn.textContent = 'Run now';
+}
+function showFeedback(key, msg, type) {
+  const el = document.getElementById('feedback-' + key);
+  el.textContent = msg; el.className = 'save-feedback ' + type;
+  setTimeout(() => { el.className = 'save-feedback'; }, 3000);
+}
+function formatDate(iso) {
+  return new Date(iso).toLocaleDateString('en-GB', {day:'numeric', month:'short', hour:'2-digit', minute:'2-digit'});
+}
+loadStatus();
+</script>
+</body>
+</html>
