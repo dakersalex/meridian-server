@@ -580,7 +580,11 @@ function assignFolder(articleId,folderName){
 function dismissSuggestion(articleId){pendingSuggestions[articleId]='__dismissed__';saveAll();renderAll();}
 
 async function renderNewsletters(){
-  const area = document.getElementById('feed-area');
+  const area = document.getElementById('feed-content');
+  const controls = document.querySelector('.feed-controls');
+  const counter = document.getElementById('feed-counter');
+  if(controls) controls.style.display='none';
+  if(counter) counter.style.display='none';
   area.innerHTML = '<div style="padding:20px;color:var(--text-muted)">Loading newsletters…</div>';
   try {
     const r = await fetch(SERVER+'/newsletters?limit=50');
@@ -621,7 +625,7 @@ async function renderNewsletters(){
   }
 }
 
-function setView(view,el){currentView=view;currentFolder=null;document.querySelectorAll('.nav-tab').forEach(t=>t.classList.remove('active'));if(el)el.classList.add('active');closeDetail();if(view==='newsletters'){renderNewsletters();}else{renderFeed();}}
+function setView(view,el){currentView=view;currentFolder=null;document.querySelectorAll('.nav-tab').forEach(t=>t.classList.remove('active'));if(el)el.classList.add('active');closeDetail();if(view==='newsletters'){renderNewsletters();}else{const controls=document.querySelector('.feed-controls');const counter=document.getElementById('feed-counter');if(controls)controls.style.display='';if(counter)counter.style.display='';renderFeed();}}
 function setFolderView(folderId,el){currentView='folder';currentFolder=folderId;document.querySelectorAll('.nav-tab').forEach(t=>t.classList.remove('active'));if(el)el.classList.add('active');closeDetail();renderFeed();}
 
 function topicClass(t){return'pill-'+(t||'other').replace(/[^a-zA-Z]/g,'')||'pill-other';}
