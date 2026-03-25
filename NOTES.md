@@ -215,3 +215,7 @@ Then open: http://localhost:8080/meridian.html
 
 ## Next Session
 - Add standalone "Ask AI" button for general freeform queries against the full article DB (not tied to the AI Analysis panel presets)
+- Fixed enrich_article_with_ai to set status=full_text after enrichment (was never being set)
+- Fixed Economist scraper selector (new page structure uses a[href*="/20"] not article/content-card)
+- Fixed per-source sync buttons to call /api/sync/{source} not /api/sync (all sources)
+- Fixed /api/articles to return {articles: [], total: N} format and parse tags from JSON string
