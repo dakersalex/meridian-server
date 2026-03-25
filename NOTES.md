@@ -219,3 +219,8 @@ Then open: http://localhost:8080/meridian.html
 - Fixed Economist scraper selector (new page structure uses a[href*="/20"] not article/content-card)
 - Fixed per-source sync buttons to call /api/sync/{source} not /api/sync (all sources)
 - Fixed /api/articles to return {articles: [], total: N} format and parse tags from JSON string
+- AI Analysis panel accepts freeform questions in addition to preset buttons
+- Newsletter/feed view switching fixed — controls now hidden/restored correctly
+- enrich_article_with_ai now sets status=full_text after enrichment
+- Economist scraper selector fixed for new page structure (a[href*="/20"] in h3.headline_mb-teaser__headline)
+- Per-source sync buttons now call /api/sync/{source} correctly
