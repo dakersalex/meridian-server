@@ -212,3 +212,6 @@ Then open: http://localhost:8080/meridian.html
   - 🔄 Newsletters button in header triggers manual sync
   - renderNewsletters() fetches from /newsletters API, renders HTML in iframe on click
 - Next session: set up git repo for server.py backup
+
+## Next Session
+- Add standalone "Ask AI" button for general freeform queries against the full article DB (not tied to the AI Analysis panel presets)
