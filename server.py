@@ -141,6 +141,7 @@ Article text:
             art["tags"]        = _json.dumps(parsed.get("tags", []))
             art["topic"]       = parsed.get("topic", art.get("topic",""))
             art["pub_date"]    = parsed.get("pub_date", art.get("pub_date",""))
+            art["status"] = "full_text"
             log.info(f"AI enriched: '{art.get('title','')[:50]}'")
     except Exception as e:
         log.warning(f"AI enrichment failed for '{art.get('title','')[:50]}': {e}")
