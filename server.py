@@ -330,41 +330,38 @@ class EconomistScraper:
                 for _ in range(20):
                     if found_existing: break
                     try:
-                        btn = page.query_selector("button[data-test-id='load-more'], button:has-text('Load more')")
+                        # Use Playwright selector for Load more button
+                        btn = page.query_selector("button[data-test-id='load-more']") or                               page.query_selector("button:has-text('Load more')")
                         if not btn: break
                         btn.click()
                         page.wait_for_timeout(2000)
                         soup = BeautifulSoup(page.content(), "html.parser")
-                        cards = soup.select("article, div[data-test-id='content-card']")
-                        for card in cards:
-                            a = card.select_one("a[href*='/20']")
-                            if not a: continue
+                        for a in soup.select("a[href*='/20']"):
                             url = "https://www.economist.com" + a["href"] if a["href"].startswith("/") else a["href"]
-                            art_id = make_id(self.name, url)
+                            art_id = make_id(self.name, url.split("?")[0])
                             if article_exists(art_id):
                                 log.info("Economist: found existing article after Load more, stopping")
                                 found_existing = True; break
                         log.info("Economist: clicked Load more")
-                    except: break
+                    except Exception as _e:
+                        log.warning(f"Economist: Load more error: {_e}"); break
                 soup = BeautifulSoup(page.content(), "html.parser")
-                cards = soup.select("article, div[data-test-id='content-card']")
-                log.info(f"Economist: found {len(cards)} cards")
-                for card in cards:
+                links = soup.select("a[href*='/20']")
+                log.info(f"Economist: found {len(links)} article links")
+                seen_urls = set()
+                for a in links:
                     if found_existing: break
-                    a = card.select_one("a[href*='/20']")
-                    if not a: continue
                     url = "https://www.economist.com" + a["href"] if a["href"].startswith("/") else a["href"]
                     url = url.split("?")[0]
-                    title_el = card.select_one("h3, h2, .headline")
-                    title = title_el.get_text(strip=True) if title_el else a.get_text(strip=True)
+                    if url in seen_urls: continue
+                    seen_urls.add(url)
+                    title = a.get_text(strip=True)
                     if not title or len(title) < 5: continue
                     art_id = make_id(self.name, url)
                     if article_exists(art_id):
                         log.info("Economist: hit existing article, stopping")
                         found_existing = True; break
-                    cat_el = card.select_one("span[class*='section'], a[class*='section'], div[class*='fly-title'], span[style*='color']")
-                    category = cat_el.get_text(strip=True) if cat_el else ""
-                    articles.append({"id":art_id,"source":self.name,"url":url,"title":title,"body":"","summary":"","topic":category,"tags":"[]","saved_at":now_ts(),"fetched_at":now_ts(),"status":"fetched","pub_date":""})
+                    articles.append({"id":art_id,"source":self.name,"url":url,"title":title,"body":"","summary":"","topic":"","tags":"[]","saved_at":now_ts(),"fetched_at":now_ts(),"status":"fetched","pub_date":""})
                     log.info(f"Economist: scraped '{title[:60]}'")
                 log.info(f"Economist: total {len(articles)} articles scraped")
                 # full text + AI enrichment for new articles
@@ -511,7 +508,13 @@ def get_articles():
     source = request.args.get("source")
     limit  = int(request.args.get("limit", 200))
     rows   = all_articles(source, limit)
-    return jsonify([dict(r) for r in rows])
+    arts   = []
+    for r in rows:
+        a = dict(r)
+        try: a["tags"] = json.loads(a.get("tags") or "[]")
+        except: a["tags"] = []
+        arts.append(a)
+    return jsonify({"articles": arts, "total": len(arts)})
 
 @app.route("/api/articles/<aid>", methods=["DELETE"])
 def delete_article(aid):

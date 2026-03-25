@@ -554,7 +554,7 @@ async function syncNewsletters(){
 async function syncSource(source){
   if(!serverOnline){toast('Server offline');return;}
   const btn=document.getElementById('sync-'+source);btn.classList.add('syncing');btn.textContent+=' …';
-  try{await fetch(SERVER+'/api/sync',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({source})});toast('Syncing '+source+'…');setTimeout(()=>{btn.classList.remove('syncing');btn.textContent=btn.textContent.replace(' …','');loadFromServer();},20000);}
+  try{await fetch(SERVER+'/api/sync/'+source,{method:'POST'});toast('Syncing '+source+'…');setTimeout(()=>{btn.classList.remove('syncing');btn.textContent=btn.textContent.replace(' …','');loadFromServer();},20000);}
   catch(e){btn.classList.remove('syncing');toast('Could not reach server');}
 }
 async function pollSyncStatus(){
@@ -1034,7 +1034,7 @@ function deleteSelected(){
 async function syncSource(src){
   toast('Syncing ' + src.toUpperCase() + '...');
   try {
-    await fetch(SERVER+'/api/sync', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({source:src})});
+    await fetch(SERVER+'/api/sync/'+src, {method:'POST'});
     setTimeout(() => { loadArticles(); }, 5000);
   } catch(e) {
     toast('Sync error: ' + e.message);
@@ -1338,6 +1338,18 @@ async function sendAIMessage(){
   }
 }
 document.getElementById('date-display').textContent=new Date().toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
+// Clear stale localStorage cache if article count mismatches
+(async()=>{
+  try{
+    const r=await fetch(SERVER+'/api/articles?limit=1');
+    const d=await r.json();
+    const stored=JSON.parse(localStorage.getItem('meridian_articles')||'[]');
+    if(stored.length>0&&Math.abs(stored.length-(d.total||0))>10){
+      localStorage.removeItem('meridian_articles');
+      console.log('Cleared stale article cache');
+    }
+  }catch(e){}
+})();
 loadAll();checkServer().then(loadFromServer);setInterval(checkServer,30000);window.scrollTo(0,0);
 
 async function updateActivityBar() {
