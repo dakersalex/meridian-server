@@ -234,10 +234,19 @@ Notes:
 - Economist selector hardened: strict path validation, 3-URL fallback chain
 - Claude scoring 429 retry with 10s backoff
 
-## Known issues
-- Claude API rate limits hit after heavy usage — suggested refresh may silently fail
+## Known issues / next session
+- Economist Playwright returning 0 articles intermittently — selector needs further investigation
 - Pub_date backfill for existing articles failed due to rate limits — will populate on next refresh
 - FT title_only articles: headless Playwright fetch unreliable, picked up by next sync
+- Autonomous reading agent: not yet built — next major feature
+- Rate limit delays (30s) added between web search, pub_date lookup and scoring calls
+
+## Suggested refresh — confirmed working flow (26 Mar session 5)
+- avoid_str NameError was causing silent failure — fixed
+- Web search agentic loop: attempt logging added for debugging
+- 30s delays between API calls to avoid 429 rate limits
+- Full refresh takes ~2 minutes: 40s web search + 30s + pub_date + 30s + scoring
+- 0 new articles is correct when all suggestions already saved/dismissed
 
 ### 26 March 2026 (Session 4)
 
