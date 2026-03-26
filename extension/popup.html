@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+  body { font-family: -apple-system, sans-serif; width: 280px; padding: 16px; margin: 0; }
+  h2 { font-size: 15px; margin: 0 0 12px; }
+  #status { font-size: 13px; color: #666; margin-bottom: 12px; min-height: 20px; }
+  #status.success { color: #2d6b45; }
+  #status.error { color: #8c2020; }
+  button { width: 100%; padding: 10px; background: #1a1a1a; color: white; border: none; font-size: 13px; cursor: pointer; border-radius: 3px; margin-bottom: 6px; }
+  button:hover { background: #333; }
+  button:disabled { background: #999; cursor: default; }
+  #sync-btn { background: #d4510a; }
+  #sync-btn:hover { background: #b84008; }
+  .url { font-size: 11px; color: #999; margin-top: 8px; word-break: break-all; }
+  .divider { border: none; border-top: 1px solid #eee; margin: 8px 0; }
+</style>
+</head>
+<body>
+<h2>🌐 Meridian Clipper</h2>
+<div id="status">Ready</div>
+<button id="sync-btn" style="display:none">↓ Sync Bookmarks to Meridian</button>
+<hr class="divider" id="divider" style="display:none">
+<button id="clip-btn">Clip Full Text</button>
+<div class="url" id="page-url"></div>
+<script src="popup.js"></script>
+</body>
+</html>

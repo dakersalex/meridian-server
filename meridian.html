@@ -193,6 +193,20 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
 .status-badge.title-only { background: var(--paper-3); color: var(--ink-3); border-color: var(--rule); }
 .spinner { display: inline-block; width: 12px; height: 12px; border: 1.5px solid var(--rule); border-top-color: var(--ink-3); border-radius: 50%; animation: spin 0.8s linear infinite; margin-right: 5px; vertical-align: middle; }
 @keyframes spin { to { transform: rotate(360deg); } }
+.interview-card { padding: 14px 0; border-bottom: 1px solid var(--rule); }
+.interview-card:hover { opacity: 0.85; cursor: pointer; }
+.interview-thumb { width: 80px; height: 52px; object-fit: cover; background: var(--paper-3); flex-shrink: 0; border: 1px solid var(--rule); }
+.interview-thumb-placeholder { width: 80px; height: 52px; background: var(--paper-3); flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 22px; border: 1px solid var(--rule); }
+.status-pill { font-size: 10px; padding: 2px 7px; border-radius: 2px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.5px; }
+.status-pill.transcribed { background: var(--green-bg); color: var(--green); }
+.status-pill.summarised { background: var(--blue-bg); color: var(--blue); }
+.status-pill.pending { background: var(--paper-3); color: var(--ink-3); }
+.status-pill.needs_recording { background: var(--gold-bg); color: var(--gold); }
+.transcript-box { font-size: 12px; line-height: 1.8; color: var(--ink-2); background: var(--paper-2); border: 1px solid var(--rule); padding: 14px; margin-top: 10px; max-height: 340px; overflow-y: auto; white-space: pre-wrap; font-family: monospace; }
+.url-fetch-row { display: flex; gap: 6px; }
+.url-fetch-row input { flex: 1; }
+.fetch-btn { padding: 8px 12px; background: var(--paper-2); border: 1px solid var(--rule); color: var(--ink-2); cursor: pointer; font-family: "IBM Plex Sans", sans-serif; font-size: 12px; white-space: nowrap; }
+.fetch-btn:hover { border-color: var(--accent); color: var(--accent); }
 .toast { position: fixed; bottom: 20px; right: 20px; background: var(--ink); color: var(--paper); padding: 10px 16px; font-size: 13px; z-index: 200; opacity: 0; transition: opacity 0.3s; pointer-events: none; max-width: 300px; line-height: 1.5; }
 .toast.show { opacity: 1; }
 
@@ -241,6 +255,7 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
   <div class="masthead-right">
     <div class="date-line" id="date-display"></div>
     <button class="btn btn-outline" onclick="openModal()">+ Add Article</button>
+    <button class="btn btn-outline" onclick="openInterviewModal()" id="add-interview-btn" style="display:none">+ Add Interview</button>
 
   </div>
 </div>
@@ -259,6 +274,8 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
   <button class="nav-tab active" onclick="setView('feed',this)">Feed <span class="nav-count" id="count-feed">0</span></button>
   <button class="nav-tab" onclick="setView('archive',this)">Archive <span class="nav-count" id="count-archive">0</span></button>
   <button class="nav-tab" onclick="setView('newsletters',this)">Newsletters <span class="nav-count" id="count-newsletters">0</span></button>
+  <button class="nav-tab" onclick="setView('interviews',this)">Interviews <span class="nav-count" id="count-interviews">0</span></button>
+  <button class="nav-tab" onclick="setView('suggested',this)">Suggested <span class="nav-count" id="count-suggested">0</span></button>
   <div id="folder-tabs"></div>
   <button class="add-folder-btn" onclick="promptNewFolder()">+ New Folder</button>
 </div>
@@ -270,9 +287,9 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
   <span class="activity-warning" id="act-warning" style="display:none">⚠ FT sync found 0 articles</span>
   <span class="activity-sync-time" id="act-sync-time"></span>
   <div style="margin-left:auto;display:flex;gap:4px">
+    <button class="btn btn-dark" onclick="syncAll()" id="sync-all-btn" style="font-size:10px;padding:3px 9px;background:var(--accent)">🔄 Sync all</button>
     <button class="btn btn-outline" onclick="syncSource('ft')" style="font-size:10px;padding:3px 7px">🔄 FT</button>
     <button class="btn btn-outline" onclick="syncSource('economist')" style="font-size:10px;padding:3px 7px">🔄 Economist</button>
-
     <button class="btn btn-outline" onclick="syncSource('fa')" style="font-size:10px;padding:3px 7px">🔄 Foreign Affairs</button>
     <button class="btn btn-outline" onclick="syncNewsletters()" style="font-size:10px;padding:3px 7px">🔄 Newsletters</button>
   </div>
@@ -472,6 +489,56 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
   </div>
 </div>
 
+<!-- INTERVIEW MODAL -->
+<div class="modal-backdrop" id="interview-modal" onclick="if(event.target===this)closeInterviewModal()">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">Add Interview</div>
+      <button class="close-btn" onclick="closeInterviewModal()">×</button>
+    </div>
+    <div class="form-group">
+      <label class="form-label">YouTube URL</label>
+      <div class="url-fetch-row">
+        <input class="form-input" id="iv-url" type="url" placeholder="https://www.youtube.com/watch?v=…" oninput="onInterviewURLInput()" />
+        <button class="fetch-btn" onclick="fetchInterviewMeta()">Fetch title</button>
+      </div>
+      <div id="iv-meta-preview" style="margin-top:8px;font-size:12px;color:var(--ink-3);display:none">
+        <img id="iv-thumb-preview" style="height:48px;border:1px solid var(--rule);margin-right:8px;vertical-align:middle" />
+        <span id="iv-title-preview" style="color:var(--ink-2)"></span>
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Title</label>
+      <input class="form-input" id="iv-title" placeholder="e.g. Sir Alex Younger on Iran War" />
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div class="form-group">
+        <label class="form-label">Source</label>
+        <input class="form-input" id="iv-source" placeholder="e.g. The Economist" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">Published date</label>
+        <input class="form-input" id="iv-pubdate" placeholder="e.g. 26 Mar 2026" />
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Status</label>
+      <select class="form-input" id="iv-status">
+        <option value="pending">Pending</option>
+        <option value="needs_recording">Needs recording</option>
+        <option value="transcribed">Transcribed</option>
+        <option value="summarised">Summarised</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Transcript (optional — paste or leave blank)</label>
+      <textarea class="form-textarea" id="iv-transcript" style="min-height:80px" placeholder="Paste transcript text here, or add later…"></textarea>
+    </div>
+    <button class="submit-btn" onclick="saveInterview()">Save Interview</button>
+    <div id="iv-status-msg" style="margin-top:8px;font-size:12px;color:var(--ink-3);text-align:center"></div>
+  </div>
+</div>
+
 <script>
 const SERVER='http://localhost:4242';
 const LOCAL_KEY='meridian_v4';
@@ -534,6 +601,35 @@ async function suggestFoldersForArticles(arts){
     if(changed){saveAll();renderAll();}
   }catch(e){}
 }
+async function syncAll(){
+  const btn=document.getElementById('sync-all-btn');
+  const orig=btn.textContent;
+  btn.disabled=true; btn.textContent='🔄 Syncing…';
+  try{
+    await fetch(SERVER+'/api/sync',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sources:['ft','economist','fa']})});
+    toast('Syncing all sources — refreshing when done…');
+    // Poll sync status every 10s, reload feed when all sources finish
+    const poll=setInterval(async()=>{
+      try{
+        const r=await fetch(SERVER+'/api/sync/status');
+        const s=await r.json();
+        const running=Object.values(s).some(x=>x.running);
+        if(!running){
+          clearInterval(poll);
+          btn.textContent='✓ Refreshing…';
+          await loadFromServer();
+          btn.textContent=orig;
+          btn.disabled=false;
+          toast('Sync complete ✓');
+        }
+      }catch(e){ clearInterval(poll); btn.textContent=orig; btn.disabled=false; }
+    },10000);
+  }catch(e){
+    toast('Sync error: '+e.message);
+    btn.textContent=orig; btn.disabled=false;
+  }
+}
+
 async function syncNewsletters(){
   if(!serverOnline){toast('Server offline');return;}
   const btn = event.target;
@@ -625,7 +721,13 @@ async function renderNewsletters(){
   }
 }
 
-function setView(view,el){currentView=view;currentFolder=null;document.querySelectorAll('.nav-tab').forEach(t=>t.classList.remove('active'));if(el)el.classList.add('active');closeDetail();if(view==='newsletters'){renderNewsletters();}else{const controls=document.querySelector('.feed-controls');const counter=document.getElementById('feed-counter');if(controls)controls.style.display='';if(counter)counter.style.display='';renderFeed();}}
+function setView(view,el){currentView=view;currentFolder=null;document.querySelectorAll('.nav-tab').forEach(t=>t.classList.remove('active'));if(el)el.classList.add('active');closeDetail();
+  const addIvBtn=document.getElementById('add-interview-btn');
+  if(addIvBtn)addIvBtn.style.display=(view==='interviews'?'':'none');
+  if(view==='newsletters'){renderNewsletters();}
+  else if(view==='interviews'){const controls=document.querySelector('.feed-controls');const counter=document.getElementById('feed-counter');if(controls)controls.style.display='none';if(counter)counter.style.display='none';renderInterviews();}
+  else if(view==='suggested'){const controls=document.querySelector('.feed-controls');const counter=document.getElementById('feed-counter');if(controls)controls.style.display='none';if(counter)counter.style.display='none';renderSuggested();}
+  else{const controls=document.querySelector('.feed-controls');const counter=document.getElementById('feed-counter');if(controls)controls.style.display='';if(counter)counter.style.display='';renderFeed();}}
 function setFolderView(folderId,el){currentView='folder';currentFolder=folderId;document.querySelectorAll('.nav-tab').forEach(t=>t.classList.remove('active'));if(el)el.classList.add('active');closeDetail();renderFeed();}
 
 function topicClass(t){return'pill-'+(t||'other').replace(/[^a-zA-Z]/g,'')||'pill-other';}
@@ -1288,7 +1390,7 @@ async function sendAIMessage(){
   const aiFilteredEarly=articles.filter(a=>a.summary&&(aiDaysEarly===9999||a.ts>=aiCutoffEarly));
   const dateLabelEarly=aiDaysEarly===9999?'all time':'last '+aiDaysEarly+' days';
   const thinkingSteps=[
-    '✦ Reading '+aiFilteredEarly.length+' articles ('+dateLabelEarly+')...',
+    '✦ Reading '+aiFilteredEarly.length+' articles & '+interviews.length+' interviews ('+dateLabelEarly+')...',
     '✦ Identifying key themes across sources...',
     '✦ Cross-referencing dates and claims...',
     '✦ Synthesising insights...',
@@ -1323,7 +1425,17 @@ async function sendAIMessage(){
         newsletterContext=' | NEWSLETTERS: '+nlFiltered.map(n=>'['+n.source+', '+(n.received_at||'').slice(0,10)+'] '+n.subject+': '+(n.body_text||'').slice(0,300)).join(' | ');
       }
     }catch(e){}
-    const context=articleContext+newsletterContext;
+    // Fetch interviews
+    let interviewContext='';
+    try{
+      const ir=await fetch(SERVER+'/api/interviews?limit=50');
+      const id=await ir.json();
+      const ivList=(id.interviews||[]).filter(iv=>iv.summary||iv.transcript);
+      if(ivList.length>0){
+        interviewContext=' | INTERVIEWS: '+ivList.map(iv=>'['+iv.source+', '+(iv.published_date||'date unknown')+'] '+iv.title+': '+(iv.summary||(iv.transcript||'').slice(0,400))).join(' | ');
+      }
+    }catch(e){}
+    const context=articleContext+newsletterContext+interviewContext;
     const resp=await fetch(SERVER+'/api/claude',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:3500,system:'You are an expert intelligence analyst producing professional briefings. Structure your response EXACTLY as follows:\n\n1. EXECUTIVE SUMMARY (2-3 sentences capturing the single most important insight)\n\n2. KEY THEMES (each theme as ## Header, with bullet points, always cite [Source, Date] for every statistic or claim)\n\n3. IMPLICATIONS (2-3 bullet points on what this means going forward)\n\nALWAYS cite sources and dates. Prioritise the most recent articles. Aim for exactly 4 KEY THEMES each with 4 bullet points, and 3 IMPLICATIONS of 2-3 sentences each. Total response should be approximately 600-700 words.',messages:[{role:'user',content:'My saved articles ('+aiFiltered.length+' articles, '+dateLabel+'): '+context+' Question: '+question}]})});
     const data=await resp.json();
     const text=(data.content?.map(c=>c.text||'').join('')||'').trim();
@@ -1354,8 +1466,407 @@ document.getElementById('date-display').textContent=new Date().toLocaleDateStrin
     }
   }catch(e){}
 })();
-loadAll();checkServer().then(loadFromServer);setInterval(checkServer,30000);window.scrollTo(0,0);
+loadAll();checkServer().then(async()=>{await loadFromServer();await loadInterviews();await loadSuggestedCount();});setInterval(checkServer,30000);window.scrollTo(0,0);
 
+
+// ── INTERVIEWS ────────────────────────────────────────────────────────────────
+let interviews = [];
+
+async function loadInterviews() {
+  try {
+    const r = await fetch(SERVER + '/api/interviews?limit=100');
+    const d = await r.json();
+    interviews = d.interviews || [];
+    document.getElementById('count-interviews').textContent = interviews.length;
+  } catch(e) { interviews = []; }
+}
+
+function formatDuration(secs) {
+  if (!secs) return '';
+  const m = Math.floor(secs / 60), s = secs % 60;
+  return m + 'm ' + (s ? s + 's' : '');
+}
+
+async function renderInterviews() {
+  const area = document.getElementById('feed-content');
+  const controls = document.querySelector('.feed-controls');
+  const counter = document.getElementById('feed-counter');
+  if (controls) controls.style.display = 'none';
+  if (counter) counter.style.display = 'none';
+
+  await loadInterviews();
+
+  if (!interviews.length) {
+    area.innerHTML = `<div class="empty-state">
+      <div class="empty-title">No interviews yet</div>
+      <div class="empty-sub">Click <strong>+ Add Interview</strong> to add a video transcript.<br>Paste a YouTube URL and the title will be fetched automatically.</div>
+    </div>`;
+    return;
+  }
+
+  const statusLabel = { pending: 'Pending', needs_recording: 'Needs recording', transcribed: 'Transcribed', summarised: 'Summarised' };
+
+  area.innerHTML = interviews.map((iv, i) => {
+    const thumb = iv.thumbnail_url
+      ? `<img class="interview-thumb" src="${iv.thumbnail_url}" onerror="this.style.display='none'" />`
+      : `<div class="interview-thumb-placeholder">🎙</div>`;
+    const dur = iv.duration_seconds ? `<span style="font-size:11px;color:var(--ink-3)">${formatDuration(iv.duration_seconds)}</span>` : '';
+    const date = iv.published_date ? `<span style="font-size:11px;color:var(--ink-3)">${iv.published_date}</span>` : '';
+    const src = iv.source ? `<span style="font-size:11px;font-weight:500;color:var(--accent)">${iv.source}</span>` : '';
+    const pill = `<span class="status-pill ${iv.status||'pending'}">${statusLabel[iv.status]||iv.status}</span>`;
+    const wordCount = iv.transcript ? `<span style="font-size:11px;color:var(--ink-3)">${iv.transcript.trim().split(/\s+/).length.toLocaleString()} words</span>` : '';
+    const isFirst = i === 0;
+
+    return `<div class="${isFirst ? 'featured-card' : 'article-card'}" style="position:relative;padding-top:${isFirst?'18':'14'}px" data-ivid="${iv.id}">
+      <button onclick="event.stopPropagation();deleteInterview(${iv.id})" style="position:absolute;top:4px;right:6px;background:none;border:1px solid var(--rule);color:var(--ink-3);cursor:pointer;font-size:10px;padding:1px 4px;opacity:0.4;line-height:1;border-radius:2px">✕</button>
+      <div style="display:flex;gap:12px;align-items:flex-start">
+        <div onclick="openInterviewDetail(${iv.id})" style="flex:1;cursor:pointer">
+          <div class="article-meta" style="margin-bottom:6px">
+            ${src}${src&&(date||dur)?'<span style="color:var(--rule)">·</span>':''}${date}${dur}
+            <span style="margin-left:auto">${pill}</span>
+          </div>
+          <div class="${isFirst?'featured-title':'article-title'}" style="margin-bottom:6px">${iv.title}</div>
+          ${iv.summary ? `<div class="${isFirst?'featured-summary':'article-summary'}">${iv.summary.slice(0,280)}${iv.summary.length>280?'…':''}</div>` : ''}
+          ${wordCount ? `<div style="margin-top:6px">${wordCount}</div>` : ''}
+        </div>
+        ${iv.thumbnail_url ? `<div onclick="openInterviewDetail(${iv.id})" style="cursor:pointer;flex-shrink:0">${thumb}</div>` : ''}
+      </div>
+      ${iv.url ? `<div style="margin-top:8px"><a href="${iv.url}" target="_blank" onclick="event.stopPropagation()" style="font-size:11px;color:var(--blue);text-decoration:none">↗ Watch interview</a></div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+function openInterviewDetail(id) {
+  const iv = interviews.find(x => x.id === id);
+  if (!iv) return;
+  const statusLabel = { pending: 'Pending', needs_recording: 'Needs recording', transcribed: 'Transcribed', summarised: 'Summarised' };
+  const dur = iv.duration_seconds ? formatDuration(iv.duration_seconds) : '';
+  document.getElementById('detail-content').innerHTML = `
+    <div class="article-meta" style="margin-bottom:10px">
+      ${iv.source ? `<span style="font-size:12px;font-weight:500;color:var(--accent)">${iv.source}</span>` : ''}
+      ${iv.published_date ? `<span class="source-label">${iv.published_date}</span>` : ''}
+      ${dur ? `<span class="source-label">${dur}</span>` : ''}
+      <span class="status-pill ${iv.status||'pending'}" style="margin-left:auto">${statusLabel[iv.status]||iv.status}</span>
+    </div>
+    <div class="detail-title">${iv.title}</div>
+    <div style="display:flex;gap:16px;margin:12px 0 16px;align-items:flex-start;flex-wrap:wrap">
+      ${iv.thumbnail_url ? `<div style="flex-shrink:0">
+        <img src="${iv.thumbnail_url}" style="width:220px;height:auto;border:1px solid var(--rule);display:block" onerror="this.style.display='none'" />
+        ${iv.url ? `<a href="${iv.url}" target="_blank" style="font-size:11px;color:var(--blue);text-decoration:none;display:block;margin-top:6px">↗ Watch interview</a>` : ''}
+      </div>` : iv.url ? `<div style="margin-bottom:14px"><a href="${iv.url}" target="_blank" style="font-size:12px;color:var(--blue)">↗ Watch interview</a></div>` : ''}
+      ${iv.speaker_bio ? `<div style="flex:1;min-width:180px;background:var(--paper-2);border:1px solid var(--rule);border-left:3px solid var(--accent);padding:12px 14px">
+        <div style="font-size:10px;text-transform:uppercase;letter-spacing:1.2px;font-weight:500;color:var(--accent);margin-bottom:7px">Speaker</div>
+        <div style="font-size:13px;color:var(--ink-2);line-height:1.7">${iv.speaker_bio}</div>
+      </div>` : ''}
+    </div>
+    ${iv.summary ? `<div class="key-points" style="margin-bottom:16px"><div class="key-points-title">Summary</div><div style="font-size:13px;color:var(--ink-2);line-height:1.7">${iv.summary}</div></div>` : ''}
+    ${iv.transcript ? `
+      <div style="margin-top:16px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+          <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--ink-3)">
+            Transcript · ${iv.transcript.trim().split(/\s+/).length.toLocaleString()} words
+          </div>
+          ${!iv.summary ? `<button onclick="generateInterviewSummary(${iv.id})" class="btn btn-outline" style="font-size:11px;padding:3px 10px;border-color:var(--accent);color:var(--accent)" id="summarise-btn-${iv.id}">✦ Generate summary</button>` : `<button onclick="generateInterviewSummary(${iv.id})" class="btn btn-outline" style="font-size:11px;padding:3px 10px" id="summarise-btn-${iv.id}">✦ Regenerate summary</button>`}
+        </div>
+        <div class="transcript-box">${iv.transcript.replace(/</g,'&lt;')}</div>
+      </div>` : ''}
+  `;
+  document.getElementById('feed-area').classList.add('hidden');
+  document.getElementById('detail-view').classList.add('open');
+  window.scrollTo(0, 0);
+}
+
+async function deleteInterview(id) {
+  if (!confirm('Delete this interview?')) return;
+  await fetch(SERVER + '/api/interviews/' + id, { method: 'DELETE' });
+  toast('Interview deleted');
+  renderInterviews();
+}
+
+// ── Interview modal ───────────────────────────────────────────────────────────
+function openInterviewModal() {
+  document.getElementById('interview-modal').classList.add('open');
+  document.getElementById('iv-url').focus();
+}
+function closeInterviewModal() {
+  document.getElementById('interview-modal').classList.remove('open');
+  ['iv-url','iv-title','iv-source','iv-pubdate','iv-transcript'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.value = '';
+  });
+  document.getElementById('iv-status').value = 'pending';
+  document.getElementById('iv-meta-preview').style.display = 'none';
+  document.getElementById('iv-status-msg').textContent = '';
+}
+
+function onInterviewURLInput() {
+  // Auto-fetch when URL looks complete
+  const url = document.getElementById('iv-url').value.trim();
+  if (url.includes('youtube.com/watch') || url.includes('youtu.be/')) {
+    fetchInterviewMeta();
+  }
+}
+
+async function fetchInterviewMeta() {
+  const url = document.getElementById('iv-url').value.trim();
+  if (!url) return;
+  document.getElementById('iv-status-msg').textContent = 'Fetching title…';
+  try {
+    const r = await fetch(SERVER + '/api/interviews/fetch-meta', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url })
+    });
+    const d = await r.json();
+    if (d.ok) {
+      document.getElementById('iv-title').value = d.title || '';
+      document.getElementById('iv-title-preview').textContent = d.title || '';
+      if (d.thumbnail_url) {
+        document.getElementById('iv-thumb-preview').src = d.thumbnail_url;
+        document.getElementById('iv-meta-preview').style.display = '';
+      }
+      document.getElementById('iv-status-msg').textContent = '';
+    } else {
+      document.getElementById('iv-status-msg').textContent = 'Could not fetch title — enter manually';
+    }
+  } catch(e) {
+    document.getElementById('iv-status-msg').textContent = 'Fetch error — enter title manually';
+  }
+}
+
+async function saveInterview() {
+  const title = document.getElementById('iv-title').value.trim();
+  if (!title) { document.getElementById('iv-status-msg').textContent = 'Title is required'; return; }
+  const transcript = document.getElementById('iv-transcript').value.trim();
+  const status = transcript ? 'transcribed' : document.getElementById('iv-status').value;
+  const body = {
+    title,
+    url: document.getElementById('iv-url').value.trim(),
+    source: document.getElementById('iv-source').value.trim(),
+    published_date: document.getElementById('iv-pubdate').value.trim(),
+    transcript,
+    status,
+    thumbnail_url: document.getElementById('iv-thumb-preview').src || '',
+  };
+  document.getElementById('iv-status-msg').textContent = 'Saving…';
+  try {
+    const r = await fetch(SERVER + '/api/interviews', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    const d = await r.json();
+    if (d.ok) {
+      closeInterviewModal();
+      toast('Interview saved — generating bio…');
+      // Auto-generate speaker bio in background
+      autoGenerateInterviewBio(d.id, body.title, body.source).then(() => {
+        toast('Interview ready ✓');
+        if (currentView === 'interviews') renderInterviews();
+      });
+      await loadInterviews();
+      if (currentView === 'interviews') renderInterviews();
+    }
+  } catch(e) {
+    document.getElementById('iv-status-msg').textContent = 'Save failed: ' + e.message;
+  }
+}
+
+async function autoGenerateInterviewBio(id, title, source) {
+  try {
+    const resp = await fetch(SERVER + '/api/claude', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 400,
+        system: 'You are a research assistant. Write a concise speaker bio (3-4 sentences) covering: who they are, their career and key roles, and why they are a credible voice on the specific topic of this interview. Be factual and specific. No bullet points.',
+        messages: [{ role: 'user', content: 'Interview title: ' + title + '\nSource: ' + source + '\n\nWrite a bio of the speaker relevant to this interview topic.' }]
+      })
+    });
+    const data = await resp.json();
+    const bio = (data.content || []).map(c => c.text || '').join('').trim();
+    if (!bio) return;
+    await fetch(SERVER + '/api/interviews/' + id, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ speaker_bio: bio })
+    });
+    // Update local cache
+    const iv = interviews.find(x => x.id === id);
+    if (iv) iv.speaker_bio = bio;
+  } catch(e) {
+    console.warn('Bio generation failed:', e);
+  }
+}
+
+async function generateInterviewSummary(id) {
+  const iv = interviews.find(x => x.id === id);
+  if (!iv || !iv.transcript) return;
+  const btn = document.getElementById('summarise-btn-' + id);
+  if (btn) { btn.disabled = true; btn.textContent = '✦ Summarising…'; }
+  try {
+    const resp = await fetch(SERVER + '/api/claude', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 1500,
+        system: 'You are an expert analyst. Summarise this interview transcript into 4-6 paragraphs covering: the main argument, key claims and evidence, most important quotes or moments, and implications. Write in prose, no bullet points.',
+        messages: [{ role: 'user', content: 'Interview: ' + iv.title + '\nSource: ' + iv.source + '\n\nTranscript:\n' + iv.transcript.slice(0, 12000) }]
+      })
+    });
+    const data = await resp.json();
+    const summary = (data.content || []).map(c => c.text || '').join('').trim();
+    if (!summary) throw new Error('Empty response');
+    // Save to DB
+    await fetch(SERVER + '/api/interviews/' + id, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ summary, status: 'summarised' })
+    });
+    // Update local cache and re-render detail
+    iv.summary = summary;
+    iv.status = 'summarised';
+    await loadInterviews();
+    openInterviewDetail(id);
+    toast('Summary generated ✓');
+  } catch(e) {
+    toast('Summary failed: ' + e.message);
+    if (btn) { btn.disabled = false; btn.textContent = '✦ Generate summary'; }
+  }
+}
+
+
+// ── SUGGESTED ARTICLES ───────────────────────────────────────────────────────
+let suggestedArticles = [];
+let suggestedDate = '';
+
+async function renderSuggested() {
+  const area = document.getElementById('feed-content');
+  area.innerHTML = '<div style="padding:20px;color:var(--ink-3)">Loading suggestions…</div>';
+
+  try {
+    const dateParam = suggestedDate ? '?date=' + suggestedDate : '';
+    const r = await fetch(SERVER + '/api/suggested' + dateParam);
+    const d = await r.json();
+    suggestedArticles = d.articles || [];
+    suggestedDate = d.date || '';
+    const availDates = d.available_dates || [];
+    document.getElementById('count-suggested').textContent = suggestedArticles.length;
+
+    renderSuggestedHeader(availDates, area);
+
+    if (!suggestedArticles.length) {
+      area.innerHTML += `<div class="empty-state">
+        <div class="empty-title">No suggestions yet</div>
+        <div class="empty-sub">Click <strong>Refresh</strong> to find articles matching your interests.</div>
+      </div>`;
+      return;
+    }
+
+    // Build set of already-saved URLs for quick lookup
+    const savedUrlSet = new Set(articles.map(a => a.url).filter(Boolean));
+
+    const cards = suggestedArticles.map((a, i) => {
+      const srcColor = a.source === 'Financial Times' ? '#0d4a8a' : a.source === 'The Economist' ? '#8b1a1a' : '#1e4d8c';
+      const scoreColor = a.score >= 9 ? 'var(--green)' : a.score >= 7 ? 'var(--accent)' : 'var(--ink-3)';
+      const isFirst = i === 0;
+      const alreadySaved = savedUrlSet.has(a.url);
+      const saveBtn = alreadySaved
+        ? `<span style="font-size:11px;padding:4px 10px;color:var(--green);font-weight:500">✓ Already in Feed</span>`
+        : `<button onclick="saveFromSuggested(${a.id},'${a.url.replace(/'/g,"\'")}','${a.title.replace(/'/g,"\'")}','${a.source}')"
+            class="btn btn-dark" style="font-size:11px;padding:4px 10px" id="save-sug-${a.id}">+ Save to Feed</button>`;
+      return `<div class="${isFirst ? 'featured-card' : 'article-card'}" style="position:relative;padding-top:16px">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px">
+          <div style="flex:1">
+            <div class="article-meta" style="margin-bottom:6px">
+              <span style="font-size:11px;font-weight:600;color:${srcColor}">${a.source}</span>
+              <span style="margin-left:auto;font-size:11px;font-weight:500;color:${scoreColor}">★ ${a.score}/10</span>
+            </div>
+            <div class="${isFirst ? 'featured-title' : 'article-title'}" style="margin-bottom:6px">${a.title}</div>
+            <div class="${isFirst ? 'featured-summary' : 'article-summary'}" style="margin-bottom:10px">${a.reason}</div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+              <a href="${a.url}" target="_blank" class="btn btn-outline" style="font-size:11px;padding:4px 10px;text-decoration:none">↗ Open article</a>
+              ${saveBtn}
+            </div>
+          </div>
+        </div>
+      </div>`;
+    }).join('');
+
+    area.innerHTML += cards;
+
+  } catch(e) {
+    area.innerHTML = '<div style="padding:20px;color:var(--red)">Error loading suggestions: ' + e.message + '</div>';
+  }
+}
+
+function renderSuggestedHeader(availDates, area) {
+  const dateOpts = availDates.map(d =>
+    `<option value="${d}" ${d === suggestedDate ? 'selected' : ''}>${d}</option>`
+  ).join('');
+
+  const header = `<div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;padding-bottom:10px;border-bottom:1px solid var(--rule);flex-wrap:wrap">
+    <span style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--ink-3)">Suggested for</span>
+    ${availDates.length > 1
+      ? `<select class="filter-select" onchange="suggestedDate=this.value;renderSuggested()">${dateOpts}</select>`
+      : `<span style="font-size:12px;color:var(--ink-2)">${suggestedDate}</span>`}
+    <span style="font-size:11px;color:var(--ink-3);margin-left:4px">${suggestedArticles.length} articles matched your interests</span>
+    <button onclick="refreshSuggested(this)" class="btn btn-outline" style="margin-left:auto;font-size:11px;padding:4px 10px">↻ Refresh</button>
+  </div>`;
+
+  area.innerHTML = header;
+}
+
+async function refreshSuggested(btn) {
+  const orig = btn.textContent;
+  btn.disabled = true; btn.textContent = '↻ Refreshing…';
+  try {
+    await fetch(SERVER + '/api/suggested/refresh', { method: 'POST' });
+    toast('Finding articles — this takes ~45 seconds…');
+    setTimeout(async () => {
+      await renderSuggested();
+      btn.textContent = orig; btn.disabled = false;
+    }, 50000);
+  } catch(e) {
+    toast('Refresh failed: ' + e.message);
+    btn.textContent = orig; btn.disabled = false;
+  }
+}
+
+async function saveFromSuggested(id, url, title, source) {
+  const btn = document.getElementById('save-sug-' + id);
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+  try {
+    const r = await fetch(SERVER + '/api/articles', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url, title, source, status: 'title_only' })
+    });
+    const d = await r.json();
+    if (d.ok) {
+      // Replace button with saved indicator immediately
+      if (btn) {
+        const span = document.createElement('span');
+        span.style.cssText = 'font-size:11px;padding:4px 10px;color:var(--green);font-weight:500';
+        span.textContent = '✓ Already in Feed';
+        btn.replaceWith(span);
+      }
+      toast('"' + title.slice(0, 40) + '…" saved to Feed');
+      await loadFromServer();
+    }
+  } catch(e) {
+    if (btn) { btn.disabled = false; btn.textContent = '+ Save to Feed'; }
+    toast('Save failed: ' + e.message);
+  }
+}
+
+async function loadSuggestedCount() {
+  try {
+    const r = await fetch(SERVER + '/api/suggested');
+    const d = await r.json();
+    document.getElementById('count-suggested').textContent = (d.articles || []).length;
+  } catch(e) {}
+}
 async function updateActivityBar() {
   try {
     const [artR, syncR] = await Promise.all([
@@ -1388,9 +1899,9 @@ async function updateActivityBar() {
     setCount(ftEl,  counts['Financial Times']);
     setCount(ecoEl, counts['The Economist']);
 
-    // Warn if FT sync found 0 articles (likely cookie issue)
+    // Warn only if FT sync ran but found 0 cards — likely a login/cookie failure
     const ftWarn = document.getElementById('act-warning');
-    if (sync.ft && sync.ft.articles_found === 0 && sync.ft.last_run) {
+    if (sync.ft && sync.ft.articles_found === 0 && sync.ft.last_run && sync.ft.last_error) {
       ftWarn.style.display = '';
     } else {
       ftWarn.style.display = 'none';

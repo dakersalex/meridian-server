@@ -49,6 +49,19 @@ def init_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT, source TEXT,
             started_at INTEGER, finished_at INTEGER,
             articles_found INTEGER DEFAULT 0, articles_new INTEGER DEFAULT 0, error TEXT)""")
+        cx.execute("""CREATE TABLE IF NOT EXISTS suggested_articles (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT, url TEXT, source TEXT, snapshot_date TEXT, score INTEGER DEFAULT 0, reason TEXT DEFAULT '', added_at INTEGER)""")
+        cx.execute("""CREATE TABLE IF NOT EXISTS interviews (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL,
+            url TEXT DEFAULT '',
+            source TEXT DEFAULT '',
+            published_date TEXT DEFAULT '',
+            added_date INTEGER,
+            duration_seconds INTEGER DEFAULT 0,
+            transcript TEXT DEFAULT '',
+            summary TEXT DEFAULT '',
+            status TEXT DEFAULT 'pending',
+            thumbnail_url TEXT DEFAULT '')""")
         cx.commit()
 
 def article_exists(aid):
@@ -624,6 +637,352 @@ def save_cookies():
     with open(BASE_DIR / "cookies.json", "w") as f:
         json.dump(data, f, indent=2)
     return jsonify({"ok": True})
+
+
+# ── Interview routes ──────────────────────────────────────────────────────────
+
+@app.route("/api/interviews", methods=["GET"])
+def get_interviews():
+    limit = int(request.args.get("limit", 50))
+    with sqlite3.connect(DB_PATH) as cx:
+        cx.row_factory = sqlite3.Row
+        rows = cx.execute(
+            "SELECT * FROM interviews ORDER BY added_date DESC LIMIT ?", (limit,)
+        ).fetchall()
+    return jsonify({"interviews": [dict(r) for r in rows], "total": len(rows)})
+
+@app.route("/api/interviews", methods=["POST"])
+def add_interview():
+    body = request.json or {}
+    import time as _time
+    with sqlite3.connect(DB_PATH) as cx:
+        cx.execute("""INSERT INTO interviews
+            (title, url, source, published_date, added_date, duration_seconds,
+             transcript, summary, status, thumbnail_url)
+            VALUES (?,?,?,?,?,?,?,?,?,?)""", (
+            body.get("title", "Untitled"),
+            body.get("url", ""),
+            body.get("source", ""),
+            body.get("published_date", ""),
+            int(_time.time() * 1000),
+            body.get("duration_seconds", 0),
+            body.get("transcript", ""),
+            body.get("summary", ""),
+            body.get("status", "pending"),
+            body.get("thumbnail_url", ""),
+        ))
+        iid = cx.execute("SELECT last_insert_rowid()").fetchone()[0]
+    return jsonify({"ok": True, "id": iid})
+
+@app.route("/api/interviews/<int:iid>", methods=["PATCH"])
+def update_interview(iid):
+    body = request.json or {}
+    with sqlite3.connect(DB_PATH) as cx:
+        for key in ["title","url","source","published_date","duration_seconds",
+                    "transcript","summary","status","thumbnail_url","speaker_bio"]:
+            if key in body:
+                cx.execute("UPDATE interviews SET {}=? WHERE id=?".format(key), (body[key], iid))
+    return jsonify({"ok": True})
+
+@app.route("/api/interviews/<int:iid>", methods=["DELETE"])
+def delete_interview(iid):
+    with sqlite3.connect(DB_PATH) as cx:
+        cx.execute("DELETE FROM interviews WHERE id=?", (iid,))
+    return jsonify({"ok": True})
+
+@app.route("/api/interviews/fetch-meta", methods=["POST"])
+def fetch_interview_meta():
+    import urllib.request, json as _json, re
+    body = request.json or {}
+    url = body.get("url", "")
+    if not url:
+        return jsonify({"ok": False, "error": "No URL"}), 400
+    vid = None
+    for pattern in [r"v=([A-Za-z0-9_-]{11})", r"youtu\.be/([A-Za-z0-9_-]{11})", r"embed/([A-Za-z0-9_-]{11})"]:
+        m = re.search(pattern, url)
+        if m:
+            vid = m.group(1)
+            break
+    if not vid:
+        return jsonify({"ok": False, "error": "Could not extract video ID"}), 400
+    oembed_url = "https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v={}&format=json".format(vid)
+    try:
+        with urllib.request.urlopen(oembed_url, timeout=10) as r:
+            data = _json.loads(r.read())
+        thumbnail = "https://img.youtube.com/vi/{}/hqdefault.jpg".format(vid)
+        return jsonify({
+            "ok": True,
+            "title": data.get("title", ""),
+            "thumbnail_url": thumbnail,
+            "author": data.get("author_name", ""),
+        })
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+# ── Suggested Articles ────────────────────────────────────────────────────────
+
+
+def scrape_ft_most_read(limit=8):
+    """Scrape FT most-read using logged-in Playwright profile."""
+    if not PLAYWRIGHT_OK:
+        return []
+    profile_dir = BASE_DIR / "ft_profile"
+    if not profile_dir.exists():
+        return []
+    articles = []
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch_persistent_context(
+                str(profile_dir), headless=True,
+                user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+                args=["--disable-blink-features=AutomationControlled"])
+            page = browser.new_page()
+            try:
+                # Homepage has 186 article links when logged in; most-read page returns 0
+                page.goto("https://www.ft.com", wait_until="domcontentloaded", timeout=20000)
+                page.wait_for_timeout(3000)
+                soup = BeautifulSoup(page.content(), "html.parser")
+                seen = set()
+                for a in soup.select("a[href*='/content/']"):
+                    title = a.get_text(strip=True)
+                    href = a.get("href", "")
+                    if not title or len(title) < 10: continue
+                    url = ("https://www.ft.com" + href if href.startswith("/") else href).split("?")[0]
+                    if url in seen: continue
+                    seen.add(url)
+                    articles.append({"source": "Financial Times", "title": title, "url": url})
+                    if len(articles) >= limit: break
+                log.info(f"Suggested: FT most-read scraped {len(articles)} articles")
+            finally:
+                browser.close()
+    except Exception as e:
+        log.warning(f"Suggested: FT Playwright error: {e}")
+    return articles
+
+
+def scrape_economist_most_read(limit=8):
+    """Scrape Economist most-read using logged-in Playwright profile."""
+    if not PLAYWRIGHT_OK:
+        return []
+    profile_dir = BASE_DIR / "economist_profile"
+    if not profile_dir.exists():
+        return []
+    articles = []
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch_persistent_context(
+                str(profile_dir), headless=True,
+                user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+                args=["--disable-blink-features=AutomationControlled"])
+            page = browser.new_page()
+            try:
+                # Try most-read page first
+                page.goto("https://www.economist.com/most-read", wait_until="domcontentloaded", timeout=20000)
+                page.wait_for_timeout(3000)
+                soup = BeautifulSoup(page.content(), "html.parser")
+                seen = set()
+                for a in soup.select("a[href*='/20'], a[href*='/briefing/'], a[href*='/leaders/'], a[href*='/finance-and-economics/'], a[href*='/united-states/'], a[href*='/china/'], a[href*='/middle-east-and-africa/']"):
+                    title = a.get_text(strip=True)
+                    href = a.get("href", "")
+                    if not title or len(title) < 10: continue
+                    url = ("https://www.economist.com" + href if href.startswith("/") else href).split("?")[0]
+                    if url in seen: continue
+                    seen.add(url)
+                    articles.append({"source": "The Economist", "title": title, "url": url})
+                    if len(articles) >= limit: break
+                # If most-read didn't work, try homepage
+                if len(articles) < 3:
+                    page.goto("https://www.economist.com", wait_until="domcontentloaded", timeout=20000)
+                    page.wait_for_timeout(3000)
+                    soup = BeautifulSoup(page.content(), "html.parser")
+                    for a in soup.select("a[href*='/20']"):
+                        title = a.get_text(strip=True)
+                        href = a.get("href", "")
+                        if not title or len(title) < 10: continue
+                        url = ("https://www.economist.com" + href if href.startswith("/") else href).split("?")[0]
+                        if url in seen: continue
+                        seen.add(url)
+                        articles.append({"source": "The Economist", "title": title, "url": url})
+                        if len(articles) >= limit: break
+                log.info(f"Suggested: Economist scraped {len(articles)} articles")
+            finally:
+                browser.close()
+    except Exception as e:
+        log.warning(f"Suggested: Economist Playwright error: {e}")
+    return articles
+
+def scrape_suggested_articles():
+    """Scrape FT/Economist via Playwright + Claude web_search for FA and others."""
+    import urllib.request, json as _json
+
+    # Get user interests
+    with sqlite3.connect(DB_PATH) as cx:
+        rows = cx.execute("SELECT topic, tags FROM articles ORDER BY saved_at DESC LIMIT 100").fetchall()
+        saved_urls = set(r[0] for r in cx.execute("SELECT url FROM articles WHERE url!=''").fetchall())
+
+    # Scrape FT and Economist via logged-in Playwright (runs in background threads)
+    ft_results = []
+    eco_results = []
+    import threading as _threading
+    ft_thread = _threading.Thread(target=lambda: ft_results.extend(scrape_ft_most_read(8)))
+    eco_thread = _threading.Thread(target=lambda: eco_results.extend(scrape_economist_most_read(8)))
+    ft_thread.start()
+    eco_thread.start()
+    ft_thread.join(timeout=45)
+    eco_thread.join(timeout=45)
+    log.info(f"Suggested: Playwright got {len(ft_results)} FT, {len(eco_results)} Economist")
+    topic_counts = {}
+    for row in rows:
+        if row[0]: topic_counts[row[0]] = topic_counts.get(row[0],0) + 1
+        try:
+            for tag in _json.loads(row[1] or "[]"):
+                topic_counts[tag] = topic_counts.get(tag,0) + 1
+        except: pass
+    top_interests = sorted(topic_counts, key=lambda x: -topic_counts[x])[:15]
+    interests_str = ", ".join(top_interests) if top_interests else "geopolitics, economics, finance, markets"
+
+    creds = load_creds()
+    api_key = creds.get("anthropic_api_key","")
+    if not api_key:
+        log.warning("Suggested: no API key")
+        return []
+
+    # Claude web search for FA + other quality sources (FT/Economist handled by Playwright above)
+    prompt = (
+        "You are a research assistant finding articles for a senior analyst. "
+        "Their interests: " + interests_str + ".\n\n"
+        "Do these searches IN ORDER:\n"
+        "1. Search: site:foreignaffairs.com last 7 days " + interests_str[:60] + "\n"
+        "2. Search: latest analysis " + interests_str[:60] + " last 7 days\n"
+        "3. Search: " + interests_str[:60] + " expert analysis last 7 days\n\n"
+        "Find 4-5 articles per search from quality sources "
+        "(Foreign Affairs, Foreign Policy, Atlantic Council, Brookings, RAND, CFR, major newspapers). "
+        "You MUST attempt ALL THREE searches.\n\n"
+        "Scoring: 1-10 relevance to analyst interests. "
+        "Exclude: news briefs, quizzes, recipes, lifestyle, sport, obituaries.\n\n"
+        "Use the actual publication name for source field.\n\n"
+        "Respond with ONLY a JSON array sorted by score descending:\n"
+        '[{"title":"...","url":"...","source":"...","score":8,"reason":"one sentence why"}]'
+    )
+
+    req = None  # placeholder — request built in agentic loop below
+    try:
+        messages = [{"role": "user", "content": prompt}]
+        # Agentic loop — web_search requires multiple roundtrips
+        for attempt in range(6):
+            payload = _json.dumps({
+                "model": "claude-sonnet-4-20250514",
+                "max_tokens": 2000,
+                "tools": [{"type": "web_search_20250305", "name": "web_search"}],
+                "messages": messages
+            }).encode()
+            req2 = urllib.request.Request(
+                "https://api.anthropic.com/v1/messages",
+                data=payload,
+                headers={"Content-Type":"application/json","x-api-key":api_key,"anthropic-version":"2023-06-01"},
+                method="POST"
+            )
+            with urllib.request.urlopen(req2, timeout=60) as r:
+                data = _json.loads(r.read())
+            stop_reason = data.get("stop_reason","")
+            content_blocks = data.get("content", [])
+            # Append assistant turn
+            messages.append({"role": "assistant", "content": content_blocks})
+            # If done, extract text
+            if stop_reason == "end_turn":
+                text = ""
+                for block in content_blocks:
+                    if block.get("type") == "text":
+                        text += block.get("text","")
+                text = text.strip()
+                if not text:
+                    log.warning("Suggested: empty final response")
+                    return []
+                # Extract JSON array even if surrounded by prose
+                import re as _re
+                json_match = _re.search(r'\[[\s\S]*\]', text)
+                if not json_match:
+                    log.warning(f"Suggested: no JSON array in response: {text[:200]}")
+                    return []
+                results = _json.loads(json_match.group(0))
+                results = [a for a in results if a.get("url","") not in saved_urls and a.get("title","")]
+                log.info(f"Suggested: Claude found {len(results)} articles via web search")
+                # Merge with Playwright FT/Economist results
+                seen_urls = set(a['url'] for a in results)
+                for art in ft_results + eco_results:
+                    if art['url'] in saved_urls or art['url'] in seen_urls: continue
+                    seen_urls.add(art['url'])
+                    title_lower = art['title'].lower()
+                    score = sum(2 for kw in top_interests if kw.lower() in title_lower)
+                    art['score'] = max(min(score, 9), 6)
+                    art['reason'] = 'From ' + art['source'] + ' most-read'
+                    results.append(art)
+                results.sort(key=lambda x: -x.get('score', 0))
+                log.info(f"Suggested: {len(results)} total after merging Playwright + web search")
+                return results
+            # If tool_use, feed results back
+            if stop_reason == "tool_use":
+                tool_results = []
+                for block in content_blocks:
+                    if block.get("type") == "tool_use":
+                        tool_results.append({
+                            "type": "tool_result",
+                            "tool_use_id": block["id"],
+                            "content": "Search completed."
+                        })
+                if tool_results:
+                    messages.append({"role": "user", "content": tool_results})
+            else:
+                break
+        log.warning("Suggested: agentic loop exhausted without end_turn")
+        return []
+    except Exception as e:
+        log.warning(f"Suggested: Claude web search failed: {e}")
+        return []
+
+
+def save_suggested_snapshot(articles):
+    snapshot_date = datetime.now().strftime("%Y-%m-%d")
+    with sqlite3.connect(DB_PATH) as cx:
+        cx.execute("DELETE FROM suggested_articles WHERE snapshot_date=?", (snapshot_date,))
+        for a in articles:
+            cx.execute(
+                "INSERT INTO suggested_articles (title,url,source,snapshot_date,score,reason,added_at) VALUES (?,?,?,?,?,?,?)",
+                (a.get("title",""), a.get("url",""), a.get("source",""),
+                 snapshot_date, a.get("score",0), a.get("reason",""), now_ts())
+            )
+    log.info(f"Suggested: saved {len(articles)} for {snapshot_date}")
+
+
+@app.route("/api/suggested", methods=["GET"])
+def get_suggested():
+    date = request.args.get("date", datetime.now().strftime("%Y-%m-%d"))
+    with sqlite3.connect(DB_PATH) as cx:
+        cx.row_factory = sqlite3.Row
+        rows = cx.execute(
+            "SELECT * FROM suggested_articles WHERE snapshot_date=? ORDER BY score DESC, added_at DESC",
+            (date,)
+        ).fetchall()
+        dates = [r[0] for r in cx.execute(
+            "SELECT DISTINCT snapshot_date FROM suggested_articles ORDER BY snapshot_date DESC LIMIT 30"
+        ).fetchall()]
+    return jsonify({"articles":[dict(r) for r in rows], "date":date, "available_dates":dates})
+
+
+@app.route("/api/suggested/refresh", methods=["POST"])
+def refresh_suggested():
+    if getattr(refresh_suggested, "_running", False):
+        return jsonify({"ok":False,"error":"Already running"}), 409
+    def _run():
+        refresh_suggested._running = True
+        try:
+            arts = scrape_suggested_articles()
+            if arts: save_suggested_snapshot(arts)
+        finally:
+            refresh_suggested._running = False
+    threading.Thread(target=_run, daemon=True).start()
+    return jsonify({"ok":True,"started":True})
 
 def scheduler_loop(interval_hours):
     while True:
