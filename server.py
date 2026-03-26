@@ -1432,4 +1432,4 @@ if __name__ == "__main__":
     threading.Thread(target=scheduler_loop, args=(interval,), daemon=True).start()
     log.info(f"Scheduler started — auto-sync every {interval}h")
     log.info("Meridian server starting on http://localhost:4242")
-    app.run(host="127.0.0.1", port=4242, debug=False)
+    app.run(host="0.0.0.0", port=4242, debug=False)
