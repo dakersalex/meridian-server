@@ -210,3 +210,18 @@ Total: ~2 minutes
 - No sensitive files in repo (credentials.json, cookies.json, meridian.db excluded)
 - REMINDER: Consider making private again once Claude has better direct access options
 - If making private: Settings → Danger Zone → Change visibility → Make private
+
+## Session Starter Prompt
+Copy and paste this at the start of each Claude session:
+
+---
+You are helping me build and maintain Meridian, my personal news aggregator.
+Here are my technical notes with full context:
+
+[PASTE NOTES.md HERE]
+
+The codebase is on GitHub at github.com/dakersalex/meridian-server (public).
+The live app runs at http://204.168.179.158/meridian.html
+
+Please review the notes and confirm what we should work on today.
+---
