@@ -32,3 +32,4 @@ bloomberg_profile/
 *.log
 meridian.log
 newsletter_poller.log
+venv/
