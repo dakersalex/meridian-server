@@ -1,9 +1,14 @@
 # Meridian — Technical Notes
-Last updated: 26 March 2026 (Session 6)
+Last updated: 26 March 2026 (Session 7)
 
 ## Overview
 Personal news aggregator. Flask API + SQLite backend now running on Hetzner VPS (always-on).
-Frontend served via nginx. Accessible from anywhere at http://204.168.179.158/meridian.html
+Frontend served via nginx with HTTPS. Accessible from anywhere at https://meridianreader.com/meridian.html
+
+## Domain
+- Domain: meridianreader.com (Namecheap, expires Mar 26 2027)
+- DNS: A records @ and www → 204.168.179.158
+- SSL: Let's Encrypt via Certbot (auto-renews)
 
 ## Infrastructure
 - VPS: Hetzner CPX22, Helsinki, €7/mo (incl. backups)
@@ -11,7 +16,8 @@ Frontend served via nginx. Accessible from anywhere at http://204.168.179.158/me
 - OS: Ubuntu 24.04
 - SSH: ssh root@204.168.179.158 (key: ~/.ssh/id_ed25519)
 - Flask service: systemd (auto-starts, auto-restarts)
-- HTTP: nginx on port 80
+- HTTP: nginx on port 80 (redirects to HTTPS)
+- HTTPS: nginx on port 443
 - GitHub: https://github.com/dakersalex/meridian-server (private)
 
 ## File Locations (VPS)
@@ -36,7 +42,7 @@ Frontend served via nginx. Accessible from anywhere at http://204.168.179.158/me
 
 ## Daily Use
 Open in browser (any device, any network):
-http://204.168.179.158/meridian.html
+https://meridianreader.com/meridian.html
 
 Mac local (if needed):
 http://localhost:8080/meridian.html
@@ -87,7 +93,7 @@ Sync All button fires all 3 scrapers in parallel, then runs enrich_title_only_ar
 - iCloud requires BODY[] not RFC822 for fetch
 - Stores in newsletters DB table: source, subject, body_html, body_text, received_at
 - Flask route: /api/newsletters/sync (POST)
-- Manual sync: curl -s http://204.168.179.158:4242/api/newsletters/sync -X POST
+- Manual sync: curl -s https://meridianreader.com/api/newsletters/sync -X POST
 
 ## Title-only Enrichment
 - enrich_title_only_articles() runs after every Sync All
@@ -162,15 +168,21 @@ Total: ~2 minutes
 - Interest profile built from saved article topics/tags
 
 ## Next Steps
-1. Domain name — point to 204.168.179.158 (Namecheap, ~$10/year)
-2. HTTPS — Let's Encrypt once domain is live (required for PWA)
-3. iPad PWA — manifest.json + service worker once HTTPS is live
+1. iPad PWA — manifest.json + service worker (HTTPS is live, ready to build)
+2. Playwright on VPS — migrate browser profiles for server-side scraping
+3. Autonomous reading agent — auto-save ≥8/10 articles to Feed
 4. Deploy script — git pull + systemctl restart in one command
-5. Playwright on VPS — migrate browser profiles for server-side scraping
-6. Autonomous reading agent — auto-save ≥8/10 articles to Feed
-7. Economist Playwright selector — investigate 0 articles intermittently
+5. Economist Playwright selector — investigate 0 articles intermittently
 
 ## Build History
+### 26 March 2026 (Session 7)
+- Purchased meridianreader.com (Namecheap, expires Mar 26 2027)
+- DNS A records set: @ and www → 204.168.179.158
+- Let's Encrypt SSL cert via Certbot (auto-renews)
+- nginx updated: HTTPS on 443, HTTP→HTTPS redirect on 80
+- SERVER constant updated: http://204.168.179.158:4242 → https://meridianreader.com
+- Meridian now live at https://meridianreader.com/meridian.html
+
 ### 26 March 2026 (Session 6)
 - GitHub repo created (private): dakersalex/meridian-server
 - Sensitive files excluded from git: credentials.json, cookies.json, meridian.db, newsletter_sync.py, venv/
@@ -221,7 +233,7 @@ Here are my technical notes with full context:
 [PASTE NOTES.md HERE]
 
 The codebase is on GitHub at github.com/dakersalex/meridian-server (public).
-The live app runs at http://204.168.179.158/meridian.html
+The live app runs at https://meridianreader.com/meridian.html
 
 Please review the notes and confirm what we should work on today.
 ---
