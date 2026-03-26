@@ -204,3 +204,9 @@ Total: ~2 minutes
 - AI Analysis panel, PDF briefing, article feed improvements
 - Newsletter tab, Settings page, 24h activity bar
 - HTTP server launchd, new API key
+
+## GitHub Visibility
+- Repo is currently PUBLIC: github.com/dakersalex/meridian-server
+- No sensitive files in repo (credentials.json, cookies.json, meridian.db excluded)
+- REMINDER: Consider making private again once Claude has better direct access options
+- If making private: Settings → Danger Zone → Change visibility → Make private
