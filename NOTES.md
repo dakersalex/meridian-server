@@ -212,6 +212,22 @@ Notes:
 - First entry: Sir Alex Younger, Inside Defence, Economist, 44m 57s, 7,740 words, summarised
 - younger_economist.wav (1.1GB failed BlackHole recording) — safe to delete
 
+### 26 March 2026 (Session 4)
+
+## Suggested Articles — further improvements
+- Economist most-read selector hardened: strict section/dated path validation, skips nav/section labels
+- Fallback chain: most-read → /latest → homepage (stops once 3+ articles found)
+- Claude scoring 429 retry: waits 10s and retries once on rate limit
+- Title-only enrichment: _save_enriched_article() now correctly saves status=full_text to DB
+- enrich_title_only_articles() embedded in Sync All — runs after all 3 scrapers finish
+- Generic scrape working for Atlantic Council, CNN (open access sites)
+- FT title_only: picked up by next regular FT sync (headless Playwright profile limitation)
+
+## Next session
+- "Not interested" negative signal: feed dismissed suggested articles into Claude scoring prompt
+- Autonomous reading agent: learn from saved articles, auto-save high-scoring to Feed
+- FT title_only articles: investigate why headless ft_profile fetch fails
+
 ### 26 March 2026 (Session 3)
 
 ## Suggested Articles — full rebuild

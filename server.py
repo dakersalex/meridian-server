@@ -946,12 +946,56 @@ def scrape_ft_most_read(limit=8):
 
 
 def scrape_economist_most_read(limit=8):
-    """Scrape Economist most-read using logged-in Playwright profile."""
+    """Scrape Economist most-read using logged-in Playwright profile.
+    Tries 3 URLs in order: most-read page, /latest, homepage."""
     if not PLAYWRIGHT_OK:
         return []
     profile_dir = BASE_DIR / "economist_profile"
     if not profile_dir.exists():
         return []
+
+    # Known Economist section paths — used to validate article URLs
+    SECTION_PATHS = (
+        "/briefing/", "/leaders/", "/finance-and-economics/", "/united-states/",
+        "/china/", "/middle-east-and-africa/", "/asia/", "/europe/", "/britain/",
+        "/international/", "/business/", "/science-and-technology/", "/culture/",
+        "/graphic-detail/", "/the-world-ahead/", "/special-report/",
+    )
+    SKIP_PATHS = (
+        "/podcasts/", "/newsletters/", "/events/", "/shop/", "/subscribe",
+        "/login", "/register", "/search", "/topics/", "/authors/",
+    )
+
+    def extract_articles(soup, seen, limit):
+        """Extract valid article links from soup — strict selector."""
+        results = []
+        # Target anchor tags that contain a headline element or are inside article cards
+        for a in soup.select("a[href]"):
+            href = a.get("href", "")
+            if not href: continue
+            url = ("https://www.economist.com" + href if href.startswith("/") else href).split("?")[0]
+            # Must be economist.com
+            if "economist.com" not in url: continue
+            # Must be a known section path or year-based URL
+            path = url.replace("https://www.economist.com", "")
+            is_section = any(path.startswith(s) for s in SECTION_PATHS)
+            is_dated = "/20" in path and len(path) > 15
+            if not (is_section or is_dated): continue
+            # Skip non-article paths
+            if any(skip in path for skip in SKIP_PATHS): continue
+            # Skip very short paths (section index pages like /china)
+            if len(path.strip("/").split("/")) < 2: continue
+            if url in seen: continue
+            title = a.get_text(strip=True)
+            # Title must be meaningful — not a nav label
+            if not title or len(title) < 15: continue
+            # Skip if title looks like a section label (all caps, very short)
+            if title.isupper() and len(title) < 30: continue
+            seen.add(url)
+            results.append({"source": "The Economist", "title": title, "url": url})
+            if len(results) >= limit: break
+        return results
+
     articles = []
     try:
         with sync_playwright() as p:
@@ -960,40 +1004,32 @@ def scrape_economist_most_read(limit=8):
                 user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
                 args=["--disable-blink-features=AutomationControlled"])
             page = browser.new_page()
+            seen = set()
             try:
-                # Try most-read page first
-                page.goto("https://www.economist.com/most-read", wait_until="domcontentloaded", timeout=20000)
-                page.wait_for_timeout(3000)
-                soup = BeautifulSoup(page.content(), "html.parser")
-                seen = set()
-                for a in soup.select("a[href*='/20'], a[href*='/briefing/'], a[href*='/leaders/'], a[href*='/finance-and-economics/'], a[href*='/united-states/'], a[href*='/china/'], a[href*='/middle-east-and-africa/']"):
-                    title = a.get_text(strip=True)
-                    href = a.get("href", "")
-                    if not title or len(title) < 10: continue
-                    url = ("https://www.economist.com" + href if href.startswith("/") else href).split("?")[0]
-                    if url in seen: continue
-                    seen.add(url)
-                    articles.append({"source": "The Economist", "title": title, "url": url})
-                    if len(articles) >= limit: break
-                # If most-read didn't work, try homepage
-                if len(articles) < 3:
-                    page.goto("https://www.economist.com", wait_until="domcontentloaded", timeout=20000)
-                    page.wait_for_timeout(3000)
-                    soup = BeautifulSoup(page.content(), "html.parser")
-                    for a in soup.select("a[href*='/20']"):
-                        title = a.get_text(strip=True)
-                        href = a.get("href", "")
-                        if not title or len(title) < 10: continue
-                        url = ("https://www.economist.com" + href if href.startswith("/") else href).split("?")[0]
-                        if url in seen: continue
-                        seen.add(url)
-                        articles.append({"source": "The Economist", "title": title, "url": url})
-                        if len(articles) >= limit: break
-                log.info(f"Suggested: Economist scraped {len(articles)} articles")
+                urls_to_try = [
+                    ("most-read", "https://www.economist.com/most-read"),
+                    ("latest",    "https://www.economist.com/latest"),
+                    ("homepage",  "https://www.economist.com"),
+                ]
+                for label, url in urls_to_try:
+                    if len(articles) >= 3:
+                        break
+                    try:
+                        log.info(f"Suggested: Economist trying {label}")
+                        page.goto(url, wait_until="domcontentloaded", timeout=20000)
+                        page.wait_for_timeout(3000)
+                        soup = BeautifulSoup(page.content(), "html.parser")
+                        found = extract_articles(soup, seen, limit - len(articles))
+                        articles.extend(found)
+                        log.info(f"Suggested: Economist {label} yielded {len(found)} articles (total {len(articles)})")
+                    except Exception as e:
+                        log.warning(f"Suggested: Economist {label} failed: {e}")
+                        continue
             finally:
                 browser.close()
     except Exception as e:
         log.warning(f"Suggested: Economist Playwright error: {e}")
+    log.info(f"Suggested: Economist scraped {len(articles)} articles total")
     return articles
 
 def scrape_suggested_articles():
@@ -1111,8 +1147,25 @@ def scrape_suggested_articles():
                             headers={"Content-Type":"application/json","x-api-key":api_key,"anthropic-version":"2023-06-01"},
                             method="POST"
                         )
-                        with urllib.request.urlopen(score_req, timeout=30) as sr:
-                            score_data = _json.loads(sr.read())
+                        # Retry once on 429
+                        import urllib.error as _ue
+                        for _attempt in range(2):
+                            try:
+                                with urllib.request.urlopen(score_req, timeout=30) as sr:
+                                    score_data = _json.loads(sr.read())
+                                break
+                            except _ue.HTTPError as _he:
+                                if _he.code == 429 and _attempt == 0:
+                                    log.warning("Suggested: Claude scoring 429 — retrying in 10s")
+                                    time.sleep(10)
+                                    score_req = urllib.request.Request(
+                                        "https://api.anthropic.com/v1/messages",
+                                        data=score_payload,
+                                        headers={"Content-Type":"application/json","x-api-key":api_key,"anthropic-version":"2023-06-01"},
+                                        method="POST"
+                                    )
+                                else:
+                                    raise
                         score_text = ""
                         for block in score_data.get("content", []):
                             if block.get("type") == "text":
