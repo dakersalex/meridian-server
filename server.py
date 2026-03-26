@@ -1078,6 +1078,25 @@ def scrape_suggested_articles():
     top_interests = sorted(topic_counts, key=lambda x: -topic_counts[x])[:15]
     interests_str = ", ".join(top_interests) if top_interests else "geopolitics, economics, finance, markets"
 
+    # Build negative signal from dismissed suggested articles
+    avoid_counts = {}
+    with sqlite3.connect(DB_PATH) as cx:
+        dismissed_rows = cx.execute(
+            "SELECT sa.title, a.topic, a.tags FROM suggested_articles sa "
+            "LEFT JOIN articles a ON sa.url = a.url "
+            "WHERE sa.status='dismissed'"
+        ).fetchall()
+    for title, topic, tags in dismissed_rows:
+        if topic: avoid_counts[topic] = avoid_counts.get(topic, 0) + 1
+        try:
+            for tag in _json.loads(tags or "[]"):
+                avoid_counts[tag] = avoid_counts.get(tag, 0) + 1
+        except: pass
+    top_avoid = sorted(avoid_counts, key=lambda x: -avoid_counts[x])[:10]
+    avoid_str = ", ".join(top_avoid) if top_avoid else ""
+    if avoid_str:
+        log.info(f"Suggested: negative signals — {avoid_str}")
+
     creds = load_creds()
     api_key = creds.get("anthropic_api_key","")
     if not api_key:
@@ -1121,9 +1140,15 @@ def scrape_suggested_articles():
                 headers={"Content-Type":"application/json","x-api-key":api_key,"anthropic-version":"2023-06-01"},
                 method="POST"
             )
-            with urllib.request.urlopen(req2, timeout=60) as r:
-                data = _json.loads(r.read())
+            log.info(f"Suggested: web search attempt {attempt+1}/6")
+            try:
+                with urllib.request.urlopen(req2, timeout=60) as r:
+                    data = _json.loads(r.read())
+            except Exception as _loop_e:
+                log.warning(f"Suggested: web search attempt {attempt+1} failed: {_loop_e}")
+                break
             stop_reason = data.get("stop_reason","")
+            log.info(f"Suggested: attempt {attempt+1} stop_reason={stop_reason}")
             content_blocks = data.get("content", [])
             # Append assistant turn
             messages.append({"role": "assistant", "content": content_blocks})
@@ -1156,6 +1181,7 @@ def scrape_suggested_articles():
                 # Look up pub_dates for any still missing via Claude web search
                 needs_date = [a for a in playwright_arts if not a.get("pub_date")]
                 if needs_date:
+                    time.sleep(5)  # avoid 429 after main web search
                     try:
                         date_titles = _json.dumps([{"title": a["title"], "source": a["source"]} for a in needs_date])
                         date_prompt = ("For each of these articles, find the publication date. "
@@ -1201,6 +1227,7 @@ def scrape_suggested_articles():
                     except Exception as de:
                         log.warning(f"Suggested: pub_date lookup failed: {de}")
                 if playwright_arts:
+                    time.sleep(5)  # avoid 429 after pub_date lookup
                     titles_str = _json.dumps([{"title": a["title"], "source": a["source"]} for a in playwright_arts])
                     score_prompt = ("You are scoring news articles for a senior analyst. Their interests: " + interests_str + ". Score each article 0-10 for relevance to these interests. Be strict - only score 6+ if genuinely relevant. Exclude: lifestyle, sport, celebrity, recipes, quizzes, obituaries." + (" The analyst has dismissed articles about: " + avoid_str + " — score these lower." if avoid_str else "") + " Articles to score: " + titles_str + " Respond ONLY with a JSON array (same order): [{score:8,reason:one sentence why relevant}]")
                     try:
