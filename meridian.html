@@ -806,7 +806,20 @@ function renderSidebar(){
   const ftCounts={};articles.forEach(a=>{if(a.status==='full_text')ftCounts[a.source]=(ftCounts[a.source]||0)+1;});
   const totalAll=srcEntries.reduce((s,[,c])=>s+c,0);
   const totalFt=srcEntries.reduce((s,[src])=>s+(ftCounts[src]||0),0);
-  const rows=srcEntries.map(([s,c])=>`<div class="source-row"><div class="source-dot" style="background:${sourceColor(s)}"></div><span class="source-name">${s}</span><span class="source-count" style="width:48px;text-align:right">${c}</span><span class="source-count" style="width:60px;text-align:right;color:var(--ink-3)">${ftCounts[s]||0}</span></div>`).join('');
+  const srcShortNames = {
+    'Financial Times': 'Financial Times',
+    'The Economist': 'The Economist',
+    'Foreign Affairs': 'Foreign Affairs',
+    'Foreign Policy': 'Foreign Policy',
+    'Council on Foreign Relations': 'CFR',
+    'Al Jazeera Centre for Studies': 'Al Jazeera',
+    'Atlantic Council': 'Atlantic Council',
+    'Brookings Institution': 'Brookings',
+    'Carnegie Endowment': 'Carnegie',
+    'International Crisis Group': 'Crisis Group',
+  };
+  const shortName = s => srcShortNames[s] || (s.length > 20 ? s.slice(0,18) + '…' : s);
+  const rows=srcEntries.map(([s,c])=>`<div class="source-row"><div class="source-dot" style="background:${sourceColor(s)}"></div><span class="source-name" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:110px" title="${s}">${shortName(s)}</span><span class="source-count" style="width:48px;text-align:right">${c}</span><span class="source-count" style="width:60px;text-align:right;color:var(--ink-3)">${ftCounts[s]||0}</span></div>`).join('');
   const header='<div class="source-row" style="font-size:10px;color:var(--ink-3);margin-bottom:4px"><span style="flex:1"></span><span style="width:48px;text-align:right">Total</span><span style="width:60px;text-align:right">Full text</span></div>';
   const footer=`<div class="source-row" style="border-top:1px solid var(--rule);margin-top:4px;padding-top:4px;font-weight:500"><span class="source-name">Total</span><span class="source-count" style="width:48px;text-align:right">${totalAll}</span><span class="source-count" style="width:60px;text-align:right;color:var(--ink-3)">${totalFt}</span></div>`;
   document.getElementById('source-list').innerHTML=(rows?header+rows+footer:'<div style="font-size:12px;color:var(--ink-3)">No sources yet</div>');
@@ -1740,9 +1753,10 @@ async function generateInterviewSummary(id) {
 // ── Suggested Articles ────────────────────────────────────────────────────────
 let suggestedArticles = [];
 let suggestedSince = '';
-let suggestedStatus = 'all';
+let suggestedStatus = 'new';
 let suggestedChecked = new Set();
 let suggestedRefreshPoller = null;
+let suggestedSource = '';
 
 function isoDateDaysAgo(n) {
   const d = new Date();
@@ -1758,6 +1772,7 @@ async function renderSuggested(autoRefreshCheck) {
     let params = '';
     if (suggestedSince) params += '&since=' + suggestedSince;
     if (suggestedStatus !== 'all') params += '&status=' + suggestedStatus;
+    if (suggestedSource) params += '&source=' + encodeURIComponent(suggestedSource);
     const r = await fetch(SERVER + '/api/suggested?' + params);
     const d = await r.json();
     suggestedArticles = d.articles || [];
@@ -1783,7 +1798,7 @@ async function renderSuggested(autoRefreshCheck) {
         : a.status === 'reviewed'
         ? '<span style="font-size:10px;padding:2px 7px;border-radius:10px;background:var(--ink-3);color:#fff;margin-left:6px">reviewed</span>'
         : a.status === 'dismissed'
-        ? '<span style="font-size:10px;padding:2px 7px;border-radius:10px;background:var(--red);color:#fff;margin-left:6px">dismissed</span>'
+        ? '<span style="font-size:10px;padding:2px 7px;border-radius:10px;background:var(--red);color:#fff;margin-left:6px">dismissed</span><button onclick="undismissSuggested(' + a.id + ')" style="font-size:10px;padding:2px 8px;border-radius:10px;border:1px solid var(--red);color:var(--red);background:none;cursor:pointer;margin-left:4px;font-weight:500">↺ undo</button>'
         : '';
       const saveBtn = alreadySaved
         ? '<span style="font-size:11px;padding:4px 10px;color:var(--green);font-weight:500">✓ In Feed</span>'
@@ -1791,13 +1806,15 @@ async function renderSuggested(autoRefreshCheck) {
       const dismissBtn = a.status !== 'dismissed'
         ? '<button onclick="dismissSuggested(' + a.id + ')" class="btn btn-outline" style="font-size:11px;padding:4px 10px;color:var(--ink-3)">✕ Dismiss</button>'
         : '';
-      return '<div class="' + (isFirst ? 'featured-card' : 'article-card') + '" style="position:relative;padding-top:14px" id="sug-card-' + a.id + '">'
+      const cardOpacity = a.status === 'dismissed' ? '0.45' : '1';
+      return '<div class="' + (isFirst ? 'featured-card' : 'article-card') + '" style="position:relative;padding-top:14px;opacity:' + cardOpacity + '" id="sug-card-' + a.id + '">'
         + '<div style="display:flex;align-items:flex-start;gap:10px">'
         + '<input type="checkbox" style="margin-top:4px;flex-shrink:0;cursor:pointer" onchange="toggleSuggestedCheck(' + a.id + ',this.checked)" id="sug-chk-' + a.id + '">'
         + '<div style="flex:1">'
         + '<div class="article-meta" style="margin-bottom:5px">'
         + '<span style="font-size:11px;font-weight:600;color:' + srcColor + '">' + a.source + '</span>'
         + statusPill
+        + (a.pub_date ? '<span style="font-size:11px;color:var(--ink-3);margin-left:8px">' + a.pub_date + '</span>' : '')
         + '<span style="margin-left:auto;font-size:11px;font-weight:500;color:' + scoreColor + '">★ ' + a.score + '/10</span>'
         + '</div>'
         + '<div class="' + (isFirst ? 'featured-title' : 'article-title') + '" style="margin-bottom:5px">' + a.title + '</div>'
@@ -1815,6 +1832,8 @@ async function renderSuggested(autoRefreshCheck) {
 }
 
 function renderSuggestedHeader(area, newCount) {
+  const sources = ['', ...new Set(suggestedArticles.map(a => a.source).filter(Boolean))].sort();
+  const sourceOpts = sources.map(s => '<option value="' + s + '" ' + (suggestedSource===s?'selected':'') + '>' + (s||'All sources') + '</option>').join('');
   const timeFilters = [
     {label:'All time', val:''},
     {label:'Last 24h', val:isoDateDaysAgo(1)},
@@ -1828,6 +1847,7 @@ function renderSuggestedHeader(area, newCount) {
   area.innerHTML = '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid var(--rule);flex-wrap:wrap">'
     + '<select class="filter-select" onchange="suggestedSince=this.value;renderSuggested()" style="font-size:11px">' + timeOpts + '</select>'
     + '<select class="filter-select" onchange="suggestedStatus=this.value;renderSuggested()" style="font-size:11px">' + statusOpts + '</select>'
+    + '<select class="filter-select" onchange="suggestedSource=this.value;renderSuggested()" style="font-size:11px">' + sourceOpts + '</select>'
     + '<input type="date" class="filter-select" style="font-size:11px" value="' + (suggestedSince||'') + '" onchange="suggestedSince=this.value;renderSuggested()">'
     + '<span style="font-size:11px;color:var(--ink-3)">' + suggestedArticles.length + ' articles' + (newCount ? ' · <strong>' + newCount + ' new</strong>' : '') + '</span>'
     + '<button onclick="startSuggestedRefresh(false)" class="btn btn-outline" id="sug-refresh-btn" style="margin-left:auto;font-size:11px;padding:4px 10px">↻ Refresh</button>'
@@ -1914,6 +1934,42 @@ async function dismissSuggested(id) {
   if (card) card.style.opacity = '0.4';
   const art = suggestedArticles.find(a => a.id === id);
   if (art) art.status = 'dismissed';
+
+  // Undo toast — 5 second window
+  const toastEl = document.createElement('div');
+  toastEl.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:var(--ink-1);color:var(--bg-1);padding:10px 16px;border-radius:8px;font-size:13px;display:flex;align-items:center;gap:12px;z-index:9999;box-shadow:0 2px 8px rgba(0,0,0,0.2)';
+  toastEl.innerHTML = '<span>Article dismissed</span><button style="background:none;border:1px solid rgba(255,255,255,0.4);color:inherit;padding:2px 10px;border-radius:4px;cursor:pointer;font-size:12px">Undo</button>';
+  document.body.appendChild(toastEl);
+
+  let undone = false;
+  const undoBtn = toastEl.querySelector('button');
+  const timer = setTimeout(() => { if (!undone) toastEl.remove(); }, 5000);
+
+  undoBtn.addEventListener('click', async () => {
+    undone = true;
+    clearTimeout(timer);
+    toastEl.remove();
+    await fetch(SERVER + '/api/suggested/' + id, {
+      method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({status:'new'})
+    });
+    if (card) card.style.opacity = '1';
+    if (art) art.status = 'new';
+    // Restore dismiss button
+    const btnRow = card ? card.querySelector('div[style*="display:flex"]') : null;
+    if (btnRow && !btnRow.querySelector('[onclick*="dismissSuggested"]')) {
+      const db = document.createElement('button');
+      db.className = 'btn btn-outline';
+      db.style.cssText = 'font-size:11px;padding:4px 10px;color:var(--ink-3)';
+      db.textContent = '✕ Dismiss';
+      db.onclick = () => dismissSuggested(id);
+      btnRow.appendChild(db);
+    }
+    // Increment nav badge
+    const badge = document.getElementById('count-suggested');
+    const cur = parseInt(badge.textContent) || 0;
+    badge.textContent = cur + 1;
+    toast('Dismissal undone');
+  });
 }
 
 async function startSuggestedRefresh(silent) {

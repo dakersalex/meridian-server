@@ -55,6 +55,8 @@ def init_db():
             cx.execute("ALTER TABLE suggested_articles ADD COLUMN status TEXT DEFAULT 'new'")
         if 'reviewed_at' not in existing_cols:
             cx.execute("ALTER TABLE suggested_articles ADD COLUMN reviewed_at INTEGER DEFAULT NULL")
+        if 'pub_date' not in existing_cols:
+            cx.execute("ALTER TABLE suggested_articles ADD COLUMN pub_date TEXT DEFAULT ''")
         cx.execute("""CREATE TABLE IF NOT EXISTS interviews (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             title TEXT NOT NULL,
@@ -1032,6 +1034,20 @@ def scrape_economist_most_read(limit=8):
     log.info(f"Suggested: Economist scraped {len(articles)} articles total")
     return articles
 
+def extract_pub_date_from_url(url):
+    """Extract publication date from URL patterns used by FT, Economist, FA."""
+    import re as _re
+    # Economist: /2026/03/26/
+    m = _re.search(r'/(\d{4})/(\d{2})/(\d{2})/', url)
+    if m:
+        return f"{m.group(3)} {_month_name(int(m.group(2)))} {m.group(1)}"
+    # FT: /content/ URLs don't have dates — skip
+    return ""
+
+def _month_name(n):
+    return ["","January","February","March","April","May","June",
+            "July","August","September","October","November","December"][n]
+
 def scrape_suggested_articles():
     """Scrape FT/Economist via Playwright + Claude web_search for FA and others."""
     import urllib.request, json as _json
@@ -1085,7 +1101,7 @@ def scrape_suggested_articles():
         "\n\n"
         "Use the actual publication name for source field.\n\n"
         "Respond with ONLY a JSON array sorted by score descending:\n"
-        '[{"title":"...","url":"...","source":"...","score":8,"reason":"one sentence why"}]'
+        '[{"title":"...","url":"...","source":"...","score":8,"reason":"one sentence why","pub_date":"26 March 2026 or empty string"}]'
     )
 
     req = None  # placeholder — request built in agentic loop below
@@ -1134,6 +1150,56 @@ def scrape_suggested_articles():
                 seen_urls = set(a['url'] for a in results)
                 playwright_arts = [a for a in ft_results + eco_results
                                    if a['url'] not in saved_urls and a['url'] not in seen_urls]
+                for _pa in playwright_arts:
+                    if not _pa.get("pub_date"):
+                        _pa["pub_date"] = extract_pub_date_from_url(_pa["url"])
+                # Look up pub_dates for any still missing via Claude web search
+                needs_date = [a for a in playwright_arts if not a.get("pub_date")]
+                if needs_date:
+                    try:
+                        date_titles = _json.dumps([{"title": a["title"], "source": a["source"]} for a in needs_date])
+                        date_prompt = ("For each of these articles, find the publication date. "
+                                      "Respond ONLY with a JSON array (same order): "
+                                      '[{"pub_date":"26 March 2026"}] '
+                                      "Use empty string if unknown. Articles: " + date_titles)
+                        date_payload = _json.dumps({
+                            "model": "claude-sonnet-4-20250514",
+                            "max_tokens": 500,
+                            "tools": [{"type": "web_search_20250305", "name": "web_search"}],
+                            "messages": [{"role": "user", "content": date_prompt}]
+                        }).encode()
+                        date_msgs = [{"role": "user", "content": date_prompt}]
+                        for _da in range(4):
+                            date_req = urllib.request.Request(
+                                "https://api.anthropic.com/v1/messages",
+                                data=_json.dumps({
+                                    "model": "claude-sonnet-4-20250514",
+                                    "max_tokens": 500,
+                                    "tools": [{"type": "web_search_20250305", "name": "web_search"}],
+                                    "messages": date_msgs
+                                }).encode(),
+                                headers={"Content-Type":"application/json","x-api-key":api_key,"anthropic-version":"2023-06-01"},
+                                method="POST"
+                            )
+                            with urllib.request.urlopen(date_req, timeout=30) as dr:
+                                date_data = _json.loads(dr.read())
+                            date_msgs.append({"role": "assistant", "content": date_data.get("content", [])})
+                            if date_data.get("stop_reason") == "end_turn":
+                                date_text = "".join(b.get("text","") for b in date_data.get("content",[]) if b.get("type")=="text")
+                                date_match = _re.search(r"\[[\s\S]*\]", date_text)
+                                if date_match:
+                                    dates = _json.loads(date_match.group(0))
+                                    for i, a in enumerate(needs_date):
+                                        if i < len(dates):
+                                            a["pub_date"] = dates[i].get("pub_date", "")
+                                    log.info(f"Suggested: pub_dates fetched for {len(needs_date)} Playwright articles")
+                                break
+                            elif date_data.get("stop_reason") == "tool_use":
+                                tool_results = [{"type":"tool_result","tool_use_id":b["id"],"content":"Search completed."} for b in date_data.get("content",[]) if b.get("type")=="tool_use"]
+                                if tool_results:
+                                    date_msgs.append({"role":"user","content":tool_results})
+                    except Exception as de:
+                        log.warning(f"Suggested: pub_date lookup failed: {de}")
                 if playwright_arts:
                     titles_str = _json.dumps([{"title": a["title"], "source": a["source"]} for a in playwright_arts])
                     score_prompt = ("You are scoring news articles for a senior analyst. Their interests: " + interests_str + ". Score each article 0-10 for relevance to these interests. Be strict - only score 6+ if genuinely relevant. Exclude: lifestyle, sport, celebrity, recipes, quizzes, obituaries." + (" The analyst has dismissed articles about: " + avoid_str + " — score these lower." if avoid_str else "") + " Articles to score: " + titles_str + " Respond ONLY with a JSON array (same order): [{score:8,reason:one sentence why relevant}]")
@@ -1226,9 +1292,9 @@ def save_suggested_snapshot(articles):
             if not url or url in existing_urls:
                 continue
             cx.execute(
-                "INSERT INTO suggested_articles (title,url,source,snapshot_date,score,reason,added_at,status) VALUES (?,?,?,?,?,?,?,'new')",
+                "INSERT INTO suggested_articles (title,url,source,snapshot_date,score,reason,added_at,status,pub_date) VALUES (?,?,?,?,?,?,?,'new',?)",
                 (a.get("title",""), url, a.get("source",""),
-                 snapshot_date, a.get("score",0), a.get("reason",""), now_ts())
+                 snapshot_date, a.get("score",0), a.get("reason",""), now_ts(), a.get("pub_date",""))
             )
             existing_urls.add(url)
             added += 1
@@ -1239,6 +1305,7 @@ def save_suggested_snapshot(articles):
 def get_suggested():
     since = request.args.get("since", "")
     status_filter = request.args.get("status", "")
+    source_filter = request.args.get("source", "")
     with sqlite3.connect(DB_PATH) as cx:
         cx.row_factory = sqlite3.Row
         conditions = []
@@ -1249,9 +1316,18 @@ def get_suggested():
         if status_filter and status_filter != "all":
             conditions.append("status = ?")
             params.append(status_filter)
+        if source_filter:
+            conditions.append("source = ?")
+            params.append(source_filter)
+        # Sync status for any suggested articles whose URL is now in Feed
+        cx.execute("""UPDATE suggested_articles SET status='saved'
+            WHERE status NOT IN ('saved','dismissed')
+            AND url IN (SELECT url FROM articles WHERE url!='')""")
+        # Always exclude saved articles from UI — they are already in Feed
+        conditions.append("status != 'saved'")
         where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
         rows = cx.execute(
-            f"SELECT * FROM suggested_articles {where} ORDER BY added_at DESC",
+            f"SELECT * FROM suggested_articles {where} ORDER BY score DESC, added_at DESC",
             params
         ).fetchall()
         new_count = cx.execute("SELECT COUNT(*) FROM suggested_articles WHERE status='new'").fetchone()[0]
