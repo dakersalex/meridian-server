@@ -224,9 +224,14 @@ Notes:
 - FT title_only: picked up by next regular FT sync (headless Playwright profile limitation)
 
 ## Next session
-- "Not interested" negative signal: feed dismissed suggested articles into Claude scoring prompt
 - Autonomous reading agent: learn from saved articles, auto-save high-scoring to Feed
 - FT title_only articles: investigate why headless ft_profile fetch fails
+
+## Negative signal (added session 4)
+- Dismissed suggested articles feed into Claude scoring prompt
+- Builds avoid_str from topics/tags of dismissed articles (top 10 by frequency)
+- Passed into both web search prompt and FT/Economist scoring prompt
+- No dismissed articles yet — will activate automatically as you dismiss content
 
 ### 26 March 2026 (Session 3)
 
