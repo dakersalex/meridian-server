@@ -1,34 +1,70 @@
 # Meridian — Technical Notes
-Last updated: 26 March 2026 (Session 5)
+Last updated: 26 March 2026 (Session 6)
 
 ## Overview
-Personal news aggregator running locally on MacBook Air M1.
-Scrapes FT, Economist, Foreign Affairs. Stores in SQLite. Web UI with AI analysis.
+Personal news aggregator. Flask API + SQLite backend now running on Hetzner VPS (always-on).
+Frontend served via nginx. Accessible from anywhere at http://204.168.179.158/meridian.html
 
-## File Locations
-- ~/meridian-server/server.py         — Flask API (port 4242)
-- ~/meridian-server/meridian.html     — Main frontend
-- ~/meridian-server/settings.html     — Cookie management
-- ~/meridian-server/meridian.db       — SQLite database
-- ~/meridian-server/credentials.json  — Anthropic API key
-- ~/meridian-server/cookies.json      — Publication session cookies
+## Infrastructure
+- VPS: Hetzner CPX22, Helsinki, €7/mo (incl. backups)
+- IP: 204.168.179.158
+- OS: Ubuntu 24.04
+- SSH: ssh root@204.168.179.158 (key: ~/.ssh/id_ed25519)
+- Flask service: systemd (auto-starts, auto-restarts)
+- HTTP: nginx on port 80
+- GitHub: https://github.com/dakersalex/meridian-server (private)
+
+## File Locations (VPS)
+- /opt/meridian-server/server.py       — Flask API (port 4242)
+- /opt/meridian-server/meridian.html   — Main frontend
+- /opt/meridian-server/meridian.db     — SQLite database
+- /opt/meridian-server/credentials.json — Anthropic API key
+- /opt/meridian-server/venv/           — Python virtualenv (not in git)
+
+## File Locations (Mac — local dev only)
+- ~/meridian-server/server.py          — Flask API
+- ~/meridian-server/meridian.html      — Main frontend
+- ~/meridian-server/meridian.db        — Local database (not synced to VPS)
+- ~/meridian-server/credentials.json   — Anthropic API key
+- ~/meridian-server/cookies.json       — Publication session cookies
 - ~/meridian-server/newsletter_sync.py — iCloud IMAP newsletter poller
-- ~/meridian-server/extension/        — Chrome extension v1.3
-- ~/meridian-server/logs/             — Server and sync logs
-- ~/Library/LaunchAgents/com.alexdakers.meridian.plist       — Auto-start Flask server
-- ~/Library/LaunchAgents/com.alexdakers.meridian.http.plist  — Auto-start HTTP server
-- ~/Library/LaunchAgents/com.alexdakers.meridian.sync.plist  — Auto-start sync
+- ~/meridian-server/extension/         — Chrome extension v1.3
+- ~/meridian-server/logs/              — Server and sync logs
+- ~/Library/LaunchAgents/com.alexdakers.meridian.plist       — Auto-start Flask (Mac)
+- ~/Library/LaunchAgents/com.alexdakers.meridian.http.plist  — Auto-start HTTP (Mac)
+- ~/Library/LaunchAgents/com.alexdakers.meridian.sync.plist  — Auto-start sync (Mac)
 
 ## Daily Use
-Both servers auto-start on login via launchd. Just open:
+Open in browser (any device, any network):
+http://204.168.179.158/meridian.html
+
+Mac local (if needed):
 http://localhost:8080/meridian.html
 
-If server is down: curl http://localhost:4242/api/health
-Restart Flask: launchctl unload ~/Library/LaunchAgents/com.alexdakers.meridian.plist && launchctl load ~/Library/LaunchAgents/com.alexdakers.meridian.plist
-Restart HTTP: launchctl unload ~/Library/LaunchAgents/com.alexdakers.meridian.http.plist && launchctl load ~/Library/LaunchAgents/com.alexdakers.meridian.http.plist
-Manual start: python3 ~/meridian-server/server.py (Tab 1), cd ~/meridian-server && python3 -m http.server 8080 (Tab 2)
+## VPS Management
+SSH in: ssh root@204.168.179.158
+Check Flask: systemctl status meridian
+Restart Flask: systemctl restart meridian
+Check nginx: systemctl status nginx
+Restart nginx: systemctl restart nginx
+View logs: journalctl -u meridian -f
 
-## Database (26 March 2026, end of day)
+## Deploying Code Updates
+On Mac:
+  cd ~/meridian-server
+  git add -A && git commit -m "description" && git push
+
+On VPS (Tab 1 SSH):
+  cd /opt/meridian-server
+  git pull
+  systemctl restart meridian
+
+## GitHub
+Repo: https://github.com/dakersalex/meridian-server (private)
+Token stored in Mac keychain (credential.helper osxkeychain)
+Sensitive files excluded: credentials.json, cookies.json, meridian.db, newsletter_sync.py, venv/, *.wav, *.mp4
+
+## Database (26 March 2026)
 Total: ~292 articles
 - Financial Times: 122 (119 full_text)
 - The Economist: 86 (all full_text)
@@ -37,11 +73,12 @@ Total: ~292 articles
 - Other (CNN, Atlantic Council, Foreign Policy, CFR, Al Jazeera, NPR): 6
 
 ## Syncing
+Note: Playwright scrapers still run on Mac via launchd (browser profiles not yet on VPS)
 FT: Auto-syncs every 6h via launchd using Playwright + persistent profile (ft_profile/)
 Economist: Auto-syncs every 6h via launchd using Playwright + persistent profile
 Foreign Affairs: Auto-syncs every 6h via launchd using Playwright + fa_profile/
 All quiet hours 1-6am.
-Sync All button fires all 3 scrapers in parallel, then runs enrich_title_only_articles() on completion.
+Sync All button fires all 3 scrapers in parallel, then runs enrich_title_only_articles().
 
 ## Newsletter Pipeline
 - iCloud alias: meridian.newsletters@icloud.com
@@ -50,22 +87,19 @@ Sync All button fires all 3 scrapers in parallel, then runs enrich_title_only_ar
 - iCloud requires BODY[] not RFC822 for fetch
 - Stores in newsletters DB table: source, subject, body_html, body_text, received_at
 - Flask route: /api/newsletters/sync (POST)
-- Manual sync: curl -s http://localhost:4242/api/newsletters/sync -X POST
+- Manual sync: curl -s http://204.168.179.158:4242/api/newsletters/sync -X POST
 
 ## Title-only Enrichment
 - enrich_title_only_articles() runs after every Sync All
 - FT/Economist: uses logged-in Playwright profiles (ft_profile, economist_profile)
 - Foreign Affairs: uses fa_profile
-- Other sources (CNN, Atlantic Council, CFR etc): generic BeautifulSoup scrape, no login
-- _save_enriched_article() saves enriched fields + status=full_text back to DB
+- Other sources: generic BeautifulSoup scrape, no login
 - Routes: POST /api/enrich-title-only, GET /api/enrich-title-only/status
-- FT title_only: headless Playwright unreliable — picked up by next regular FT sync
 
 ## Interviews & Briefings Tab
 - DB table: interviews (id, title, url, source, published_date, added_date, duration_seconds, transcript, summary, speaker_bio, status, thumbnail_url)
 - Status states: pending / needs_recording / transcribed / summarised
 - Flask routes: GET /api/interviews, POST /api/interviews, PATCH /api/interviews/<id>, DELETE /api/interviews/<id>, POST /api/interviews/fetch-meta
-- UI: tab after Newsletters, feed-style cards, detail view with thumbnail + speaker bio
 - Speaker bio auto-generated by Claude on save
 - Summary generated on demand via ✦ Generate summary button
 - First entry: Sir Alex Younger, Inside Defence, Economist, 44m 57s, 7,740 words, summarised
@@ -77,10 +111,11 @@ Sync All button fires all 3 scrapers in parallel, then runs enrich_title_only_ar
 ### Economist DRM workaround (confirmed working):
 1. Open article in Chrome, start playing video
 2. DevTools → Network tab → filter "mp4"
-3. Find rendition.m3u8?fastly_token=... request → Right-click → Copy URL (token expires fast)
+3. Find rendition.m3u8?fastly_token=... → Right-click → Copy URL (token expires fast)
 4. Download: ~/Library/Python/3.9/bin/yt-dlp "M3U8_URL" -o ~/meridian-server/interview.mp4
 5. Convert: ffmpeg -i interview.mp4 -vn -acodec pcm_s16le -ar 16000 -ac 1 interview.wav
 6. Transcribe: ~/Library/Python/3.9/bin/whisper interview.wav --model small --language en --output_dir ~/meridian-server/ --output_format txt --verbose True
+7. Auto-cleanup: audio files deleted automatically after transcript saved to DB
 
 ### Whisper notes:
 - Use --model small (medium stalled on Python 3.9)
@@ -105,11 +140,6 @@ Sync All button fires all 3 scrapers in parallel, then runs enrich_title_only_ar
 - Negative signal: dismissed article topics fed into scoring prompt as avoid_str
 - Only articles scoring 6+ shown
 
-### Pub dates
-- Economist: extracted from URL pattern /YYYY/MM/DD/
-- Web search results: Claude returns pub_date in JSON
-- FT/other Playwright: Claude web search lookup (30s delay after main search to avoid 429)
-
 ### Refresh flow
 1. Playwright scrapes FT + Economist in parallel threads (~10s)
 2. Claude web search agentic loop (~40s, up to 6 roundtrips)
@@ -120,15 +150,6 @@ Sync All button fires all 3 scrapers in parallel, then runs enrich_title_only_ar
 7. Save new articles (URL dedup)
 Total: ~2 minutes
 
-### UI
-- Filters: time (all/24h/7d/30d/custom date), status (all/new/dismissed), source (dynamic)
-- Cards: checkbox, source, pub_date, status pill, score, reason, Open/Save/Dismiss buttons
-- Dismissed: greyed out, red pill, inline ↺ undo button
-- Undo toast: 5 second window on dismiss
-- Bulk actions: select all, mark as new, dismiss, delete (with confirm)
-- Polling refresh (3s) replaces fixed wait
-- Auto-refresh on tab open if last fetch >24h ago
-
 ### Flask routes
 - GET /api/suggested — accepts since=, status=, source= params
 - POST /api/suggested/refresh
@@ -136,31 +157,38 @@ Total: ~2 minutes
 - PATCH /api/suggested/<id>
 - POST /api/suggested/bulk-delete
 
-### Known issues
-- Economist Playwright returning 0 articles intermittently — selector fragile
-- 429 rate limits hit during heavy development use (normal daily use fine — Tier 1, 50 req/min)
-- avoid_str NameError was causing silent refresh failure — fixed 26 Mar
-
 ## AI Analysis
 - Includes interviews in context (summary + transcript excerpt)
 - Interest profile built from saved article topics/tags
 
-## Next Session
-1. Autonomous reading agent — learn from saved articles, auto-save ≥8/10 to Feed, review queue for 6-7
-2. Economist Playwright selector — investigate why returning 0 intermittently
-3. Test pub_dates on fresh articles after rate limit fixes
+## Next Steps
+1. Domain name — point to 204.168.179.158 (Namecheap, ~$10/year)
+2. HTTPS — Let's Encrypt once domain is live (required for PWA)
+3. iPad PWA — manifest.json + service worker once HTTPS is live
+4. Deploy script — git pull + systemctl restart in one command
+5. Playwright on VPS — migrate browser profiles for server-side scraping
+6. Autonomous reading agent — auto-save ≥8/10 articles to Feed
+7. Economist Playwright selector — investigate 0 articles intermittently
 
 ## Build History
+### 26 March 2026 (Session 6)
+- GitHub repo created (private): dakersalex/meridian-server
+- Sensitive files excluded from git: credentials.json, cookies.json, meridian.db, newsletter_sync.py, venv/
+- Hetzner VPS provisioned: CPX22, Helsinki, Ubuntu 24.04, €7/mo
+- Flask migrated to VPS, running as systemd service
+- nginx installed, serving meridian.html on port 80
+- SERVER constant updated to VPS IP (204.168.179.158:4242)
+- Meridian accessible from any network at http://204.168.179.158/meridian.html
+- younger_economist.wav, younger_interview.mp4, younger_interview.wav deleted from Mac
+
 ### 26 March 2026 (Sessions 1-5)
 - Interviews & Briefings tab: built and live
 - Suggested Articles: complete rebuild (inbox model, status tracking, Claude scoring, filters, bulk actions)
 - Title-only enrichment: embedded in Sync All, generic scrape for open-access sources
 - Negative signal: dismissed articles feed into Claude scoring
-- Economist selector hardening: strict path validation, 3-URL fallback
-- Pub_date on suggested cards
+- Economist selector hardening, pub_date on suggested cards
 - Dismissed card UI: grey opacity, red pill, inline undo
-- Source filter on Suggested tab
-- avoid_str NameError fix — suggested refresh now reliable
+- Source filter on Suggested tab, avoid_str NameError fix
 - Rate limit delays (30s) between API calls
 
 ### 25 March 2026
