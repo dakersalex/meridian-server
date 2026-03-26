@@ -212,6 +212,33 @@ Notes:
 - First entry: Sir Alex Younger, Inside Defence, Economist, 44m 57s, 7,740 words, summarised
 - younger_economist.wav (1.1GB failed BlackHole recording) — safe to delete
 
+### 26 March 2026 (Session 5)
+
+## Suggested Articles — further improvements
+- Pub_date added to suggested_articles table
+- Pub_date extracted from Economist URLs (/YYYY/MM/DD/ pattern)
+- Claude web search returns pub_date in JSON for web search results
+- Playwright articles: Claude web search lookup for missing pub_dates
+- Pub_date shown on suggested cards next to source name
+- Dismissed cards: grey opacity, red pill, inline ↺ undo button
+- Undo toast on dismiss: 5 second window to undo
+- undismissSuggested(): restores status to new, re-enables card
+- Source filter added to Suggested tab (dynamic from articles in DB)
+- Saved articles excluded from Suggested view (already in Feed)
+- Status synced: suggested articles whose URL is in Feed auto-marked saved
+- Default filter changed to New (not All)
+- Status filter simplified to All/New/Dismissed
+- Source names shortened in Sources panel (CFR, Al Jazeera etc)
+- Score ordering fixed: score DESC, added_at DESC
+- Negative signal: dismissed articles feed into Claude scoring prompt
+- Economist selector hardened: strict path validation, 3-URL fallback chain
+- Claude scoring 429 retry with 10s backoff
+
+## Known issues
+- Claude API rate limits hit after heavy usage — suggested refresh may silently fail
+- Pub_date backfill for existing articles failed due to rate limits — will populate on next refresh
+- FT title_only articles: headless Playwright fetch unreliable, picked up by next sync
+
 ### 26 March 2026 (Session 4)
 
 ## Suggested Articles — further improvements
