@@ -1,15 +1,34 @@
-meridian.db
+# Sensitive files - never upload these
 credentials.json
 cookies.json
+meridian.db
+newsletter_sync.py
+
+# Playwright browser profiles (large, not needed on server)
+ft_profile/
+economist_profile/
+fa_profile/
+
+# Audio/video files
 *.wav
 *.mp4
 *.m4a
-*_profile/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Logs
 logs/
+
+# macOS
+.DS_Store
+
+# Bloomberg profile
+bloomberg_profile/
+
+# Log files
+*.log
 meridian.log
 newsletter_poller.log
-__pycache__/
-.DS_Store
-younger_interview.txt
-younger_interview.wav
-younger_interview.mp4
