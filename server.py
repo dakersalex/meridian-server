@@ -1080,7 +1080,9 @@ def scrape_suggested_articles():
         "(Foreign Affairs, Foreign Policy, Atlantic Council, Brookings, RAND, CFR, major newspapers). "
         "You MUST attempt ALL THREE searches.\n\n"
         "Scoring: 1-10 relevance to analyst interests. "
-        "Exclude: news briefs, quizzes, recipes, lifestyle, sport, obituaries.\n\n"
+        "Exclude: news briefs, quizzes, recipes, lifestyle, sport, obituaries." +
+        (" Analyst has explicitly dismissed articles about: " + avoid_str + " — score these topics lower." if avoid_str else "") +
+        "\n\n"
         "Use the actual publication name for source field.\n\n"
         "Respond with ONLY a JSON array sorted by score descending:\n"
         '[{"title":"...","url":"...","source":"...","score":8,"reason":"one sentence why"}]'
@@ -1134,7 +1136,7 @@ def scrape_suggested_articles():
                                    if a['url'] not in saved_urls and a['url'] not in seen_urls]
                 if playwright_arts:
                     titles_str = _json.dumps([{"title": a["title"], "source": a["source"]} for a in playwright_arts])
-                    score_prompt = ("You are scoring news articles for a senior analyst. Their interests: " + interests_str + ". Score each article 0-10 for relevance to these interests. Be strict - only score 6+ if genuinely relevant. Exclude: lifestyle, sport, celebrity, recipes, quizzes, obituaries. Articles to score: " + titles_str + " Respond ONLY with a JSON array (same order): [{score:8,reason:one sentence why relevant}]")
+                    score_prompt = ("You are scoring news articles for a senior analyst. Their interests: " + interests_str + ". Score each article 0-10 for relevance to these interests. Be strict - only score 6+ if genuinely relevant. Exclude: lifestyle, sport, celebrity, recipes, quizzes, obituaries." + (" The analyst has dismissed articles about: " + avoid_str + " — score these lower." if avoid_str else "") + " Articles to score: " + titles_str + " Respond ONLY with a JSON array (same order): [{score:8,reason:one sentence why relevant}]")
                     try:
                         score_payload = _json.dumps({
                             "model": "claude-sonnet-4-20250514",
