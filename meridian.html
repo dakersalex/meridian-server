@@ -726,7 +726,7 @@ function setView(view,el){currentView=view;currentFolder=null;document.querySele
   if(addIvBtn)addIvBtn.style.display=(view==='interviews'?'':'none');
   if(view==='newsletters'){renderNewsletters();}
   else if(view==='interviews'){const controls=document.querySelector('.feed-controls');const counter=document.getElementById('feed-counter');if(controls)controls.style.display='none';if(counter)counter.style.display='none';renderInterviews();}
-  else if(view==='suggested'){const controls=document.querySelector('.feed-controls');const counter=document.getElementById('feed-counter');if(controls)controls.style.display='none';if(counter)counter.style.display='none';renderSuggested();}
+  else if(view==='suggested'){const controls=document.querySelector('.feed-controls');const counter=document.getElementById('feed-counter');if(controls)controls.style.display='none';if(counter)counter.style.display='none';renderSuggested(true);}
   else{const controls=document.querySelector('.feed-controls');const counter=document.getElementById('feed-counter');if(controls)controls.style.display='';if(counter)counter.style.display='';renderFeed();}}
 function setFolderView(folderId,el){currentView='folder';currentFolder=folderId;document.querySelectorAll('.nav-tab').forEach(t=>t.classList.remove('active'));if(el)el.classList.add('active');closeDetail();renderFeed();}
 
@@ -1737,100 +1737,214 @@ async function generateInterviewSummary(id) {
 
 
 // ── SUGGESTED ARTICLES ───────────────────────────────────────────────────────
+// ── Suggested Articles ────────────────────────────────────────────────────────
 let suggestedArticles = [];
-let suggestedDate = '';
+let suggestedSince = '';
+let suggestedStatus = 'all';
+let suggestedChecked = new Set();
+let suggestedRefreshPoller = null;
 
-async function renderSuggested() {
+function isoDateDaysAgo(n) {
+  const d = new Date();
+  d.setDate(d.getDate() - n);
+  return d.toISOString().slice(0,10);
+}
+
+async function renderSuggested(autoRefreshCheck) {
   const area = document.getElementById('feed-content');
   area.innerHTML = '<div style="padding:20px;color:var(--ink-3)">Loading suggestions…</div>';
-
+  suggestedChecked.clear();
   try {
-    const dateParam = suggestedDate ? '?date=' + suggestedDate : '';
-    const r = await fetch(SERVER + '/api/suggested' + dateParam);
+    let params = '';
+    if (suggestedSince) params += '&since=' + suggestedSince;
+    if (suggestedStatus !== 'all') params += '&status=' + suggestedStatus;
+    const r = await fetch(SERVER + '/api/suggested?' + params);
     const d = await r.json();
     suggestedArticles = d.articles || [];
-    suggestedDate = d.date || '';
-    const availDates = d.available_dates || [];
-    document.getElementById('count-suggested').textContent = suggestedArticles.length;
-
-    renderSuggestedHeader(availDates, area);
-
+    const newCount = d.new_count || 0;
+    const lastAddedTs = d.last_added_ts || 0;
+    document.getElementById('count-suggested').textContent = newCount || '';
+    if (autoRefreshCheck && lastAddedTs && (Date.now()/1000 - lastAddedTs) > 86400) {
+      startSuggestedRefresh(true);
+    }
+    renderSuggestedHeader(area, newCount);
     if (!suggestedArticles.length) {
-      area.innerHTML += `<div class="empty-state">
-        <div class="empty-title">No suggestions yet</div>
-        <div class="empty-sub">Click <strong>Refresh</strong> to find articles matching your interests.</div>
-      </div>`;
+      area.innerHTML += '<div class="empty-state"><div class="empty-title">No suggestions</div><div class="empty-sub">Click <strong>Refresh</strong> to find articles matching your interests.</div></div>';
       return;
     }
-
-    // Build set of already-saved URLs for quick lookup
     const savedUrlSet = new Set(articles.map(a => a.url).filter(Boolean));
-
     const cards = suggestedArticles.map((a, i) => {
       const srcColor = a.source === 'Financial Times' ? '#0d4a8a' : a.source === 'The Economist' ? '#8b1a1a' : '#1e4d8c';
       const scoreColor = a.score >= 9 ? 'var(--green)' : a.score >= 7 ? 'var(--accent)' : 'var(--ink-3)';
-      const isFirst = i === 0;
-      const alreadySaved = savedUrlSet.has(a.url);
+      const isFirst = i === 0 && suggestedStatus === 'all' && !suggestedSince;
+      const alreadySaved = savedUrlSet.has(a.url) || a.status === 'saved';
+      const statusPill = a.status === 'new'
+        ? '<span style="font-size:10px;padding:2px 7px;border-radius:10px;background:var(--accent);color:#fff;font-weight:600;margin-left:6px">NEW</span>'
+        : a.status === 'reviewed'
+        ? '<span style="font-size:10px;padding:2px 7px;border-radius:10px;background:var(--ink-3);color:#fff;margin-left:6px">reviewed</span>'
+        : a.status === 'dismissed'
+        ? '<span style="font-size:10px;padding:2px 7px;border-radius:10px;background:var(--red);color:#fff;margin-left:6px">dismissed</span>'
+        : '';
       const saveBtn = alreadySaved
-        ? `<span style="font-size:11px;padding:4px 10px;color:var(--green);font-weight:500">✓ Already in Feed</span>`
-        : `<button onclick="saveFromSuggested(${a.id},'${a.url.replace(/'/g,"\'")}','${a.title.replace(/'/g,"\'")}','${a.source}')"
-            class="btn btn-dark" style="font-size:11px;padding:4px 10px" id="save-sug-${a.id}">+ Save to Feed</button>`;
-      return `<div class="${isFirst ? 'featured-card' : 'article-card'}" style="position:relative;padding-top:16px">
-        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px">
-          <div style="flex:1">
-            <div class="article-meta" style="margin-bottom:6px">
-              <span style="font-size:11px;font-weight:600;color:${srcColor}">${a.source}</span>
-              <span style="margin-left:auto;font-size:11px;font-weight:500;color:${scoreColor}">★ ${a.score}/10</span>
-            </div>
-            <div class="${isFirst ? 'featured-title' : 'article-title'}" style="margin-bottom:6px">${a.title}</div>
-            <div class="${isFirst ? 'featured-summary' : 'article-summary'}" style="margin-bottom:10px">${a.reason}</div>
-            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-              <a href="${a.url}" target="_blank" class="btn btn-outline" style="font-size:11px;padding:4px 10px;text-decoration:none">↗ Open article</a>
-              ${saveBtn}
-            </div>
-          </div>
-        </div>
-      </div>`;
+        ? '<span style="font-size:11px;padding:4px 10px;color:var(--green);font-weight:500">✓ In Feed</span>'
+        : '<button onclick="saveFromSuggested(' + a.id + ',\'' + a.url.replace(/'/g,"\\'") + '\',\'' + a.title.replace(/'/g,"\\'") + '\',\'' + a.source + '\')" class="btn btn-dark" style="font-size:11px;padding:4px 10px" id="save-sug-' + a.id + '">+ Save to Feed</button>';
+      const dismissBtn = a.status !== 'dismissed'
+        ? '<button onclick="dismissSuggested(' + a.id + ')" class="btn btn-outline" style="font-size:11px;padding:4px 10px;color:var(--ink-3)">✕ Dismiss</button>'
+        : '';
+      return '<div class="' + (isFirst ? 'featured-card' : 'article-card') + '" style="position:relative;padding-top:14px" id="sug-card-' + a.id + '">'
+        + '<div style="display:flex;align-items:flex-start;gap:10px">'
+        + '<input type="checkbox" style="margin-top:4px;flex-shrink:0;cursor:pointer" onchange="toggleSuggestedCheck(' + a.id + ',this.checked)" id="sug-chk-' + a.id + '">'
+        + '<div style="flex:1">'
+        + '<div class="article-meta" style="margin-bottom:5px">'
+        + '<span style="font-size:11px;font-weight:600;color:' + srcColor + '">' + a.source + '</span>'
+        + statusPill
+        + '<span style="margin-left:auto;font-size:11px;font-weight:500;color:' + scoreColor + '">★ ' + a.score + '/10</span>'
+        + '</div>'
+        + '<div class="' + (isFirst ? 'featured-title' : 'article-title') + '" style="margin-bottom:5px">' + a.title + '</div>'
+        + '<div class="' + (isFirst ? 'featured-summary' : 'article-summary') + '" style="margin-bottom:8px">' + a.reason + '</div>'
+        + '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">'
+        + '<a href="' + a.url + '" target="_blank" class="btn btn-outline" style="font-size:11px;padding:4px 10px;text-decoration:none" onclick="markSuggestedReviewed(' + a.id + ')">↗ Open article</a>'
+        + saveBtn + dismissBtn
+        + '</div></div></div></div>';
     }).join('');
-
     area.innerHTML += cards;
-
+    renderBulkBar();
   } catch(e) {
     area.innerHTML = '<div style="padding:20px;color:var(--red)">Error loading suggestions: ' + e.message + '</div>';
   }
 }
 
-function renderSuggestedHeader(availDates, area) {
-  const dateOpts = availDates.map(d =>
-    `<option value="${d}" ${d === suggestedDate ? 'selected' : ''}>${d}</option>`
+function renderSuggestedHeader(area, newCount) {
+  const timeFilters = [
+    {label:'All time', val:''},
+    {label:'Last 24h', val:isoDateDaysAgo(1)},
+    {label:'Last 7 days', val:isoDateDaysAgo(7)},
+    {label:'Last 30 days', val:isoDateDaysAgo(30)},
+  ];
+  const timeOpts = timeFilters.map(f => '<option value="' + f.val + '" ' + (suggestedSince===f.val?'selected':'') + '>' + f.label + '</option>').join('');
+  const statusOpts = ['all','new','reviewed','saved','dismissed'].map(s =>
+    '<option value="' + s + '" ' + (suggestedStatus===s?'selected':'') + '>' + s.charAt(0).toUpperCase()+s.slice(1) + '</option>'
   ).join('');
-
-  const header = `<div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;padding-bottom:10px;border-bottom:1px solid var(--rule);flex-wrap:wrap">
-    <span style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--ink-3)">Suggested for</span>
-    ${availDates.length > 1
-      ? `<select class="filter-select" onchange="suggestedDate=this.value;renderSuggested()">${dateOpts}</select>`
-      : `<span style="font-size:12px;color:var(--ink-2)">${suggestedDate}</span>`}
-    <span style="font-size:11px;color:var(--ink-3);margin-left:4px">${suggestedArticles.length} articles matched your interests</span>
-    <button onclick="refreshSuggested(this)" class="btn btn-outline" style="margin-left:auto;font-size:11px;padding:4px 10px">↻ Refresh</button>
-  </div>`;
-
-  area.innerHTML = header;
+  area.innerHTML = '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid var(--rule);flex-wrap:wrap">'
+    + '<select class="filter-select" onchange="suggestedSince=this.value;renderSuggested()" style="font-size:11px">' + timeOpts + '</select>'
+    + '<select class="filter-select" onchange="suggestedStatus=this.value;renderSuggested()" style="font-size:11px">' + statusOpts + '</select>'
+    + '<input type="date" class="filter-select" style="font-size:11px" value="' + (suggestedSince||'') + '" onchange="suggestedSince=this.value;renderSuggested()">'
+    + '<span style="font-size:11px;color:var(--ink-3)">' + suggestedArticles.length + ' articles' + (newCount ? ' · <strong>' + newCount + ' new</strong>' : '') + '</span>'
+    + '<button onclick="startSuggestedRefresh(false)" class="btn btn-outline" id="sug-refresh-btn" style="margin-left:auto;font-size:11px;padding:4px 10px">↻ Refresh</button>'
+    + '</div>'
+    + '<div id="sug-bulk-bar" style="display:none;align-items:center;gap:8px;margin-bottom:10px;padding:8px 12px;background:var(--bg-2);border-radius:8px;flex-wrap:wrap">'
+    + '<span id="sug-bulk-count" style="font-size:12px;color:var(--ink-2)">0 selected</span>'
+    + '<button onclick="selectAllSuggested()" class="btn btn-outline" style="font-size:11px;padding:3px 8px">Select all</button>'
+    + '<button onclick="bulkSuggestedAction(\'new\')" class="btn btn-outline" style="font-size:11px;padding:3px 8px">Mark as new</button>'
+    + '<button onclick="bulkSuggestedAction(\'dismissed\')" class="btn btn-outline" style="font-size:11px;padding:3px 8px">Dismiss</button>'
+    + '<button onclick="bulkSuggestedDelete()" class="btn btn-outline" style="font-size:11px;padding:3px 8px;color:var(--red)">Delete</button>'
+    + '</div>';
 }
 
-async function refreshSuggested(btn) {
-  const orig = btn.textContent;
-  btn.disabled = true; btn.textContent = '↻ Refreshing…';
+function toggleSuggestedCheck(id, checked) {
+  if (checked) suggestedChecked.add(id); else suggestedChecked.delete(id);
+  renderBulkBar();
+}
+
+function renderBulkBar() {
+  const bar = document.getElementById('sug-bulk-bar');
+  const cnt = document.getElementById('sug-bulk-count');
+  if (!bar) return;
+  bar.style.display = suggestedChecked.size > 0 ? 'flex' : 'none';
+  if (cnt) cnt.textContent = suggestedChecked.size + ' selected';
+}
+
+function selectAllSuggested() {
+  suggestedArticles.forEach(a => {
+    suggestedChecked.add(a.id);
+    const chk = document.getElementById('sug-chk-' + a.id);
+    if (chk) chk.checked = true;
+  });
+  renderBulkBar();
+}
+
+async function bulkSuggestedAction(status) {
+  const ids = [...suggestedChecked];
+  await Promise.all(ids.map(id => fetch(SERVER + '/api/suggested/' + id, {
+    method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({status})
+  })));
+  suggestedChecked.clear();
+  renderSuggested();
+}
+
+async function bulkSuggestedDelete() {
+  const ids = [...suggestedChecked];
+  if (!ids.length) return;
+  if (!confirm('Delete ' + ids.length + ' article' + (ids.length>1?'s':'') + '? This cannot be undone.')) return;
+  await fetch(SERVER + '/api/suggested/bulk-delete', {
+    method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ids})
+  });
+  suggestedChecked.clear();
+  renderSuggested();
+}
+
+async function markSuggestedReviewed(id) {
+  const art = suggestedArticles.find(a => a.id === id);
+  if (!art || art.status !== 'new') return;
+  art.status = 'reviewed';
+  await fetch(SERVER + '/api/suggested/' + id, {
+    method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({status:'reviewed'})
+  });
+  // Update pill in place
+  const card = document.getElementById('sug-card-' + id);
+  if (card) {
+    const pill = card.querySelector('span[style*="border-radius:10px"]');
+    if (pill) {
+      pill.textContent = 'reviewed';
+      pill.style.background = 'var(--ink-3)';
+      pill.style.fontWeight = '';
+    }
+  }
+  // Decrement nav badge
+  const badge = document.getElementById('count-suggested');
+  const cur = parseInt(badge.textContent) || 0;
+  if (cur > 0) badge.textContent = cur - 1 || '';
+}
+
+async function dismissSuggested(id) {
+  await fetch(SERVER + '/api/suggested/' + id, {
+    method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({status:'dismissed'})
+  });
+  const card = document.getElementById('sug-card-' + id);
+  if (card) card.style.opacity = '0.4';
+  const art = suggestedArticles.find(a => a.id === id);
+  if (art) art.status = 'dismissed';
+}
+
+async function startSuggestedRefresh(silent) {
+  const btn = document.getElementById('sug-refresh-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '↻ Checking…'; }
+  if (!silent) toast('Finding articles — this takes ~45 seconds…');
   try {
     await fetch(SERVER + '/api/suggested/refresh', { method: 'POST' });
-    toast('Finding articles — this takes ~45 seconds…');
-    setTimeout(async () => {
-      await renderSuggested();
-      btn.textContent = orig; btn.disabled = false;
-    }, 50000);
   } catch(e) {
-    toast('Refresh failed: ' + e.message);
-    btn.textContent = orig; btn.disabled = false;
+    if (!silent) toast('Refresh failed: ' + e.message);
+    if (btn) { btn.disabled = false; btn.textContent = '↻ Refresh'; }
+    return;
   }
+  if (suggestedRefreshPoller) clearInterval(suggestedRefreshPoller);
+  suggestedRefreshPoller = setInterval(async () => {
+    try {
+      const rs = await fetch(SERVER + '/api/suggested/status');
+      const ds = await rs.json();
+      if (!ds.running) {
+        clearInterval(suggestedRefreshPoller);
+        suggestedRefreshPoller = null;
+        if (btn) { btn.disabled = false; btn.textContent = '↻ Refresh'; }
+        await renderSuggested();
+        if (!silent) toast('Suggestions updated');
+      }
+    } catch(e) {
+      clearInterval(suggestedRefreshPoller);
+      suggestedRefreshPoller = null;
+      if (btn) { btn.disabled = false; btn.textContent = '↻ Refresh'; }
+    }
+  }, 3000);
 }
 
 async function saveFromSuggested(id, url, title, source) {
@@ -1844,15 +1958,18 @@ async function saveFromSuggested(id, url, title, source) {
     });
     const d = await r.json();
     if (d.ok) {
-      // Replace button with saved indicator immediately
       if (btn) {
         const span = document.createElement('span');
         span.style.cssText = 'font-size:11px;padding:4px 10px;color:var(--green);font-weight:500';
-        span.textContent = '✓ Already in Feed';
+        span.textContent = '✓ In Feed';
         btn.replaceWith(span);
       }
-      toast('"' + title.slice(0, 40) + '…" saved to Feed');
-      await loadFromServer();
+      await fetch(SERVER + '/api/suggested/' + id, {
+        method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({status:'saved'})
+      });
+      toast('"' + title.slice(0,40) + '…" saved to Feed');
+      // Reload articles in background without switching view
+      fetch(SERVER + '/api/articles?limit=2000').then(r=>r.json()).then(d=>{ articles = d.articles || []; }).catch(()=>{});
     }
   } catch(e) {
     if (btn) { btn.disabled = false; btn.textContent = '+ Save to Feed'; }
@@ -1864,7 +1981,7 @@ async function loadSuggestedCount() {
   try {
     const r = await fetch(SERVER + '/api/suggested');
     const d = await r.json();
-    document.getElementById('count-suggested').textContent = (d.articles || []).length;
+    document.getElementById('count-suggested').textContent = d.new_count || '';
   } catch(e) {}
 }
 async function updateActivityBar() {

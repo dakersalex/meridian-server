@@ -49,7 +49,12 @@ def init_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT, source TEXT,
             started_at INTEGER, finished_at INTEGER,
             articles_found INTEGER DEFAULT 0, articles_new INTEGER DEFAULT 0, error TEXT)""")
-        cx.execute("""CREATE TABLE IF NOT EXISTS suggested_articles (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT, url TEXT, source TEXT, snapshot_date TEXT, score INTEGER DEFAULT 0, reason TEXT DEFAULT '', added_at INTEGER)""")
+        cx.execute("""CREATE TABLE IF NOT EXISTS suggested_articles (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT, url TEXT, source TEXT, snapshot_date TEXT, score INTEGER DEFAULT 0, reason TEXT DEFAULT '', added_at INTEGER, status TEXT DEFAULT 'new', reviewed_at INTEGER DEFAULT NULL)""")
+        existing_cols = [r[1] for r in cx.execute("PRAGMA table_info(suggested_articles)").fetchall()]
+        if 'status' not in existing_cols:
+            cx.execute("ALTER TABLE suggested_articles ADD COLUMN status TEXT DEFAULT 'new'")
+        if 'reviewed_at' not in existing_cols:
+            cx.execute("ALTER TABLE suggested_articles ADD COLUMN reviewed_at INTEGER DEFAULT NULL")
         cx.execute("""CREATE TABLE IF NOT EXISTS interviews (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             title TEXT NOT NULL,
@@ -570,10 +575,21 @@ def sync_all():
     body = request.json or {}
     sources = body.get("sources", list(SCRAPERS.keys()))
     started = []
+    threads = []
     for src in sources:
         if src in SCRAPERS and not sync_status.get(src, {}).get("running"):
-            threading.Thread(target=run_sync, args=(src,), daemon=True).start()
+            t = threading.Thread(target=run_sync, args=(src,), daemon=True)
+            t.start()
+            threads.append(t)
             started.append(src)
+    # After all scrapers finish, enrich any remaining title_only articles
+    def _enrich_after_sync():
+        for t in threads:
+            t.join()
+        log.info("Sync all complete — running title-only enrichment")
+        enrich_title_only_articles()
+    if threads:
+        threading.Thread(target=_enrich_after_sync, daemon=True).start()
     return jsonify({"ok": True, "started": started})
 
 @app.route("/api/sync/<source>", methods=["POST"])
@@ -588,6 +604,174 @@ def sync_source(source):
 @app.route("/api/sync/status")
 def sync_status_route():
     return jsonify(sync_status)
+
+def enrich_title_only_articles():
+    """Fetch full text for all title_only articles. Uses logged-in profiles for FT/Eco/FA, generic scrape for others."""
+    import urllib.request as _ur
+    with sqlite3.connect(DB_PATH) as cx:
+        cx.row_factory = sqlite3.Row
+        rows = cx.execute("SELECT * FROM articles WHERE status='title_only' AND url!=''").fetchall()
+    arts = [dict(r) for r in rows]
+    if not arts:
+        log.info("Enrich title-only: nothing to do")
+        return 0
+    log.info(f"Enrich title-only: {len(arts)} articles to process")
+
+    ft_arts  = [a for a in arts if a["source"] == "Financial Times"]
+    eco_arts = [a for a in arts if a["source"] == "The Economist"]
+    fa_arts  = [a for a in arts if a["source"] == "Foreign Affairs"]
+    other_arts = [a for a in arts if a["source"] not in ("Financial Times","The Economist","Foreign Affairs")]
+    enriched = 0
+
+    # FT — use logged-in ft_profile
+    if ft_arts and PLAYWRIGHT_OK:
+        try:
+            from playwright.sync_api import sync_playwright
+            with sync_playwright() as pw:
+                browser = pw.chromium.launch_persistent_context(
+                    str(BASE_DIR / "ft_profile"),
+                    headless=True, args=["--no-sandbox"]
+                )
+                page = browser.pages[0] if browser.pages else browser.new_page()
+                for a in ft_arts:
+                    text, pub_date = fetch_ft_article_text(page, a["url"])
+                    if text:
+                        a["body"] = text
+                        if pub_date and not a.get("pub_date"):
+                            a["pub_date"] = pub_date
+                        with sqlite3.connect(DB_PATH) as cx:
+                            cx.execute("UPDATE articles SET body=?, pub_date=?, status='fetched' WHERE id=?",
+                                       (text, a.get("pub_date",""), a["id"]))
+                        enrich_article_with_ai(a)
+                        _save_enriched_article(a)
+                        enriched += 1
+                        log.info(f"Enrich title-only: FT fetched '{a['title'][:50]}'")
+                browser.close()
+        except Exception as e:
+            log.warning(f"Enrich title-only: FT Playwright failed: {e}")
+
+    # Economist — use logged-in economist_profile
+    if eco_arts and PLAYWRIGHT_OK:
+        try:
+            from playwright.sync_api import sync_playwright
+            eco_profile = BASE_DIR / "economist_profile"
+            if not eco_profile.exists():
+                eco_profile = BASE_DIR / "ft_profile"
+            with sync_playwright() as pw:
+                browser = pw.chromium.launch_persistent_context(
+                    str(eco_profile),
+                    headless=True, args=["--no-sandbox"]
+                )
+                page = browser.pages[0] if browser.pages else browser.new_page()
+                for a in eco_arts:
+                    text, pub_date = fetch_economist_article_text(page, a["url"])
+                    if text:
+                        a["body"] = text
+                        if pub_date and not a.get("pub_date"):
+                            a["pub_date"] = pub_date
+                        with sqlite3.connect(DB_PATH) as cx:
+                            cx.execute("UPDATE articles SET body=?, pub_date=?, status='fetched' WHERE id=?",
+                                       (text, a.get("pub_date",""), a["id"]))
+                        enrich_article_with_ai(a)
+                        _save_enriched_article(a)
+                        enriched += 1
+                        log.info(f"Enrich title-only: Economist fetched '{a['title'][:50]}'")
+                browser.close()
+        except Exception as e:
+            log.warning(f"Enrich title-only: Economist Playwright failed: {e}")
+
+    # Foreign Affairs — use fa_profile
+    if fa_arts and PLAYWRIGHT_OK:
+        try:
+            from playwright.sync_api import sync_playwright
+            with sync_playwright() as pw:
+                browser = pw.chromium.launch_persistent_context(
+                    str(BASE_DIR / "fa_profile"),
+                    headless=True, args=["--no-sandbox"]
+                )
+                page = browser.pages[0] if browser.pages else browser.new_page()
+                for a in fa_arts:
+                    try:
+                        page.goto(a["url"], wait_until="domcontentloaded", timeout=20000)
+                        page.wait_for_timeout(2000)
+                        from bs4 import BeautifulSoup as _BS
+                        soup = _BS(page.content(), "html.parser")
+                        paragraphs = soup.select("div.article-body p, div[class*='body'] p")
+                        text = " ".join(p.get_text(strip=True) for p in paragraphs if len(p.get_text(strip=True)) > 60)
+                        if text:
+                            a["body"] = text
+                            with sqlite3.connect(DB_PATH) as cx:
+                                cx.execute("UPDATE articles SET body=?, status='fetched' WHERE id=?", (text, a["id"]))
+                            enrich_article_with_ai(a)
+                            _save_enriched_article(a)
+                            enriched += 1
+                            log.info(f"Enrich title-only: FA fetched '{a['title'][:50]}'")
+                    except Exception as e:
+                        log.warning(f"Enrich title-only: FA fetch failed for {a['url']}: {e}")
+                browser.close()
+        except Exception as e:
+            log.warning(f"Enrich title-only: FA Playwright failed: {e}")
+
+    # Other sources — generic scrape (no login)
+    for a in other_arts:
+        try:
+            req = _ur.Request(a["url"], headers={
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            })
+            with _ur.urlopen(req, timeout=20) as r:
+                html = r.read().decode("utf-8", errors="ignore")
+            body = ""
+            if BS4_OK:
+                from bs4 import BeautifulSoup as _BS
+                soup = _BS(html, "html.parser")
+                for tag in soup(["script","style","nav","header","footer","aside","form"]):
+                    tag.decompose()
+                container = soup.find("article") or soup.find("main") or soup.find("body")
+                if container:
+                    paragraphs = container.find_all("p")
+                    body = " ".join(p.get_text(" ", strip=True) for p in paragraphs if len(p.get_text(strip=True)) > 60)
+            if len(body) < 200:
+                log.warning(f"Enrich title-only: insufficient text from {a['url']} — may be paywalled")
+                continue
+            a["body"] = body[:8000]
+            with sqlite3.connect(DB_PATH) as cx:
+                cx.execute("UPDATE articles SET body=?, status='fetched' WHERE id=?", (a["body"], a["id"]))
+            enrich_article_with_ai(a)
+            _save_enriched_article(a)
+            enriched += 1
+            log.info(f"Enrich title-only: generic fetched '{a['title'][:50]}'")
+        except Exception as e:
+            log.warning(f"Enrich title-only: generic fetch failed for {a['url']}: {e}")
+
+    log.info(f"Enrich title-only: done — {enriched}/{len(arts)} enriched")
+    return enriched
+
+def _save_enriched_article(art):
+    """Save enriched article fields back to DB after enrich_article_with_ai."""
+    with sqlite3.connect(DB_PATH) as cx:
+        cx.execute(
+            "UPDATE articles SET summary=?, body=?, tags=?, topic=?, pub_date=?, status=? WHERE id=?",
+            (art.get("summary",""), art.get("body",""), art.get("tags","[]"),
+             art.get("topic",""), art.get("pub_date",""), art.get("status","fetched"), art["id"])
+        )
+
+@app.route("/api/enrich-title-only", methods=["POST"])
+def enrich_title_only_route():
+    if getattr(enrich_title_only_route, "_running", False):
+        return jsonify({"ok": False, "error": "Already running"}), 409
+    def _run():
+        enrich_title_only_route._running = True
+        try:
+            enrich_title_only_articles()
+        finally:
+            enrich_title_only_route._running = False
+    threading.Thread(target=_run, daemon=True).start()
+    return jsonify({"ok": True, "started": True})
+
+@app.route("/api/enrich-title-only/status", methods=["GET"])
+def enrich_title_only_status():
+    return jsonify({"running": getattr(enrich_title_only_route, "_running", False)})
 
 @app.route("/api/enrich/<aid>", methods=["POST"])
 def enrich_article(aid):
@@ -908,16 +1092,51 @@ def scrape_suggested_articles():
                 results = _json.loads(json_match.group(0))
                 results = [a for a in results if a.get("url","") not in saved_urls and a.get("title","")]
                 log.info(f"Suggested: Claude found {len(results)} articles via web search")
-                # Merge with Playwright FT/Economist results
+                # Score FT/Economist via Claude (same quality as web search results)
                 seen_urls = set(a['url'] for a in results)
-                for art in ft_results + eco_results:
-                    if art['url'] in saved_urls or art['url'] in seen_urls: continue
-                    seen_urls.add(art['url'])
-                    title_lower = art['title'].lower()
-                    score = sum(2 for kw in top_interests if kw.lower() in title_lower)
-                    art['score'] = max(min(score, 9), 6)
-                    art['reason'] = 'From ' + art['source'] + ' most-read'
-                    results.append(art)
+                playwright_arts = [a for a in ft_results + eco_results
+                                   if a['url'] not in saved_urls and a['url'] not in seen_urls]
+                if playwright_arts:
+                    titles_str = _json.dumps([{"title": a["title"], "source": a["source"]} for a in playwright_arts])
+                    score_prompt = ("You are scoring news articles for a senior analyst. Their interests: " + interests_str + ". Score each article 0-10 for relevance to these interests. Be strict - only score 6+ if genuinely relevant. Exclude: lifestyle, sport, celebrity, recipes, quizzes, obituaries. Articles to score: " + titles_str + " Respond ONLY with a JSON array (same order): [{score:8,reason:one sentence why relevant}]")
+                    try:
+                        score_payload = _json.dumps({
+                            "model": "claude-sonnet-4-20250514",
+                            "max_tokens": 1000,
+                            "messages": [{"role": "user", "content": score_prompt}]
+                        }).encode()
+                        score_req = urllib.request.Request(
+                            "https://api.anthropic.com/v1/messages",
+                            data=score_payload,
+                            headers={"Content-Type":"application/json","x-api-key":api_key,"anthropic-version":"2023-06-01"},
+                            method="POST"
+                        )
+                        with urllib.request.urlopen(score_req, timeout=30) as sr:
+                            score_data = _json.loads(sr.read())
+                        score_text = ""
+                        for block in score_data.get("content", []):
+                            if block.get("type") == "text":
+                                score_text += block.get("text", "")
+                        json_match2 = _re.search(r'\[[\s\S]*\]', score_text)
+                        if json_match2:
+                            scores = _json.loads(json_match2.group(0))
+                            for i, art in enumerate(playwright_arts):
+                                if i < len(scores):
+                                    art["score"] = scores[i].get("score", 0)
+                                    art["reason"] = scores[i].get("reason", "From " + art["source"])
+                                else:
+                                    art["score"] = 0
+                            playwright_arts = [a for a in playwright_arts if a.get("score", 0) >= 6]
+                            log.info(f"Suggested: Claude scored {len(playwright_arts)} FT/Economist articles ≥6")
+                        else:
+                            log.warning("Suggested: could not parse Claude scores for Playwright articles")
+                            playwright_arts = []
+                    except Exception as se:
+                        log.warning(f"Suggested: Claude scoring of Playwright articles failed: {se}")
+                        playwright_arts = []
+                    for art in playwright_arts:
+                        seen_urls.add(art["url"])
+                        results.append(art)
                 results.sort(key=lambda x: -x.get('score', 0))
                 log.info(f"Suggested: {len(results)} total after merging Playwright + web search")
                 return results
@@ -944,30 +1163,45 @@ def scrape_suggested_articles():
 
 def save_suggested_snapshot(articles):
     snapshot_date = datetime.now().strftime("%Y-%m-%d")
+    added = 0
     with sqlite3.connect(DB_PATH) as cx:
-        cx.execute("DELETE FROM suggested_articles WHERE snapshot_date=?", (snapshot_date,))
+        existing_urls = set(r[0] for r in cx.execute("SELECT url FROM suggested_articles").fetchall())
         for a in articles:
+            url = a.get("url","")
+            if not url or url in existing_urls:
+                continue
             cx.execute(
-                "INSERT INTO suggested_articles (title,url,source,snapshot_date,score,reason,added_at) VALUES (?,?,?,?,?,?,?)",
-                (a.get("title",""), a.get("url",""), a.get("source",""),
+                "INSERT INTO suggested_articles (title,url,source,snapshot_date,score,reason,added_at,status) VALUES (?,?,?,?,?,?,?,'new')",
+                (a.get("title",""), url, a.get("source",""),
                  snapshot_date, a.get("score",0), a.get("reason",""), now_ts())
             )
-    log.info(f"Suggested: saved {len(articles)} for {snapshot_date}")
+            existing_urls.add(url)
+            added += 1
+    log.info(f"Suggested: added {added} new articles (skipped duplicates) for {snapshot_date}")
 
 
 @app.route("/api/suggested", methods=["GET"])
 def get_suggested():
-    date = request.args.get("date", datetime.now().strftime("%Y-%m-%d"))
+    since = request.args.get("since", "")
+    status_filter = request.args.get("status", "")
     with sqlite3.connect(DB_PATH) as cx:
         cx.row_factory = sqlite3.Row
+        conditions = []
+        params = []
+        if since:
+            conditions.append("snapshot_date >= ?")
+            params.append(since)
+        if status_filter and status_filter != "all":
+            conditions.append("status = ?")
+            params.append(status_filter)
+        where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
         rows = cx.execute(
-            "SELECT * FROM suggested_articles WHERE snapshot_date=? ORDER BY score DESC, added_at DESC",
-            (date,)
+            f"SELECT * FROM suggested_articles {where} ORDER BY added_at DESC",
+            params
         ).fetchall()
-        dates = [r[0] for r in cx.execute(
-            "SELECT DISTINCT snapshot_date FROM suggested_articles ORDER BY snapshot_date DESC LIMIT 30"
-        ).fetchall()]
-    return jsonify({"articles":[dict(r) for r in rows], "date":date, "available_dates":dates})
+        new_count = cx.execute("SELECT COUNT(*) FROM suggested_articles WHERE status='new'").fetchone()[0]
+        last_added = cx.execute("SELECT MAX(added_at) FROM suggested_articles").fetchone()[0] or 0
+    return jsonify({"articles":[dict(r) for r in rows], "new_count":new_count, "last_added_ts":last_added})
 
 
 @app.route("/api/suggested/refresh", methods=["POST"])
@@ -983,6 +1217,31 @@ def refresh_suggested():
             refresh_suggested._running = False
     threading.Thread(target=_run, daemon=True).start()
     return jsonify({"ok":True,"started":True})
+
+@app.route("/api/suggested/status", methods=["GET"])
+def suggested_status():
+    return jsonify({"running": getattr(refresh_suggested, "_running", False)})
+
+@app.route("/api/suggested/<int:sid>", methods=["PATCH"])
+def patch_suggested(sid):
+    data = request.get_json() or {}
+    status = data.get("status")
+    if status not in ("new","reviewed","saved","dismissed"):
+        return jsonify({"ok":False,"error":"invalid status"}), 400
+    ts = now_ts() if status == "reviewed" else None
+    with sqlite3.connect(DB_PATH) as cx:
+        cx.execute("UPDATE suggested_articles SET status=?, reviewed_at=? WHERE id=?", (status, ts, sid))
+    return jsonify({"ok":True})
+
+@app.route("/api/suggested/bulk-delete", methods=["POST"])
+def bulk_delete_suggested():
+    data = request.get_json() or {}
+    ids = data.get("ids", [])
+    if not ids:
+        return jsonify({"ok":False,"error":"no ids"}), 400
+    with sqlite3.connect(DB_PATH) as cx:
+        cx.execute(f"DELETE FROM suggested_articles WHERE id IN ({','.join('?'*len(ids))})", ids)
+    return jsonify({"ok":True,"deleted":len(ids)})
 
 def scheduler_loop(interval_hours):
     while True:

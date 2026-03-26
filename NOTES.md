@@ -1,5 +1,5 @@
 # Meridian — Technical Notes
-Last updated: 26 March 2026
+Last updated: 26 March 2026 (Session 3)
 
 ## Overview
 Personal news aggregator running locally on MacBook Air M1.
@@ -214,6 +214,24 @@ Notes:
 
 ### 26 March 2026 (Session 3)
 
+## Suggested Articles — full rebuild
+- DB schema: added status (new/reviewed/saved/dismissed) + reviewed_at columns
+- save_suggested_snapshot: upsert instead of delete+replace — no duplicates, accumulates over time
+- GET /api/suggested: now accepts since= (date filter) and status= params, returns new_count + last_added_ts
+- PATCH /api/suggested/<id>: update status + reviewed_at
+- POST /api/suggested/bulk-delete: delete list of IDs
+- GET /api/suggested/status: returns {running: bool} for polling
+- FT/Economist scoring: now uses Claude instead of keyword match — same quality as web search results
+- UI: time filters (all/24h/7d/30d/custom date), status filter (all/new/reviewed/saved/dismissed)
+- UI: checkbox on each card, bulk bar (select all, mark as new, dismiss, delete with confirm)
+- UI: NEW/reviewed/dismissed status pills on each card
+- UI: opening article marks as reviewed immediately (pill updates in place, badge decrements)
+- UI: dismiss button per card, fades card to 0.4 opacity
+- UI: polling refresh (3s interval vs /api/suggested/status) replaces fixed 50s wait
+- UI: auto-refresh on tab open if last added_at > 24h ago
+- Nav badge shows new-count only (not total)
+- All existing suggested articles migrated: status defaulted to 'new'
+
 ## Interviews & Briefings tab
 - DB table: interviews (id, title, url, source, published_date, added_date, duration_seconds, transcript, summary, speaker_bio, status, thumbnail_url)
 - Flask routes: GET /api/interviews, POST /api/interviews, PATCH /api/interviews/<id>, DELETE /api/interviews/<id>, POST /api/interviews/fetch-meta
@@ -274,6 +292,16 @@ Notes:
 - Feedback loop: deletes down-weight, reads up-weight
 - Suggested tab becomes review queue for borderline articles
 - Settings: auto-save threshold, max per sync, sources
+
+## Title-only enrichment (added session 4)
+- enrich_title_only_articles() — fetches full text for all title_only articles
+- FT/Economist: uses logged-in Playwright profiles (ft_profile, economist_profile)
+- Foreign Affairs: uses fa_profile
+- Other sources (CNN, Atlantic Council, CFR etc): generic BeautifulSoup scrape, no login
+- _save_enriched_article() saves enriched fields back to DB after AI enrichment
+- Routes: POST /api/enrich-title-only, GET /api/enrich-title-only/status
+- Embedded in Sync All: runs automatically after all 3 scrapers finish
+- FT title_only articles: picked up by next regular FT sync if Playwright headless fails
 
 ## Suggested Articles — known issues for next session
 1. FT articles scoring 6 — keyword matching too simple, pulling in unrelated articles (Meta/Google, Democrat election etc). Need to pass FT/Economist titles through Claude for proper interest scoring, same as web search results.
