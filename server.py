@@ -57,6 +57,14 @@ def init_db():
             cx.execute("ALTER TABLE suggested_articles ADD COLUMN reviewed_at INTEGER DEFAULT NULL")
         if 'pub_date' not in existing_cols:
             cx.execute("ALTER TABLE suggested_articles ADD COLUMN pub_date TEXT DEFAULT ''")
+        cx.execute("""CREATE TABLE IF NOT EXISTS newsletters (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            gmail_id TEXT,
+            source TEXT,
+            subject TEXT,
+            body_html TEXT,
+            body_text TEXT,
+            received_at TEXT)""")
         cx.execute("""CREATE TABLE IF NOT EXISTS interviews (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             title TEXT NOT NULL,
@@ -67,8 +75,13 @@ def init_db():
             duration_seconds INTEGER DEFAULT 0,
             transcript TEXT DEFAULT '',
             summary TEXT DEFAULT '',
+            speaker_bio TEXT DEFAULT '',
             status TEXT DEFAULT 'pending',
             thumbnail_url TEXT DEFAULT '')""")
+        # Add speaker_bio if missing from existing DBs
+        existing_iv_cols = [r[1] for r in cx.execute("PRAGMA table_info(interviews)").fetchall()]
+        if 'speaker_bio' not in existing_iv_cols:
+            cx.execute("ALTER TABLE interviews ADD COLUMN speaker_bio TEXT DEFAULT ''")
         cx.commit()
 
 def article_exists(aid):
@@ -226,7 +239,7 @@ def get_newsletters():
     source = request.args.get('source', None)
     limit = int(request.args.get('limit', 20))
     offset = int(request.args.get('offset', 0))
-    conn = sqlite3.connect('/Users/alexdakers/meridian-server/meridian.db')
+    conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     if source:
         rows = c.execute("""
