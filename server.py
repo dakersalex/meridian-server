@@ -44,7 +44,11 @@ def init_db():
         cx.execute("""CREATE TABLE IF NOT EXISTS articles (
             id TEXT PRIMARY KEY, source TEXT NOT NULL, url TEXT,
             title TEXT, body TEXT, summary TEXT, topic TEXT, tags TEXT,
-            saved_at INTEGER, fetched_at INTEGER, status TEXT DEFAULT 'pending', pub_date TEXT DEFAULT '')""")
+            saved_at INTEGER, fetched_at INTEGER, status TEXT DEFAULT 'pending', pub_date TEXT DEFAULT '',
+            auto_saved INTEGER DEFAULT 0)""")
+        art_cols = [r[1] for r in cx.execute("PRAGMA table_info(articles)").fetchall()]
+        if 'auto_saved' not in art_cols:
+            cx.execute("ALTER TABLE articles ADD COLUMN auto_saved INTEGER DEFAULT 0")
         cx.execute("""CREATE TABLE IF NOT EXISTS sync_log (
             id INTEGER PRIMARY KEY AUTOINCREMENT, source TEXT,
             started_at INTEGER, finished_at INTEGER,
@@ -59,6 +63,14 @@ def init_db():
             cx.execute("ALTER TABLE suggested_articles ADD COLUMN pub_date TEXT DEFAULT ''")
         if 'preview' not in existing_cols:
             cx.execute("ALTER TABLE suggested_articles ADD COLUMN preview TEXT DEFAULT ''")
+        cx.execute("""CREATE TABLE IF NOT EXISTS agent_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            article_id TEXT, title TEXT, url TEXT,
+            score INTEGER, reason TEXT, saved_at INTEGER)""")
+        cx.execute("""CREATE TABLE IF NOT EXISTS agent_feedback (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            topics TEXT, tags TEXT, title TEXT, url TEXT,
+            dismissed_at INTEGER)""")
         cx.execute("""CREATE TABLE IF NOT EXISTS newsletters (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             gmail_id TEXT,
@@ -93,8 +105,9 @@ def article_exists(aid):
 def upsert_article(art):
     with sqlite3.connect(DB_PATH) as cx:
         cx.execute("""INSERT OR REPLACE INTO articles
-          (id,source,url,title,body,summary,topic,tags,saved_at,fetched_at,status,pub_date)
-          VALUES (:id,:source,:url,:title,:body,:summary,:topic,:tags,:saved_at,:fetched_at,:status,:pub_date)""", art)
+          (id,source,url,title,body,summary,topic,tags,saved_at,fetched_at,status,pub_date,auto_saved)
+          VALUES (:id,:source,:url,:title,:body,:summary,:topic,:tags,:saved_at,:fetched_at,:status,:pub_date,:auto_saved)""",
+          {**art, "auto_saved": art.get("auto_saved", 0)})
         cx.commit()
 
 def all_articles(source=None, limit=200):
@@ -555,6 +568,14 @@ def get_articles():
 @app.route("/api/articles/<aid>", methods=["DELETE"])
 def delete_article(aid):
     with sqlite3.connect(DB_PATH) as cx:
+        cx.row_factory = sqlite3.Row
+        row = cx.execute("SELECT * FROM articles WHERE id=?", (aid,)).fetchone()
+        if row and row["auto_saved"]:
+            cx.execute(
+                "INSERT INTO agent_feedback (topics,tags,title,url,dismissed_at) VALUES (?,?,?,?,?)",
+                (row["topic"] or "", row["tags"] or "[]", row["title"] or "", row["url"] or "", now_ts())
+            )
+            log.info(f"Agent feedback: auto-saved article deleted '{(row['title'] or '')[:50]}'")
         cx.execute("DELETE FROM articles WHERE id=?", (aid,))
     return jsonify({"ok": True})
 
@@ -1107,6 +1128,17 @@ def scrape_suggested_articles():
             for tag in _json.loads(tags or "[]"):
                 avoid_counts[tag] = avoid_counts.get(tag, 0) + 1
         except: pass
+    # Also include agent feedback (deleted auto-saved articles) as negative signals
+    with sqlite3.connect(DB_PATH) as cx:
+        feedback_rows = cx.execute("SELECT topics, tags FROM agent_feedback").fetchall()
+    for fb_topics, fb_tags in feedback_rows:
+        for t in (fb_topics or "").split(","):
+            t = t.strip()
+            if t: avoid_counts[t] = avoid_counts.get(t, 0) + 2
+        try:
+            for tag in _json.loads(fb_tags or "[]"):
+                avoid_counts[tag] = avoid_counts.get(tag, 0) + 2
+        except: pass
     top_avoid = sorted(avoid_counts, key=lambda x: -avoid_counts[x])[:10]
     avoid_str = ", ".join(top_avoid) if top_avoid else ""
     if avoid_str:
@@ -1486,6 +1518,67 @@ def bulk_delete_suggested():
     with sqlite3.connect(DB_PATH) as cx:
         cx.execute(f"DELETE FROM suggested_articles WHERE id IN ({','.join('?'*len(ids))})", ids)
     return jsonify({"ok":True,"deleted":len(ids)})
+
+# ── reading agent ─────────────────────────────────────────────────────────────
+def run_agent():
+    """Auto-save high-scoring suggested articles to Feed."""
+    with sqlite3.connect(DB_PATH) as cx:
+        cx.row_factory = sqlite3.Row
+        candidates = cx.execute(
+            "SELECT * FROM suggested_articles WHERE status='new' AND score >= 8"
+        ).fetchall()
+    saved = []
+    for row in candidates:
+        row = dict(row)
+        aid = make_id(row["source"], row["url"])
+        if article_exists(aid):
+            with sqlite3.connect(DB_PATH) as cx:
+                cx.execute("UPDATE suggested_articles SET status='saved' WHERE id=?", (row["id"],))
+            continue
+        art = {
+            "id": aid, "source": row["source"], "url": row["url"],
+            "title": row["title"], "body": "", "summary": row.get("reason", ""),
+            "topic": "", "tags": "[]", "saved_at": now_ts(), "fetched_at": None,
+            "status": "agent", "pub_date": row.get("pub_date", ""), "auto_saved": 1,
+        }
+        upsert_article(art)
+        with sqlite3.connect(DB_PATH) as cx:
+            cx.execute("UPDATE suggested_articles SET status='saved' WHERE id=?", (row["id"],))
+            cx.execute(
+                "INSERT INTO agent_log (article_id,title,url,score,reason,saved_at) VALUES (?,?,?,?,?,?)",
+                (aid, row["title"], row["url"], row["score"], row.get("reason", ""), now_ts())
+            )
+        saved.append({"id": aid, "title": row["title"], "score": row["score"]})
+        log.info(f"Agent: auto-saved '{row['title'][:50]}' (score {row['score']})")
+    log.info(f"Agent: saved {len(saved)} articles")
+    return saved
+
+@app.route("/api/agent/run", methods=["POST"])
+def agent_run():
+    saved = run_agent()
+    return jsonify({"ok": True, "saved": len(saved), "articles": saved})
+
+@app.route("/api/agent/log", methods=["GET"])
+def agent_log_route():
+    with sqlite3.connect(DB_PATH) as cx:
+        cx.row_factory = sqlite3.Row
+        rows = cx.execute("SELECT * FROM agent_log ORDER BY saved_at DESC LIMIT 50").fetchall()
+    return jsonify({"entries": [dict(r) for r in rows]})
+
+@app.route("/api/agent/feedback", methods=["POST"])
+def agent_feedback():
+    data = request.get_json() or {}
+    topics = data.get("topics", "")
+    tags = data.get("tags", "")
+    title = data.get("title", "")
+    url = data.get("url", "")
+    with sqlite3.connect(DB_PATH) as cx:
+        cx.execute(
+            "INSERT INTO agent_feedback (topics,tags,title,url,dismissed_at) VALUES (?,?,?,?,?)",
+            (topics, tags, title, url, now_ts())
+        )
+    log.info(f"Agent feedback: negative signal for '{title[:50]}' — topics={topics}")
+    return jsonify({"ok": True})
 
 def scheduler_loop(interval_hours):
     while True:

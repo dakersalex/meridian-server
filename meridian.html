@@ -786,8 +786,10 @@ function renderFeed(){
     const isFA=a.source==='Foreign Affairs';
     const sug=pending&&pending!=='__dismissed__'?`<div class="ai-suggestion" onclick="event.stopPropagation()"><span class="ai-suggestion-text">AI suggests: <strong>📁 ${pending}</strong></span><div class="suggestion-actions"><button class="sug-btn sug-confirm" onclick="assignFolder('${a.id}','${pending}')">✓ Confirm</button></div><button class="sug-dismiss" onclick="dismissSuggestion('${a.id}')">×</button></div>`:'';
     const faBadge=isFA?'<span class="fa-badge">Foreign Affairs</span>':'';
-    if(i===0){html+=`<div class="featured-card" style="position:relative;padding-top:20px" data-id="${a.id}" onclick="openDetail('${a.id}')"><div class="featured-label">Latest · ${a.source}</div><button onclick="event.stopPropagation();deleteArticle('${a.id}')" style="position:absolute;top:2px;right:6px;background:none;border:1px solid var(--rule);color:var(--ink-3);cursor:pointer;font-size:10px;padding:1px 4px;opacity:0.4;line-height:1;border-radius:2px" title="Delete">✕</button><div class="article-meta" style="margin-top:0px"><span class="source-label">${a.source}</span><span class="article-date-label" style="margin-left:auto">${formatPubDate(a)}</span><span class="status-badge ${a.status==='full_text'?'full-text':'title-only'}" style="margin-left:8px">${a.status==='full_text'?'Full text':'Title only'}</span></div><div class="article-meta" style="margin-top:3px">${a.topic?`<span class="topic-pill ${topicClass(a.topic)}" style="${topicStyle(a.topic)}">${a.topic}</span>`:''}</div><div style="position:absolute;top:8px;right:8px"></div><div class="featured-title">${a.title}</div><div class="featured-summary">${a.summary}</div>${folderName?`<div style="margin-top:8px"><span class="folder-badge">📁 ${folderName}</span></div>`:''}${sug}</div>`;}
-    else{html+=`<div class="article-card" style="position:relative;padding-top:20px" data-id="${a.id}" onclick="openDetail('${a.id}')"><button onclick="event.stopPropagation();deleteArticle('${a.id}')" style="position:absolute;top:2px;right:6px;background:none;border:1px solid var(--rule);color:var(--ink-3);cursor:pointer;font-size:10px;padding:1px 4px;opacity:0.4;line-height:1;border-radius:2px" title="Delete">✕</button><div class="article-meta" style="margin-top:0px"><span class="source-label">${a.source}</span><span class="article-date-label" style="margin-left:auto">${formatPubDate(a)}</span><span class="status-badge ${a.status==='full_text'?'full-text':'title-only'}" style="margin-left:8px">${a.status==='full_text'?'Full text':'Title only'}</span></div><div class="article-meta" style="margin-top:3px">${a.topic?`<span class="topic-pill ${topicClass(a.topic)}" style="${topicStyle(a.topic)}">${a.topic}</span>`:''}</div><div style="position:absolute;top:8px;right:8px"></div><div class="article-title">${a.title}${a.url?'<a href="'+a.url+'" target="_blank" onclick="event.stopPropagation()" style="font-size:11px;color:var(--ink-3);text-decoration:none;margin-left:5px">↗</a>':''}</div><div class="article-summary">${a.summary}</div><div class="article-footer"><div class="article-tags">${(a.tags||[]).map(t=>`<span class="tag">${t}</span>`).join('')}</div>${folderName?`<span class="folder-badge">📁 ${folderName}</span>`:''}</div>${sug}</div>`;}
+    const autoPill=a.auto_saved?'<span style="font-size:10px;padding:2px 7px;border-radius:10px;background:var(--accent);color:#fff;font-weight:600;margin-left:6px">✦ Auto</span>':'';
+    const autoStyle=a.auto_saved?';background:var(--paper-2)':'';
+    if(i===0){html+=`<div class="featured-card" style="position:relative;padding-top:20px${autoStyle}" data-id="${a.id}" onclick="openDetail('${a.id}')"><div class="featured-label">Latest · ${a.source}</div><button onclick="event.stopPropagation();deleteArticle('${a.id}')" style="position:absolute;top:2px;right:6px;background:none;border:1px solid var(--rule);color:var(--ink-3);cursor:pointer;font-size:10px;padding:1px 4px;opacity:0.4;line-height:1;border-radius:2px" title="Delete">✕</button><div class="article-meta" style="margin-top:0px"><span class="source-label">${a.source}</span>${autoPill}<span class="article-date-label" style="margin-left:auto">${formatPubDate(a)}</span><span class="status-badge ${a.status==='full_text'?'full-text':'title-only'}" style="margin-left:8px">${a.status==='full_text'?'Full text':'Title only'}</span></div><div class="article-meta" style="margin-top:3px">${a.topic?`<span class="topic-pill ${topicClass(a.topic)}" style="${topicStyle(a.topic)}">${a.topic}</span>`:''}</div><div style="position:absolute;top:8px;right:8px"></div><div class="featured-title">${a.title}</div><div class="featured-summary">${a.summary}</div>${folderName?`<div style="margin-top:8px"><span class="folder-badge">📁 ${folderName}</span></div>`:''}${sug}</div>`;}
+    else{html+=`<div class="article-card" style="position:relative;padding-top:20px${autoStyle}" data-id="${a.id}" onclick="openDetail('${a.id}')"><button onclick="event.stopPropagation();deleteArticle('${a.id}')" style="position:absolute;top:2px;right:6px;background:none;border:1px solid var(--rule);color:var(--ink-3);cursor:pointer;font-size:10px;padding:1px 4px;opacity:0.4;line-height:1;border-radius:2px" title="Delete">✕</button><div class="article-meta" style="margin-top:0px"><span class="source-label">${a.source}</span>${autoPill}<span class="article-date-label" style="margin-left:auto">${formatPubDate(a)}</span><span class="status-badge ${a.status==='full_text'?'full-text':'title-only'}" style="margin-left:8px">${a.status==='full_text'?'Full text':'Title only'}</span></div><div class="article-meta" style="margin-top:3px">${a.topic?`<span class="topic-pill ${topicClass(a.topic)}" style="${topicStyle(a.topic)}">${a.topic}</span>`:''}</div><div style="position:absolute;top:8px;right:8px"></div><div class="article-title">${a.title}${a.url?'<a href="'+a.url+'" target="_blank" onclick="event.stopPropagation()" style="font-size:11px;color:var(--ink-3);text-decoration:none;margin-left:5px">↗</a>':''}</div><div class="article-summary">${a.summary}</div><div class="article-footer"><div class="article-tags">${(a.tags||[]).map(t=>`<span class="tag">${t}</span>`).join('')}</div>${folderName?`<span class="folder-badge">📁 ${folderName}</span>`:''}</div>${sug}</div>`;}
   }
   el.innerHTML=html;
 }
@@ -1835,9 +1837,46 @@ async function renderSuggested(autoRefreshCheck) {
     }).join('');
     area.innerHTML += cards;
     renderBulkBar();
+    renderAgentLog(area);
   } catch(e) {
     area.innerHTML = '<div style="padding:20px;color:var(--red)">Error loading suggestions: ' + e.message + '</div>';
   }
+}
+
+async function runAgent() {
+  const btn = document.getElementById('agent-run-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '▶ Running…'; }
+  try {
+    const r = await fetch(SERVER + '/api/agent/run', { method: 'POST' });
+    const d = await r.json();
+    if (d.ok) {
+      toast('Agent saved ' + d.saved + ' article' + (d.saved !== 1 ? 's' : ''));
+      if (d.saved > 0) {
+        fetch(SERVER + '/api/articles?limit=2000').then(r=>r.json()).then(d=>{ articles = d.articles || []; renderFeed(); }).catch(()=>{});
+        loadSuggested();
+      }
+    }
+  } catch(e) { toast('Agent failed: ' + e.message); }
+  finally { if (btn) { btn.disabled = false; btn.textContent = '▶ Run Agent'; } }
+}
+
+async function renderAgentLog(area) {
+  try {
+    const r = await fetch(SERVER + '/api/agent/log');
+    const d = await r.json();
+    const entries = (d.entries || []).slice(0, 10);
+    if (!entries.length) return;
+    area.innerHTML += '<div style="margin-top:20px;border-top:1px solid var(--rule);padding-top:12px">'
+      + '<div onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display===\'none\'?\'block\':\'none\';this.querySelector(\'span\').textContent=this.nextElementSibling.style.display===\'none\'?\'▸\':\'▾\'" style="cursor:pointer;font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--ink-3);font-weight:500;margin-bottom:8px"><span>▸</span> Agent Log</div>'
+      + '<div style="display:none">' + entries.map(e => {
+        const date = new Date(e.saved_at).toLocaleDateString('en-GB', {day:'numeric',month:'short'});
+        return '<div style="padding:6px 0;border-bottom:1px solid var(--rule);font-size:12px;display:flex;gap:8px;align-items:baseline">'
+          + '<span style="color:var(--accent);font-weight:600;flex-shrink:0">★ ' + e.score + '</span>'
+          + '<span style="flex:1;color:var(--ink)">' + e.title + '</span>'
+          + '<span style="color:var(--ink-3);flex-shrink:0">' + date + '</span>'
+          + '</div>';
+      }).join('') + '</div></div>';
+  } catch(e) {}
 }
 
 function renderSuggestedHeader(area, newCount) {
@@ -1859,7 +1898,8 @@ function renderSuggestedHeader(area, newCount) {
     + '<select class="filter-select" onchange="suggestedSource=this.value;renderSuggested()" style="font-size:11px">' + sourceOpts + '</select>'
     + '<input type="date" class="filter-select" style="font-size:11px" value="' + (suggestedSince||'') + '" onchange="suggestedSince=this.value;renderSuggested()">'
     + '<span style="font-size:11px;color:var(--ink-3)">' + suggestedArticles.length + ' articles' + (newCount ? ' · <strong>' + newCount + ' new</strong>' : '') + '</span>'
-    + '<button onclick="startSuggestedRefresh(false)" class="btn btn-outline" id="sug-refresh-btn" style="margin-left:auto;font-size:11px;padding:4px 10px">↻ Refresh</button>'
+    + '<button onclick="runAgent()" class="btn btn-outline" id="agent-run-btn" style="margin-left:auto;font-size:11px;padding:4px 10px">▶ Run Agent</button>'
+    + '<button onclick="startSuggestedRefresh(false)" class="btn btn-outline" id="sug-refresh-btn" style="font-size:11px;padding:4px 10px">↻ Refresh</button>'
     + '</div>'
     + '<div id="sug-bulk-bar" style="display:none;align-items:center;gap:8px;margin-bottom:10px;padding:8px 12px;background:var(--bg-2);border-radius:8px;flex-wrap:wrap">'
     + '<span id="sug-bulk-count" style="font-size:12px;color:var(--ink-2)">0 selected</span>'
