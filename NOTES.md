@@ -1,5 +1,5 @@
 # Meridian — Technical Notes
-Last updated: 26 March 2026 (Session 7)
+Last updated: 27 March 2026 (Session 8)
 
 ## Overview
 Personal news aggregator. Flask API + SQLite backend now running on Hetzner VPS (always-on).
@@ -175,6 +175,16 @@ Total: ~2 minutes
 5. Economist Playwright selector — investigate 0 articles intermittently
 
 ## Build History
+### 27 March 2026 (Session 8)
+- Claude Code installed (v2.1.85, ~/.local/bin/claude, bash PATH set)
+- iPad PWA: manifest.json, sw.js (meridian-v2 cache), nginx locations for /manifest.json, /sw.js, /icons/
+- ↻ Refresh button added to header (always visible)
+- ✦ Preview button on Suggested cards — POST /api/suggested/<id>/preview, caches in preview column
+- Autonomous reading agent: run_agent(), agent_log table, agent_feedback table, POST /api/agent/run, GET /api/agent/log, meridian-agent.timer (every 6h), ✦ Auto badge + var(--paper-2) background on auto-saved Feed articles
+- Playwright VPS: profiles copied (ft_profile 487MB, economist_profile 316MB, fa_profile 116MB), Chromium installed, playwright install-deps done, headless=True on all scrapers — IP blocked by FT/FA/Economist, scrapers remain on Mac via launchd
+- FA auto-login added: reads fa.email/fa.password from credentials.json, multiple selector fallbacks — not yet working due to VPS IP block
+- Next steps: MCP filesystem server setup (npm installed, not yet configured), residential proxy for VPS scraping (future), agent log UI review
+
 ### 26 March 2026 (Session 7)
 - Purchased meridianreader.com (Namecheap, expires Mar 26 2027)
 - DNS A records set: @ and www → 204.168.179.158
