@@ -1850,10 +1850,10 @@ async function runAgent() {
     const r = await fetch(SERVER + '/api/agent/run', { method: 'POST' });
     const d = await r.json();
     if (d.ok) {
-      toast('Agent saved ' + d.saved + ' article' + (d.saved !== 1 ? 's' : ''));
+      toast('Agent saved ' + d.saved + ' article' + (d.saved !== 1 ? 's' : ''), 4000);
       if (d.saved > 0) {
-        fetch(SERVER + '/api/articles?limit=2000').then(r=>r.json()).then(d=>{ articles = d.articles || []; renderFeed(); }).catch(()=>{});
-        loadSuggested();
+        fetch(SERVER + '/api/articles?limit=2000').then(r=>r.json()).then(d=>{ articles = d.articles || []; }).catch(()=>{});
+        fetch(SERVER + '/api/suggested').then(r=>r.json()).then(d=>{ suggestedArticles = d.articles || []; renderSuggested(); }).catch(()=>{});
       }
     }
   } catch(e) { toast('Agent failed: ' + e.message); }
