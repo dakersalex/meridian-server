@@ -483,9 +483,33 @@ class ForeignAffairsScraper:
                     if fa_email and fa_pass:
                         log.info("FA: login required — attempting auto-login")
                         page.goto("https://www.foreignaffairs.com/login", wait_until="domcontentloaded", timeout=30000)
-                        page.wait_for_timeout(2000)
-                        page.fill('input[type="email"], input[name="email"], input[id*="email"]', fa_email)
-                        page.fill('input[type="password"], input[name="password"], input[id*="password"]', fa_pass)
+                        page.wait_for_load_state("networkidle", timeout=15000)
+                        email_selectors = ['input[type="email"]', '#email', '#user_email', 'input[name="email"]', 'input[placeholder*="email" i]']
+                        password_selectors = ['input[type="password"]', '#password', '#user_password', 'input[name="password"]']
+                        email_filled = False
+                        for sel in email_selectors:
+                            try:
+                                loc = page.locator(sel).first
+                                if loc.is_visible(timeout=2000):
+                                    loc.fill(fa_email)
+                                    email_filled = True
+                                    log.info(f"FA: filled email with selector '{sel}'")
+                                    break
+                            except Exception:
+                                continue
+                        pass_filled = False
+                        for sel in password_selectors:
+                            try:
+                                loc = page.locator(sel).first
+                                if loc.is_visible(timeout=2000):
+                                    loc.fill(fa_pass)
+                                    pass_filled = True
+                                    log.info(f"FA: filled password with selector '{sel}'")
+                                    break
+                            except Exception:
+                                continue
+                        if not email_filled or not pass_filled:
+                            log.warning(f"FA: could not find form fields (email={email_filled}, pass={pass_filled})")
                         page.click('button[type="submit"], input[type="submit"], button:has-text("Sign in"), button:has-text("Log in")')
                         try:
                             page.wait_for_url(lambda u: "login" not in u and "sign-in" not in u, timeout=15000)
