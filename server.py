@@ -483,7 +483,7 @@ class ForeignAffairsScraper:
                     if fa_email and fa_pass:
                         log.info("FA: login required — attempting auto-login")
                         page.goto("https://www.foreignaffairs.com/login", wait_until="domcontentloaded", timeout=30000)
-                        page.wait_for_load_state("networkidle", timeout=15000)
+                        page.wait_for_load_state("domcontentloaded", timeout=15000)
                         email_selectors = ['input[type="email"]', '#email', '#user_email', 'input[name="email"]', 'input[placeholder*="email" i]']
                         password_selectors = ['input[type="password"]', '#password', '#user_password', 'input[name="password"]']
                         email_filled = False
@@ -512,7 +512,7 @@ class ForeignAffairsScraper:
                             log.warning(f"FA: could not find form fields (email={email_filled}, pass={pass_filled})")
                         page.click('button[type="submit"], input[type="submit"], button:has-text("Sign in"), button:has-text("Log in")')
                         try:
-                            page.wait_for_url(lambda u: "login" not in u and "sign-in" not in u, timeout=15000)
+                            page.wait_for_url(lambda u: "login" not in u and "sign-in" not in u, timeout=30000)
                             log.info("FA: auto-login successful")
                         except PWTimeout:
                             log.warning("FA: auto-login may have failed — proceeding anyway")
