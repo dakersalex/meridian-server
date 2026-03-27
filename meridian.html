@@ -292,7 +292,7 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
   <span class="activity-warning" id="act-warning" style="display:none">⚠ FT sync found 0 articles</span>
   <span class="activity-sync-time" id="act-sync-time"></span>
   <div style="margin-left:auto;display:flex;gap:4px">
-    <button class="btn btn-outline" onclick="window.location.reload()" id="pwa-refresh-btn" style="font-size:10px;padding:3px 9px;display:none">↻ Refresh</button>
+    <button class="btn btn-outline" onclick="window.location.reload()" id="pwa-refresh-btn" style="font-size:10px;padding:3px 9px">↻ Refresh</button>
     <button class="btn btn-dark" onclick="syncAll()" id="sync-all-btn" style="font-size:10px;padding:3px 9px;background:var(--accent)">🔄 Sync all</button>
     <button class="btn btn-outline" onclick="syncSource('ft')" style="font-size:10px;padding:3px 7px">🔄 FT</button>
     <button class="btn btn-outline" onclick="syncSource('economist')" style="font-size:10px;padding:3px 7px">🔄 Economist</button>
@@ -2153,9 +2153,6 @@ setInterval(updateActivityBar, 5*60*1000);
 <script>
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/sw.js').catch(err => console.warn('SW registration failed:', err));
-}
-if (window.navigator.standalone === true) {
-  document.getElementById('pwa-refresh-btn').style.display = 'inline-block';
 }
 </script>
 
