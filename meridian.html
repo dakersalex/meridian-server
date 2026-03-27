@@ -298,6 +298,7 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
     <button class="btn btn-outline" onclick="syncSource('economist')" style="font-size:10px;padding:3px 7px">🔄 Economist</button>
     <button class="btn btn-outline" onclick="syncSource('fa')" style="font-size:10px;padding:3px 7px">🔄 Foreign Affairs</button>
     <button class="btn btn-outline" onclick="syncNewsletters()" style="font-size:10px;padding:3px 7px">🔄 Newsletters</button>
+    <button class="btn btn-outline" onclick="clipBloomberg()" id="clip-bbg-btn" style="font-size:10px;padding:3px 7px;display:none">📎 Clip Bloomberg</button>
   </div>
 </div>
 <div class="main-layout">
@@ -740,7 +741,7 @@ function topicClass(t){return'pill-'+(t||'other').replace(/[^a-zA-Z]/g,'')||'pil
 function topicStyle(t){const colors=[['#1e4d8c','#e8eef6'],['#2d6b45','#e4f0e9'],['#8c2020','#f5e4e4'],['#5c2d8c','#ede8f5'],['#8c6a20','#f5f0e4'],['#c4783a','#f5ede4'],['#1a6b8c','#e4f0f5'],['#6b1a6b','#f5e4f5']];let h=0;for(let x of(t||''))h=(h*31+x.charCodeAt(0))&0xffff;const c=colors[h%colors.length];return'background:'+c[1]+';color:'+c[0]+';';}
 function sourceColor(s){const c=['#d63f3f','#2d6b45','#1e4d8c','#8c2020','#5c2d8c','#8c6a20','#c4783a','#1a6b8c'];let h=0;for(let x of(s||''))h=(h*31+x.charCodeAt(0))&0xffff;return c[h%c.length];}
 
-function renderAll(){renderNav();renderFeed();renderSidebar();}
+function renderAll(){renderNav();renderFeed();renderSidebar();updateClipBloombergBtn();}
 function renderNav(){
   const cutoff=Date.now()-180*24*60*60*1000;
   document.getElementById('count-feed').textContent=articles.filter(a=>a.ts>=cutoff).length;
@@ -2120,6 +2121,39 @@ async function saveFromSuggested(id, url, title, source) {
   } catch(e) {
     if (btn) { btn.disabled = false; btn.textContent = '+ Save to Feed'; }
     toast('Save failed: ' + e.message);
+  }
+}
+
+async function clipBloomberg(){
+  const bbgTitleOnly = articles.filter(a =>
+    a.source === 'Bloomberg' && (a.status === 'title_only' || a.status === 'fetched') && a.url
+  );
+  if(!bbgTitleOnly.length){ toast('No Bloomberg articles to clip'); return; }
+  const btn = document.getElementById('clip-bbg-btn');
+  btn.disabled = true;
+  btn.textContent = `📎 Clipping 0/${bbgTitleOnly.length}…`;
+  toast(`Opening ${bbgTitleOnly.length} Bloomberg article${bbgTitleOnly.length>1?'s':''} — make sure the Meridian extension is active`);
+  for(let i=0; i<bbgTitleOnly.length; i++){
+    const art = bbgTitleOnly[i];
+    btn.textContent = `📎 Clipping ${i+1}/${bbgTitleOnly.length}…`;
+    const url = art.url + (art.url.includes('?') ? '&' : '?') + 'meridian_autoclip=1';
+    window.open(url, '_blank');
+    if(i < bbgTitleOnly.length - 1) await new Promise(r => setTimeout(r, 8000));
+  }
+  btn.disabled = false;
+  btn.textContent = `📎 Clip Bloomberg (${bbgTitleOnly.length})`;
+  toast('All Bloomberg articles opened — extension is clipping each one');
+  setTimeout(() => loadFromServer(), 10000);
+}
+
+function updateClipBloombergBtn(){
+  const bbgCount = articles.filter(a =>
+    a.source === 'Bloomberg' && (a.status === 'title_only' || a.status === 'fetched')
+  ).length;
+  const btn = document.getElementById('clip-bbg-btn');
+  if(btn){
+    btn.style.display = bbgCount > 0 ? '' : 'none';
+    if(bbgCount > 0) btn.textContent = `📎 Clip Bloomberg (${bbgCount})`;
   }
 }
 

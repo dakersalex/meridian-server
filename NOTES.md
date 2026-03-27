@@ -178,6 +178,11 @@ Total: ~2 minutes
 4. Bloomberg enrichment — manual via Chrome extension (save URL, extension pastes text)
 
 ## Build History
+### 27 March 2026 (Session 10)
+- Auto NOTES.md update: handled directly by Claude via filesystem MCP at session end
+- Bloomberg clip button: '📎 Clip Bloomberg (N)' appears in activity bar when Bloomberg title-only articles exist; opens each article with ?meridian_autoclip=1 so Chrome extension auto-clips; 8s delay between tabs; button hidden when no BBG title-only articles
+- updateClipBloombergBtn() hooked into renderAll() so visibility updates automatically
+
 ### 27 March 2026 (Session 9)
 - Filesystem MCP confirmed working in Claude Desktop — direct file read/write, no more heredoc patches
 - Code review: identified 11 issues across server.py
