@@ -176,6 +176,11 @@ Total: ~2 minutes
 6. Server status panel shows localhost:4242 instead of meridianreader.com
 7. PWA icons — proper 192x192 and 512x512 instead of placeholders
 8. Deploy script — single command git pull + systemctl restart
+9. Mac-independent scraping — three options to investigate:
+   A. Residential proxy (~$10/mo) — route VPS Playwright through home IP, cleanest solution
+   B. pmset wake schedule (free) — schedule Mac to wake every 6h, run scrapers, sleep again (works lid-closed if plugged in)
+   C. noVNC on VPS (free) — install lightweight desktop, re-authenticate browser profiles once via browser-based remote desktop
+   Recommended starting point: Option B (pmset) — free and quick to set up
 
 ## Build History
 ### 27 March 2026 (Session 8)
