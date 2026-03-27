@@ -295,7 +295,7 @@ class FTScraper:
         articles = []
         with sync_playwright() as p:
             browser = p.chromium.launch_persistent_context(
-                str(profile_dir), headless=False,
+                str(profile_dir), headless=True,
                 user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
                 args=["--disable-blink-features=AutomationControlled"])
             page = browser.new_page()
@@ -366,7 +366,7 @@ class EconomistScraper:
         profile_dir.mkdir(exist_ok=True)
         with sync_playwright() as p:
             browser = p.chromium.launch_persistent_context(
-                str(profile_dir), headless=False,
+                str(profile_dir), headless=True,
                 user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
                 args=["--disable-blink-features=AutomationControlled"])
             page = browser.new_page()
@@ -467,7 +467,7 @@ class ForeignAffairsScraper:
         articles = []
         with sync_playwright() as p:
             browser = p.chromium.launch_persistent_context(
-                str(profile_dir), headless=False,
+                str(profile_dir), headless=True,
                 user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
                 args=["--disable-blink-features=AutomationControlled"])
             page = browser.new_page()
