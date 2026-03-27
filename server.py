@@ -498,19 +498,36 @@ class ForeignAffairsScraper:
                             except Exception:
                                 continue
                         pass_filled = False
+                        pass_loc = None
                         for sel in password_selectors:
                             try:
                                 loc = page.locator(sel).first
                                 if loc.is_visible(timeout=2000):
                                     loc.fill(fa_pass)
                                     pass_filled = True
+                                    pass_loc = loc
                                     log.info(f"FA: filled password with selector '{sel}'")
                                     break
                             except Exception:
                                 continue
                         if not email_filled or not pass_filled:
                             log.warning(f"FA: could not find form fields (email={email_filled}, pass={pass_filled})")
-                        page.click('button[type="submit"], input[type="submit"], button:has-text("Sign in"), button:has-text("Log in")')
+                        import re
+                        submitted = False
+                        for submit_attempt, submit_fn in [
+                            ("form[action] button[type=submit]", lambda: page.locator('form[action*="login"] button[type="submit"]').click()),
+                            ("button with login text", lambda: page.locator('button[type="submit"]').filter(has_text=re.compile(r'sign.?in|log.?in|submit', re.I)).first.click()),
+                            ("Enter on password field", lambda: pass_loc.press("Enter") if pass_loc else None),
+                        ]:
+                            try:
+                                submit_fn()
+                                submitted = True
+                                log.info(f"FA: submitted login via '{submit_attempt}'")
+                                break
+                            except Exception:
+                                continue
+                        if not submitted:
+                            log.warning("FA: could not find submit button")
                         try:
                             page.wait_for_url(lambda u: "login" not in u and "sign-in" not in u, timeout=30000)
                             log.info("FA: auto-login successful")
