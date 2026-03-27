@@ -533,11 +533,14 @@ class ForeignAffairsScraper:
                             log.info("FA: auto-login successful")
                         except PWTimeout:
                             log.warning("FA: auto-login may have failed — proceeding anyway")
+                        log.info(f"FA: post-login URL = {page.url}")
                     else:
                         log.warning("FA: login required but no fa credentials in credentials.json — waiting 120s")
                         page.wait_for_timeout(120000)
                     page.goto(self.SAVED_URL, wait_until="domcontentloaded", timeout=40000)
                     page.wait_for_timeout(4000)
+                    log.info(f"FA: saved articles URL = {page.url}")
+                    log.info(f"FA: page title = {page.title()}")
                 soup = BeautifulSoup(page.content(), "html.parser")
                 cards = soup.select("h3.body-m, div.article-preview, li.saved-article")
                 log.info(f"FA: found {len(cards)} cards")
