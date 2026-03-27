@@ -168,22 +168,25 @@ Total: ~2 minutes
 - Interest profile built from saved article topics/tags
 
 ## Next Steps
-1. iPad PWA — manifest.json + service worker (HTTPS is live, ready to build)
-2. Playwright on VPS — migrate browser profiles for server-side scraping
-3. Autonomous reading agent — auto-save ≥8/10 articles to Feed
-4. Deploy script — git pull + systemctl restart in one command
-5. Economist Playwright selector — investigate 0 articles intermittently
+1. Test filesystem MCP in new Claude Desktop session — verify direct file access works
+2. Residential proxy for VPS scraping (Bright Data or similar, ~$10/mo)
+3. Fix Economist scraper intermittency
+4. Fix FT articles in Suggested tab scored by keyword not Claude
+5. Suggested tab refresh — polling instead of fixed wait
+6. Server status panel shows localhost:4242 instead of meridianreader.com
+7. PWA icons — proper 192x192 and 512x512 instead of placeholders
+8. Deploy script — single command git pull + systemctl restart
 
 ## Build History
 ### 27 March 2026 (Session 8)
-- Claude Code installed (v2.1.85, ~/.local/bin/claude, bash PATH set)
-- iPad PWA: manifest.json, sw.js (meridian-v2 cache), nginx locations for /manifest.json, /sw.js, /icons/
-- ↻ Refresh button added to header (always visible)
-- ✦ Preview button on Suggested cards — POST /api/suggested/<id>/preview, caches in preview column
-- Autonomous reading agent: run_agent(), agent_log table, agent_feedback table, POST /api/agent/run, GET /api/agent/log, meridian-agent.timer (every 6h), ✦ Auto badge + var(--paper-2) background on auto-saved Feed articles
-- Playwright VPS: profiles copied (ft_profile 487MB, economist_profile 316MB, fa_profile 116MB), Chromium installed, playwright install-deps done, headless=True on all scrapers — IP blocked by FT/FA/Economist, scrapers remain on Mac via launchd
-- FA auto-login added: reads fa.email/fa.password from credentials.json, multiple selector fallbacks — not yet working due to VPS IP block
-- Next steps: MCP filesystem server setup (npm installed, not yet configured), residential proxy for VPS scraping (future), agent log UI review
+- Claude Code installed (v2.1.85, ~/.local/bin/claude, added to ~/.bashrc and ~/.zshrc PATH)
+- iPad PWA: manifest.json + sw.js (meridian-v2 cache) created, nginx updated with /sw.js location block (Service-Worker-Allowed header), /icons/ directory created on VPS
+- ↻ Refresh button added to header (always visible, window.location.reload())
+- ✦ Preview button on Suggested cards: POST /api/suggested/<id>/preview, BeautifulSoup fetch + Claude summary, cached in preview column on suggested_articles table
+- Autonomous reading agent: run_agent() function, agent_log table, agent_feedback table, POST /api/agent/run, GET /api/agent/log, POST /api/agent/feedback, meridian-agent.service + meridian-agent.timer (every 6h via systemd on VPS), ✦ Auto orange pill badge + var(--paper-2) background on auto-saved Feed articles, delete feedback hook
+- Playwright VPS migration: browser profiles copied (ft_profile 487MB, economist_profile 316MB, fa_profile 116MB), Chromium + deps installed (playwright install chromium + install-deps), all scrapers switched to headless=True — VPS IP blocked by FT/FA/Economist, scrapers remain on Mac via launchd
+- FA auto-login: reads fa.email/fa.password from credentials.json, multiple selector fallbacks, domcontentloaded wait — login fails due to VPS IP block
+- Filesystem MCP server configured in Claude Desktop: /opt/homebrew/bin/npx @modelcontextprotocol/server-filesystem /Users/alexdakers/meridian-server — server connects successfully, available in new chat sessions
 
 ### 26 March 2026 (Session 7)
 - Purchased meridianreader.com (Namecheap, expires Mar 26 2027)
