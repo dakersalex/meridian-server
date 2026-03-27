@@ -4,7 +4,7 @@ Meridian Scraper Server — v3
 Correct URLs and selectors for FT, Economist, Foreign Affairs.
 """
 
-import json, os, sys, time, hashlib, logging, threading, sqlite3
+import json, os, sys, time, hashlib, logging, threading, sqlite3, re, urllib.request, urllib.error
 from datetime import datetime
 from pathlib import Path
 
@@ -119,12 +119,58 @@ def all_articles(source=None, limit=200):
             rows = cx.execute("SELECT * FROM articles ORDER BY COALESCE(NULLIF(pub_date,''),datetime(saved_at/1000,'unixepoch')) DESC LIMIT ?", (limit,)).fetchall()
         return [dict(r) for r in rows]
 
-def load_creds():
-    return json.loads(CREDS.read_text()) if CREDS.exists() else {}
+# ── credentials cache ────────────────────────────────────────────────────────
+_creds_cache: dict = {}
+_creds_mtime: float = 0.0
+
+def load_creds() -> dict:
+    """Return credentials, re-reading from disk only if the file has changed."""
+    global _creds_cache, _creds_mtime
+    if not CREDS.exists():
+        return {}
+    mtime = CREDS.stat().st_mtime
+    if mtime != _creds_mtime:
+        _creds_cache = json.loads(CREDS.read_text())
+        _creds_mtime = mtime
+        log.info("Credentials reloaded from disk")
+    return _creds_cache
 
 def save_creds(data):
+    global _creds_cache, _creds_mtime
     CREDS.write_text(json.dumps(data, indent=2))
     os.chmod(CREDS, 0o600)
+    _creds_cache = data
+    _creds_mtime = CREDS.stat().st_mtime
+
+# ── shared Anthropic API helper ───────────────────────────────────────────────
+def call_anthropic(payload: dict, timeout: int = 30, retries: int = 2) -> dict:
+    """POST to Anthropic /v1/messages with retry on 429. Raises on failure."""
+    api_key = load_creds().get("anthropic_api_key", "")
+    if not api_key:
+        raise RuntimeError("No Anthropic API key configured")
+    data = json.dumps(payload).encode()
+    for attempt in range(retries):
+        req = urllib.request.Request(
+            "https://api.anthropic.com/v1/messages",
+            data=data,
+            headers={
+                "Content-Type": "application/json",
+                "x-api-key": api_key,
+                "anthropic-version": "2023-06-01",
+            },
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                return json.loads(resp.read())
+        except urllib.error.HTTPError as e:
+            if e.code == 429 and attempt < retries - 1:
+                wait = 15 * (attempt + 1)
+                log.warning(f"Anthropic 429 — retrying in {wait}s (attempt {attempt+1})")
+                time.sleep(wait)
+            else:
+                raise
+    raise RuntimeError("call_anthropic: exhausted retries")
 
 def make_id(source, url):
     return hashlib.sha1(f"{source}:{url}".encode()).hexdigest()[:16]
@@ -135,8 +181,7 @@ def now_ts():
 def enrich_article_with_ai(art):
     """Send article text to Claude API for summary, key points and tags.
     Only called for articles with body text. Updates art dict in place."""
-    creds = load_creds()
-    api_key = creds.get("anthropic_api_key", "")
+    api_key = load_creds().get("anthropic_api_key", "")
     if not api_key or api_key == "TEST_VALUE_123":
         log.warning("No API key — skipping AI enrichment")
         return art
@@ -146,7 +191,6 @@ def enrich_article_with_ai(art):
         log.info(f"Skipping AI enrichment for '{art.get('title','')[:50]}' — body too short")
         return art
 
-    import urllib.request, urllib.error, json as _json
     prompt = f"""You are a research assistant. Analyse this article and respond ONLY with a JSON object (no markdown):
 {{
   "summary": "2-3 sentence summary of the main argument",
@@ -163,34 +207,21 @@ Article source: {art.get('source','')}
 Article text:
 {body_text[:8000]}"""
 
-    payload = _json.dumps({
-        "model": "claude-haiku-4-5-20251001",
-        "max_tokens": 1000,
-        "messages": [{"role": "user", "content": prompt}]
-    }).encode()
-
-    req = urllib.request.Request(
-        "https://api.anthropic.com/v1/messages",
-        data=payload,
-        headers={
-            "Content-Type": "application/json",
-            "x-api-key": api_key,
-            "anthropic-version": "2023-06-01",
-        },
-        method="POST",
-    )
     try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            data = _json.loads(resp.read())
-            text = data["content"][0]["text"]
-            parsed = _json.loads(text.replace("```json","").replace("```","").strip())
-            art["summary"]     = parsed.get("summary", art.get("summary",""))
-            art["body"]        = parsed.get("fullSummary", art.get("body",""))
-            art["tags"]        = _json.dumps(parsed.get("tags", []))
-            art["topic"]       = parsed.get("topic", art.get("topic",""))
-            art["pub_date"]    = parsed.get("pub_date", art.get("pub_date",""))
-            art["status"] = "full_text"
-            log.info(f"AI enriched: '{art.get('title','')[:50]}'")
+        data = call_anthropic({
+            "model": "claude-haiku-4-5-20251001",
+            "max_tokens": 1000,
+            "messages": [{"role": "user", "content": prompt}]
+        })
+        text = data["content"][0]["text"]
+        parsed = json.loads(text.replace("```json","").replace("```","").strip())
+        art["summary"]  = parsed.get("summary", art.get("summary",""))
+        art["body"]     = parsed.get("fullSummary", art.get("body",""))
+        art["tags"]     = json.dumps(parsed.get("tags", []))
+        art["topic"]    = parsed.get("topic", art.get("topic",""))
+        art["pub_date"] = parsed.get("pub_date", art.get("pub_date",""))
+        art["status"]   = "full_text"
+        log.info(f"AI enriched: '{art.get('title','')[:50]}'")
     except Exception as e:
         log.warning(f"AI enrichment failed for '{art.get('title','')[:50]}': {e}")
     return art
@@ -1205,8 +1236,7 @@ def scrape_suggested_articles():
     if avoid_str:
         log.info(f"Suggested: negative signals — {avoid_str}")
 
-    creds = load_creds()
-    api_key = creds.get("anthropic_api_key","")
+    api_key = load_creds().get("anthropic_api_key","")
     if not api_key:
         log.warning("Suggested: no API key")
         return []
@@ -1271,12 +1301,11 @@ def scrape_suggested_articles():
                     log.warning("Suggested: empty final response")
                     return []
                 # Extract JSON array even if surrounded by prose
-                import re as _re
-                json_match = _re.search(r'\[[\s\S]*\]', text)
+                json_match = re.search(r'\[[\s\S]*\]', text)
                 if not json_match:
                     log.warning(f"Suggested: no JSON array in response: {text[:200]}")
                     return []
-                results = _json.loads(json_match.group(0))
+                results = json.loads(json_match.group(0))
                 results = [a for a in results if a.get("url","") not in saved_urls and a.get("title","")]
                 log.info(f"Suggested: Claude found {len(results)} articles via web search")
                 # Score FT/Economist via Claude (same quality as web search results)
@@ -1291,38 +1320,25 @@ def scrape_suggested_articles():
                 if needs_date:
                     time.sleep(5)  # avoid 429 after main web search
                     try:
-                        date_titles = _json.dumps([{"title": a["title"], "source": a["source"]} for a in needs_date])
+                        date_titles = json.dumps([{"title": a["title"], "source": a["source"]} for a in needs_date])
                         date_prompt = ("For each of these articles, find the publication date. "
                                       "Respond ONLY with a JSON array (same order): "
                                       '[{"pub_date":"26 March 2026"}] '
                                       "Use empty string if unknown. Articles: " + date_titles)
-                        date_payload = _json.dumps({
-                            "model": "claude-sonnet-4-20250514",
-                            "max_tokens": 500,
-                            "tools": [{"type": "web_search_20250305", "name": "web_search"}],
-                            "messages": [{"role": "user", "content": date_prompt}]
-                        }).encode()
                         date_msgs = [{"role": "user", "content": date_prompt}]
                         for _da in range(4):
-                            date_req = urllib.request.Request(
-                                "https://api.anthropic.com/v1/messages",
-                                data=_json.dumps({
-                                    "model": "claude-sonnet-4-20250514",
-                                    "max_tokens": 500,
-                                    "tools": [{"type": "web_search_20250305", "name": "web_search"}],
-                                    "messages": date_msgs
-                                }).encode(),
-                                headers={"Content-Type":"application/json","x-api-key":api_key,"anthropic-version":"2023-06-01"},
-                                method="POST"
-                            )
-                            with urllib.request.urlopen(date_req, timeout=30) as dr:
-                                date_data = _json.loads(dr.read())
+                            date_data = call_anthropic({
+                                "model": "claude-sonnet-4-20250514",
+                                "max_tokens": 500,
+                                "tools": [{"type": "web_search_20250305", "name": "web_search"}],
+                                "messages": date_msgs
+                            })
                             date_msgs.append({"role": "assistant", "content": date_data.get("content", [])})
                             if date_data.get("stop_reason") == "end_turn":
                                 date_text = "".join(b.get("text","") for b in date_data.get("content",[]) if b.get("type")=="text")
-                                date_match = _re.search(r"\[[\s\S]*\]", date_text)
+                                date_match = re.search(r"\[[\s\S]*\]", date_text)
                                 if date_match:
-                                    dates = _json.loads(date_match.group(0))
+                                    dates = json.loads(date_match.group(0))
                                     for i, a in enumerate(needs_date):
                                         if i < len(dates):
                                             a["pub_date"] = dates[i].get("pub_date", "")
@@ -1336,46 +1352,18 @@ def scrape_suggested_articles():
                         log.warning(f"Suggested: pub_date lookup failed: {de}")
                 if playwright_arts:
                     time.sleep(5)  # avoid 429 after pub_date lookup
-                    titles_str = _json.dumps([{"title": a["title"], "source": a["source"]} for a in playwright_arts])
-                    score_prompt = ("You are scoring news articles for a senior analyst. Their interests: " + interests_str + ". Score each article 0-10 for relevance to these interests. Be strict - only score 6+ if genuinely relevant. Exclude: lifestyle, sport, celebrity, recipes, quizzes, obituaries." + (" The analyst has dismissed articles about: " + avoid_str + " — score these lower." if avoid_str else "") + " Articles to score: " + titles_str + " Respond ONLY with a JSON array (same order): [{score:8,reason:one sentence why relevant}]")
+                    titles_str = json.dumps([{"title": a["title"], "source": a["source"]} for a in playwright_arts])
+                    score_prompt = ("You are scoring news articles for a senior analyst. Their interests: " + interests_str + ". Score each article 0-10 for relevance to these interests. Be strict - only score 6+ if genuinely relevant. Exclude: lifestyle, sport, celebrity, recipes, quizzes, obituaries." + (" The analyst has dismissed articles about: " + avoid_str + " — score these lower." if avoid_str else "") + " Articles to score: " + titles_str + " Respond ONLY with a JSON array (same order): [{\"score\":8,\"reason\":\"one sentence why relevant\"}]")
                     try:
-                        score_payload = _json.dumps({
+                        score_data = call_anthropic({
                             "model": "claude-sonnet-4-20250514",
                             "max_tokens": 1000,
                             "messages": [{"role": "user", "content": score_prompt}]
-                        }).encode()
-                        score_req = urllib.request.Request(
-                            "https://api.anthropic.com/v1/messages",
-                            data=score_payload,
-                            headers={"Content-Type":"application/json","x-api-key":api_key,"anthropic-version":"2023-06-01"},
-                            method="POST"
-                        )
-                        # Retry once on 429
-                        import urllib.error as _ue
-                        for _attempt in range(2):
-                            try:
-                                with urllib.request.urlopen(score_req, timeout=30) as sr:
-                                    score_data = _json.loads(sr.read())
-                                break
-                            except _ue.HTTPError as _he:
-                                if _he.code == 429 and _attempt == 0:
-                                    log.warning("Suggested: Claude scoring 429 — retrying in 10s")
-                                    time.sleep(10)
-                                    score_req = urllib.request.Request(
-                                        "https://api.anthropic.com/v1/messages",
-                                        data=score_payload,
-                                        headers={"Content-Type":"application/json","x-api-key":api_key,"anthropic-version":"2023-06-01"},
-                                        method="POST"
-                                    )
-                                else:
-                                    raise
-                        score_text = ""
-                        for block in score_data.get("content", []):
-                            if block.get("type") == "text":
-                                score_text += block.get("text", "")
-                        json_match2 = _re.search(r'\[[\s\S]*\]', score_text)
+                        })
+                        score_text = "".join(b.get("text","") for b in score_data.get("content",[]) if b.get("type")=="text")
+                        json_match2 = re.search(r'\[[\s\S]*\]', score_text)
                         if json_match2:
-                            scores = _json.loads(json_match2.group(0))
+                            scores = json.loads(json_match2.group(0))
                             for i, art in enumerate(playwright_arts):
                                 if i < len(scores):
                                     art["score"] = scores[i].get("score", 0)
@@ -1411,7 +1399,39 @@ def scrape_suggested_articles():
             else:
                 break
         log.warning("Suggested: agentic loop exhausted without end_turn")
-        return []
+        # Still score and return Playwright articles even if web search loop exhausted
+        playwright_arts = [a for a in ft_results + eco_results
+                           if a['url'] not in saved_urls]
+        for _pa in playwright_arts:
+            if not _pa.get("pub_date"):
+                _pa["pub_date"] = extract_pub_date_from_url(_pa["url"])
+        if playwright_arts:
+            try:
+                titles_str = json.dumps([{"title": a["title"], "source": a["source"]} for a in playwright_arts])
+                score_prompt = ("You are scoring news articles for a senior analyst. Their interests: " + interests_str +
+                    ". Score each article 0-10 for relevance. Be strict — only 6+ if genuinely relevant. " +
+                    (" Avoid topics: " + avoid_str + "." if avoid_str else "") +
+                    " Articles: " + titles_str +
+                    " Respond ONLY with a JSON array (same order): [{\"score\":8,\"reason\":\"one sentence\"}]")
+                score_data = call_anthropic({
+                    "model": "claude-sonnet-4-20250514",
+                    "max_tokens": 1000,
+                    "messages": [{"role": "user", "content": score_prompt}]
+                })
+                score_text = "".join(b.get("text","") for b in score_data.get("content",[]) if b.get("type")=="text")
+                score_match = re.search(r'\[[\s\S]*\]', score_text)
+                if score_match:
+                    scores = json.loads(score_match.group(0))
+                    for i, a in enumerate(playwright_arts):
+                        if i < len(scores):
+                            a["score"] = scores[i].get("score", 0)
+                            a["reason"] = scores[i].get("reason", "From " + a["source"])
+                    playwright_arts = [a for a in playwright_arts if a.get("score", 0) >= 6]
+                    log.info(f"Suggested: fallback scored {len(playwright_arts)} Playwright articles")
+            except Exception as _se:
+                log.warning(f"Suggested: fallback scoring failed: {_se}")
+                playwright_arts = []
+        return playwright_arts
     except Exception as e:
         log.warning(f"Suggested: Claude web search failed: {e}")
         return []
@@ -1501,7 +1521,6 @@ def patch_suggested(sid):
 
 @app.route("/api/suggested/<int:sid>/preview", methods=["POST"])
 def preview_suggested(sid):
-    import urllib.request as _ur, json as _json
     with sqlite3.connect(DB_PATH) as cx:
         cx.row_factory = sqlite3.Row
         row = cx.execute("SELECT * FROM suggested_articles WHERE id=?", (sid,)).fetchone()
@@ -1513,11 +1532,11 @@ def preview_suggested(sid):
         return jsonify({"ok": True, "preview": row["preview"]})
     # Fetch article text
     try:
-        req = _ur.Request(row["url"], headers={
+        req = urllib.request.Request(row["url"], headers={
             "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         })
-        with _ur.urlopen(req, timeout=20) as r:
+        with urllib.request.urlopen(req, timeout=20) as r:
             html = r.read().decode("utf-8", errors="ignore")
     except Exception as e:
         return jsonify({"ok": False, "error": f"Could not fetch article: {e}"}), 502
@@ -1533,9 +1552,7 @@ def preview_suggested(sid):
     if len(body) < 100:
         return jsonify({"ok": False, "error": "Could not extract enough text (may be paywalled)"}), 422
     # Summarise with Claude
-    creds = load_creds()
-    api_key = creds.get("anthropic_api_key", "")
-    if not api_key:
+    if not load_creds().get("anthropic_api_key"):
         return jsonify({"ok": False, "error": "No API key configured"}), 500
     prompt = f"""Summarise this article in 3-4 sentences. Focus on why it would be relevant to someone interested in geopolitics, economics, markets, and international affairs.
 
@@ -1544,25 +1561,13 @@ Source: {row['source']}
 
 Article text:
 {body[:6000]}"""
-    payload = _json.dumps({
-        "model": "claude-sonnet-4-20250514",
-        "max_tokens": 300,
-        "messages": [{"role": "user", "content": prompt}]
-    }).encode()
-    req = _ur.Request(
-        "https://api.anthropic.com/v1/messages",
-        data=payload,
-        headers={
-            "Content-Type": "application/json",
-            "x-api-key": api_key,
-            "anthropic-version": "2023-06-01",
-        },
-        method="POST",
-    )
     try:
-        with _ur.urlopen(req, timeout=30) as resp:
-            data = _json.loads(resp.read())
-            preview = data["content"][0]["text"].strip()
+        data = call_anthropic({
+            "model": "claude-sonnet-4-20250514",
+            "max_tokens": 300,
+            "messages": [{"role": "user", "content": prompt}]
+        })
+        preview = data["content"][0]["text"].strip()
     except Exception as e:
         return jsonify({"ok": False, "error": f"Claude API error: {e}"}), 502
     # Cache in DB
