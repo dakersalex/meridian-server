@@ -57,6 +57,8 @@ def init_db():
             cx.execute("ALTER TABLE suggested_articles ADD COLUMN reviewed_at INTEGER DEFAULT NULL")
         if 'pub_date' not in existing_cols:
             cx.execute("ALTER TABLE suggested_articles ADD COLUMN pub_date TEXT DEFAULT ''")
+        if 'preview' not in existing_cols:
+            cx.execute("ALTER TABLE suggested_articles ADD COLUMN preview TEXT DEFAULT ''")
         cx.execute("""CREATE TABLE IF NOT EXISTS newsletters (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             gmail_id TEXT,
@@ -1403,6 +1405,77 @@ def patch_suggested(sid):
     with sqlite3.connect(DB_PATH) as cx:
         cx.execute("UPDATE suggested_articles SET status=?, reviewed_at=? WHERE id=?", (status, ts, sid))
     return jsonify({"ok":True})
+
+@app.route("/api/suggested/<int:sid>/preview", methods=["POST"])
+def preview_suggested(sid):
+    import urllib.request as _ur, json as _json
+    with sqlite3.connect(DB_PATH) as cx:
+        cx.row_factory = sqlite3.Row
+        row = cx.execute("SELECT * FROM suggested_articles WHERE id=?", (sid,)).fetchone()
+    if not row:
+        return jsonify({"ok": False, "error": "not found"}), 404
+    row = dict(row)
+    # Return cached preview if available
+    if row.get("preview"):
+        return jsonify({"ok": True, "preview": row["preview"]})
+    # Fetch article text
+    try:
+        req = _ur.Request(row["url"], headers={
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        })
+        with _ur.urlopen(req, timeout=20) as r:
+            html = r.read().decode("utf-8", errors="ignore")
+    except Exception as e:
+        return jsonify({"ok": False, "error": f"Could not fetch article: {e}"}), 502
+    body = ""
+    if BS4_OK:
+        soup = BeautifulSoup(html, "html.parser")
+        for tag in soup(["script", "style", "nav", "header", "footer", "aside", "form"]):
+            tag.decompose()
+        container = soup.find("article") or soup.find("main") or soup.find("body")
+        if container:
+            paragraphs = container.find_all("p")
+            body = " ".join(p.get_text(" ", strip=True) for p in paragraphs if len(p.get_text(strip=True)) > 60)
+    if len(body) < 100:
+        return jsonify({"ok": False, "error": "Could not extract enough text (may be paywalled)"}), 422
+    # Summarise with Claude
+    creds = load_creds()
+    api_key = creds.get("anthropic_api_key", "")
+    if not api_key:
+        return jsonify({"ok": False, "error": "No API key configured"}), 500
+    prompt = f"""Summarise this article in 3-4 sentences. Focus on why it would be relevant to someone interested in geopolitics, economics, markets, and international affairs.
+
+Title: {row['title']}
+Source: {row['source']}
+
+Article text:
+{body[:6000]}"""
+    payload = _json.dumps({
+        "model": "claude-sonnet-4-20250514",
+        "max_tokens": 300,
+        "messages": [{"role": "user", "content": prompt}]
+    }).encode()
+    req = _ur.Request(
+        "https://api.anthropic.com/v1/messages",
+        data=payload,
+        headers={
+            "Content-Type": "application/json",
+            "x-api-key": api_key,
+            "anthropic-version": "2023-06-01",
+        },
+        method="POST",
+    )
+    try:
+        with _ur.urlopen(req, timeout=30) as resp:
+            data = _json.loads(resp.read())
+            preview = data["content"][0]["text"].strip()
+    except Exception as e:
+        return jsonify({"ok": False, "error": f"Claude API error: {e}"}), 502
+    # Cache in DB
+    with sqlite3.connect(DB_PATH) as cx:
+        cx.execute("UPDATE suggested_articles SET preview=? WHERE id=?", (preview, sid))
+    return jsonify({"ok": True, "preview": preview})
 
 @app.route("/api/suggested/bulk-delete", methods=["POST"])
 def bulk_delete_suggested():

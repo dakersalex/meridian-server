@@ -1826,8 +1826,11 @@ async function renderSuggested(autoRefreshCheck) {
         + '<div class="' + (isFirst ? 'featured-summary' : 'article-summary') + '" style="margin-bottom:8px">' + a.reason + '</div>'
         + '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">'
         + '<a href="' + a.url + '" target="_blank" class="btn btn-outline" style="font-size:11px;padding:4px 10px;text-decoration:none" onclick="markSuggestedReviewed(' + a.id + ')">↗ Open article</a>'
+        + '<button onclick="togglePreview(' + a.id + ')" class="btn btn-outline" style="font-size:11px;padding:4px 10px" id="preview-btn-' + a.id + '">✦ Preview</button>'
         + saveBtn + dismissBtn
-        + '</div></div></div></div>';
+        + '</div>'
+        + '<div id="preview-area-' + a.id + '" style="display:none;margin-top:10px;padding:12px 14px;background:var(--paper-2);border:1px solid var(--rule);border-radius:4px;font-size:13px;line-height:1.7;color:var(--ink-2)"></div>'
+        + '</div></div></div>';
     }).join('');
     area.innerHTML += cards;
     renderBulkBar();
@@ -1906,6 +1909,47 @@ async function bulkSuggestedDelete() {
   });
   suggestedChecked.clear();
   renderSuggested();
+}
+
+const previewCache = {};
+async function togglePreview(id) {
+  const area = document.getElementById('preview-area-' + id);
+  const btn = document.getElementById('preview-btn-' + id);
+  if (!area) return;
+  // Toggle off if already visible
+  if (area.style.display !== 'none') {
+    area.style.display = 'none';
+    if (btn) btn.textContent = '✦ Preview';
+    return;
+  }
+  // Show cached preview instantly
+  if (previewCache[id]) {
+    area.textContent = previewCache[id];
+    area.style.display = 'block';
+    if (btn) btn.textContent = '✦ Hide';
+    return;
+  }
+  // Fetch from API
+  area.innerHTML = '<span style="color:var(--ink-3)">Loading preview…</span>';
+  area.style.display = 'block';
+  if (btn) { btn.disabled = true; btn.textContent = '✦ …'; }
+  try {
+    const r = await fetch(SERVER + '/api/suggested/' + id + '/preview', { method: 'POST' });
+    const d = await r.json();
+    if (d.ok && d.preview) {
+      previewCache[id] = d.preview;
+      area.textContent = d.preview;
+      if (btn) btn.textContent = '✦ Hide';
+    } else {
+      area.innerHTML = '<span style="color:var(--red)">' + (d.error || 'Preview unavailable') + '</span>';
+      if (btn) btn.textContent = '✦ Preview';
+    }
+  } catch(e) {
+    area.innerHTML = '<span style="color:var(--red)">Failed to load preview</span>';
+    if (btn) btn.textContent = '✦ Preview';
+  } finally {
+    if (btn) btn.disabled = false;
+  }
 }
 
 async function markSuggestedReviewed(id) {
