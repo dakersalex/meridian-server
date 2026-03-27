@@ -476,8 +476,25 @@ class ForeignAffairsScraper:
                 page.goto(self.SAVED_URL, wait_until="domcontentloaded", timeout=45000)
                 page.wait_for_timeout(4000)
                 if "sign-in" in page.url or "login" in page.url:
-                    log.info("FA: login required — waiting 120s")
-                    page.wait_for_timeout(120000)
+                    creds = load_creds()
+                    fa_creds = creds.get("fa", {})
+                    fa_email = fa_creds.get("email", os.environ.get("FA_EMAIL", ""))
+                    fa_pass = fa_creds.get("password", os.environ.get("FA_PASSWORD", ""))
+                    if fa_email and fa_pass:
+                        log.info("FA: login required — attempting auto-login")
+                        page.goto("https://www.foreignaffairs.com/login", wait_until="domcontentloaded", timeout=30000)
+                        page.wait_for_timeout(2000)
+                        page.fill('input[type="email"], input[name="email"], input[id*="email"]', fa_email)
+                        page.fill('input[type="password"], input[name="password"], input[id*="password"]', fa_pass)
+                        page.click('button[type="submit"], input[type="submit"], button:has-text("Sign in"), button:has-text("Log in")')
+                        try:
+                            page.wait_for_url(lambda u: "login" not in u and "sign-in" not in u, timeout=15000)
+                            log.info("FA: auto-login successful")
+                        except PWTimeout:
+                            log.warning("FA: auto-login may have failed — proceeding anyway")
+                    else:
+                        log.warning("FA: login required but no fa credentials in credentials.json — waiting 120s")
+                        page.wait_for_timeout(120000)
                     page.goto(self.SAVED_URL, wait_until="domcontentloaded", timeout=40000)
                     page.wait_for_timeout(4000)
                 soup = BeautifulSoup(page.content(), "html.parser")
