@@ -168,21 +168,37 @@ Total: ~2 minutes
 - Interest profile built from saved article topics/tags
 
 ## Next Steps
-1. Test filesystem MCP in new Claude Desktop session — verify direct file access works
-2. Residential proxy for VPS scraping (Bright Data or similar, ~$10/mo)
-3. Fix Economist scraper intermittency
-4. Fix FT articles in Suggested tab scored by keyword not Claude
-5. Suggested tab refresh — polling instead of fixed wait
-6. Server status panel shows localhost:4242 instead of meridianreader.com
-7. PWA icons — proper 192x192 and 512x512 instead of placeholders
-8. Deploy script — single command git pull + systemctl restart
-9. Mac-independent scraping — three options to investigate:
+1. Mac-independent scraping — three options to investigate:
    A. Residential proxy (~$10/mo) — route VPS Playwright through home IP, cleanest solution
    B. pmset wake schedule (free) — schedule Mac to wake every 6h, run scrapers, sleep again (works lid-closed if plugged in)
    C. noVNC on VPS (free) — install lightweight desktop, re-authenticate browser profiles once via browser-based remote desktop
    Recommended starting point: Option B (pmset) — free and quick to set up
+2. PWA icons — proper 192x192 and 512x512 instead of placeholders
+3. Economist scraper intermittency — improved in Session 8 but needs live testing
+4. Bloomberg enrichment — manual via Chrome extension (save URL, extension pastes text)
 
 ## Build History
+### 27 March 2026 (Session 9)
+- Filesystem MCP confirmed working in Claude Desktop — direct file read/write, no more heredoc patches
+- Code review: identified 11 issues across server.py
+- Credentials caching: load_creds() now checks mtime, avoids 20+ disk reads per scrape
+- call_anthropic() shared helper: single place for all Anthropic API calls with 429 retry
+- enrich_article_with_ai() refactored to use call_anthropic(), removed internal imports
+- preview_suggested() refactored to use call_anthropic()
+- FT Suggested scoring bug fixed: agentic loop fallback now scores and returns Playwright articles even when web search exhausts without end_turn
+- All _json/_re aliases replaced with standard json/re module names
+- syncSource() fixed: replaced 20s fixed wait with proper polling (5s interval)
+- Server status panel: now shows 'meridianreader.com · connected' instead of 'localhost:4242'
+- deploy.sh created: single command git add/commit/push + SSH pull + systemctl restart
+- Economist scraper fixed: login detection, locator() fix for Load more button (:has-text was failing silently), better title extraction, date-path filter, debug logging
+- fetch_fa_article_text() added as top-level function with proper selectors
+- fetch_bloomberg_article_text() added (for Chrome extension enrichment path)
+- enrich_title_only_articles(): FA path now uses fetch_fa_article_text(), Bloomberg path added
+- Bloomberg scraper not viable (no saved articles URL) — manual enrichment via Chrome extension
+- CSIS articles excluded (scraper-blocked), Bloomberg kept (manual via extension)
+- Bulk status fix: 19 articles incorrectly stuck as title_only despite having body — patched to full_text
+- 295 articles now full_text, 4 genuinely title_only (3 FT pending next sync, 1 Bloomberg manual)
+
 ### 27 March 2026 (Session 8)
 - Claude Code installed (v2.1.85, ~/.local/bin/claude, added to ~/.bashrc and ~/.zshrc PATH)
 - iPad PWA: manifest.json + sw.js (meridian-v2 cache) created, nginx updated with /sw.js location block (Service-Worker-Allowed header), /icons/ directory created on VPS

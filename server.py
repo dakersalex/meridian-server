@@ -254,6 +254,53 @@ def fetch_ft_article_text(page, url):
         log.warning(f"FT fetch text error for {url}: {e}")
         return "", ""
 
+def fetch_bloomberg_article_text(page, url):
+    """Fetch full text and pub_date of a Bloomberg article using logged-in browser page."""
+    try:
+        page.goto(url, wait_until="domcontentloaded", timeout=25000)
+        page.wait_for_timeout(3000)
+        soup = BeautifulSoup(page.content(), "html.parser")
+        # Bloomberg article body selectors
+        paragraphs = (
+            soup.select("div.body-content p") or
+            soup.select("div[class*='body-copy'] p") or
+            soup.select("article p") or
+            soup.select("div[class*='article-body'] p")
+        )
+        text = " ".join(p.get_text(strip=True) for p in paragraphs if len(p.get_text(strip=True)) > 40)
+        pub_date = ""
+        meta = soup.select_one("meta[property='article:published_time'], time[datetime]")
+        if meta:
+            pub_date = meta.get("content") or meta.get("datetime") or ""
+        return text, pub_date
+    except Exception as e:
+        log.warning(f"Bloomberg fetch text error for {url}: {e}")
+        return "", ""
+
+def fetch_fa_article_text(page, url):
+    """Fetch full text and pub_date of a Foreign Affairs article using logged-in browser page."""
+    try:
+        page.goto(url, wait_until="domcontentloaded", timeout=25000)
+        page.wait_for_timeout(3000)
+        soup = BeautifulSoup(page.content(), "html.parser")
+        # FA selectors — try multiple patterns
+        paragraphs = (
+            soup.select("div.article-body p") or
+            soup.select("div[class*='body'] p") or
+            soup.select("div[class*='article'] p") or
+            soup.select("main p")
+        )
+        text = " ".join(p.get_text(strip=True) for p in paragraphs if len(p.get_text(strip=True)) > 40)
+        # pub_date from meta tag
+        pub_date = ""
+        meta = soup.select_one("meta[property='article:published_time'], meta[name='pubdate']")
+        if meta and meta.get("content"):
+            pub_date = meta["content"]
+        return text, pub_date
+    except Exception as e:
+        log.warning(f"FA fetch text error for {url}: {e}")
+        return "", ""
+
 def fetch_economist_article_text(page, url):
     """Fetch full text and pub_date of an Economist article using logged-in browser page."""
     try:
@@ -404,15 +451,31 @@ class EconomistScraper:
             try:
                 log.info("Economist: opening bookmarks")
                 page.goto(self.SAVED_URL, wait_until="domcontentloaded", timeout=45000)
-                page.wait_for_timeout(3000)
+                page.wait_for_timeout(4000)
+
+                # Check for login redirect
+                if "login" in page.url or "signin" in page.url or "register" in page.url:
+                    log.warning("Economist: session expired — login required, waiting 90s for manual login")
+                    page.wait_for_timeout(90000)
+                    page.goto(self.SAVED_URL, wait_until="domcontentloaded", timeout=40000)
+                    page.wait_for_timeout(4000)
+
+                log.info(f"Economist: at URL {page.url}")
+
                 # Click Load more until we hit existing articles
+                # Use locator() not query_selector() — :has-text is a Playwright extension, not CSS
                 found_existing = False
                 for _ in range(20):
                     if found_existing: break
                     try:
-                        # Use Playwright selector for Load more button
-                        btn = page.query_selector("button[data-test-id='load-more']") or                               page.query_selector("button:has-text('Load more')")
-                        if not btn: break
+                        btn = (
+                            page.locator("button[data-test-id='load-more']").first
+                            if page.locator("button[data-test-id='load-more']").count() > 0
+                            else page.locator("button").filter(has_text="Load more").first
+                            if page.locator("button").filter(has_text="Load more").count() > 0
+                            else None
+                        )
+                        if btn is None: break
                         btn.click()
                         page.wait_for_timeout(2000)
                         soup = BeautifulSoup(page.content(), "html.parser")
@@ -425,24 +488,52 @@ class EconomistScraper:
                         log.info("Economist: clicked Load more")
                     except Exception as _e:
                         log.warning(f"Economist: Load more error: {_e}"); break
+
                 soup = BeautifulSoup(page.content(), "html.parser")
-                links = soup.select("a[href*='/20']")
-                log.info(f"Economist: found {len(links)} article links")
+
+                # Collect article URLs + titles from bookmark cards
+                # Economist bookmark cards: article link contains the date path /YYYY/MM/DD/
+                # Try to get the title from the card heading, fall back to link text
                 seen_urls = set()
-                for a in links:
-                    if found_existing: break
-                    url = "https://www.economist.com" + a["href"] if a["href"].startswith("/") else a["href"]
+                card_data = []  # list of (url, title)
+                for a in soup.select("a[href*='/20']"):
+                    href = a.get("href", "")
+                    if not re.search(r'/\d{4}/\d{2}/\d{2}/', href):
+                        continue  # skip non-article links (nav, homepage etc)
+                    url = "https://www.economist.com" + href if href.startswith("/") else href
                     url = url.split("?")[0]
                     if url in seen_urls: continue
                     seen_urls.add(url)
-                    title = a.get_text(strip=True)
+                    # Try to find a heading nearby: h3, h2, or a sibling with class containing 'headline'
+                    title = ""
+                    parent = a.parent
+                    for _ in range(4):  # walk up max 4 levels
+                        if parent is None: break
+                        heading = parent.select_one("h3, h2, [class*='headline'], [class*='title']")
+                        if heading:
+                            title = heading.get_text(strip=True)
+                            break
+                        parent = parent.parent
+                    if not title:
+                        title = a.get_text(strip=True)
                     if not title or len(title) < 5: continue
+                    card_data.append((url, title))
+
+                log.info(f"Economist: found {len(card_data)} article links")
+
+                for url, title in card_data:
+                    if found_existing: break
                     art_id = make_id(self.name, url)
                     if article_exists(art_id):
                         log.info("Economist: hit existing article, stopping")
                         found_existing = True; break
                     articles.append({"id":art_id,"source":self.name,"url":url,"title":title,"body":"","summary":"","topic":"","tags":"[]","saved_at":now_ts(),"fetched_at":now_ts(),"status":"fetched","pub_date":""})
                     log.info(f"Economist: scraped '{title[:60]}'")
+
+                # Fallback: if no articles found via card_data, page may have different structure — log HTML snippet
+                if not articles and not found_existing:
+                    log.warning(f"Economist: 0 articles scraped — page snippet: {soup.get_text()[:300]}")
+                    log.warning(f"Economist: page URL was {page.url}")
                 log.info(f"Economist: total {len(articles)} articles scraped")
                 # full text + AI enrichment for new articles
                 new_arts = [a for a in articles if not article_exists(a["id"])]
@@ -750,7 +841,8 @@ def enrich_title_only_articles():
     ft_arts  = [a for a in arts if a["source"] == "Financial Times"]
     eco_arts = [a for a in arts if a["source"] == "The Economist"]
     fa_arts  = [a for a in arts if a["source"] == "Foreign Affairs"]
-    other_arts = [a for a in arts if a["source"] not in ("Financial Times","The Economist","Foreign Affairs")]
+    bbg_arts = [a for a in arts if a["source"] == "Bloomberg"]
+    other_arts = [a for a in arts if a["source"] not in ("Financial Times","The Economist","Foreign Affairs","Bloomberg")]
     enriched = 0
 
     # FT — use logged-in ft_profile
@@ -810,7 +902,7 @@ def enrich_title_only_articles():
         except Exception as e:
             log.warning(f"Enrich title-only: Economist Playwright failed: {e}")
 
-    # Foreign Affairs — use fa_profile
+    # Foreign Affairs — use fa_profile with fetch_fa_article_text (same as main scraper)
     if fa_arts and PLAYWRIGHT_OK:
         try:
             from playwright.sync_api import sync_playwright
@@ -822,25 +914,54 @@ def enrich_title_only_articles():
                 page = browser.pages[0] if browser.pages else browser.new_page()
                 for a in fa_arts:
                     try:
-                        page.goto(a["url"], wait_until="domcontentloaded", timeout=20000)
-                        page.wait_for_timeout(2000)
-                        from bs4 import BeautifulSoup as _BS
-                        soup = _BS(page.content(), "html.parser")
-                        paragraphs = soup.select("div.article-body p, div[class*='body'] p")
-                        text = " ".join(p.get_text(strip=True) for p in paragraphs if len(p.get_text(strip=True)) > 60)
+                        text, pub_date = fetch_fa_article_text(page, a["url"])
                         if text:
                             a["body"] = text
+                            if pub_date and not a.get("pub_date"):
+                                a["pub_date"] = pub_date
                             with sqlite3.connect(DB_PATH) as cx:
-                                cx.execute("UPDATE articles SET body=?, status='fetched' WHERE id=?", (text, a["id"]))
+                                cx.execute("UPDATE articles SET body=?, pub_date=?, status='fetched' WHERE id=?",
+                                           (text, a.get("pub_date",""), a["id"]))
                             enrich_article_with_ai(a)
                             _save_enriched_article(a)
                             enriched += 1
                             log.info(f"Enrich title-only: FA fetched '{a['title'][:50]}'")
+                        else:
+                            log.warning(f"Enrich title-only: FA got no text for '{a['title'][:50]}'")
                     except Exception as e:
                         log.warning(f"Enrich title-only: FA fetch failed for {a['url']}: {e}")
                 browser.close()
         except Exception as e:
             log.warning(f"Enrich title-only: FA Playwright failed: {e}")
+
+    # Bloomberg — use bloomberg_profile
+    if bbg_arts and PLAYWRIGHT_OK:
+        try:
+            from playwright.sync_api import sync_playwright
+            with sync_playwright() as pw:
+                browser = pw.chromium.launch_persistent_context(
+                    str(BASE_DIR / "bloomberg_profile"),
+                    headless=True, args=["--no-sandbox"]
+                )
+                page = browser.pages[0] if browser.pages else browser.new_page()
+                for a in bbg_arts:
+                    text, pub_date = fetch_bloomberg_article_text(page, a["url"])
+                    if text:
+                        a["body"] = text
+                        if pub_date and not a.get("pub_date"):
+                            a["pub_date"] = pub_date
+                        with sqlite3.connect(DB_PATH) as cx:
+                            cx.execute("UPDATE articles SET body=?, pub_date=?, status='fetched' WHERE id=?",
+                                       (text, a.get("pub_date",""), a["id"]))
+                        enrich_article_with_ai(a)
+                        _save_enriched_article(a)
+                        enriched += 1
+                        log.info(f"Enrich title-only: Bloomberg fetched '{a['title'][:50]}'")
+                    else:
+                        log.warning(f"Enrich title-only: Bloomberg no text for '{a['title'][:50]}' — may need re-auth")
+                browser.close()
+        except Exception as e:
+            log.warning(f"Enrich title-only: Bloomberg Playwright failed: {e}")
 
     # Other sources — generic scrape (no login)
     for a in other_arts:
