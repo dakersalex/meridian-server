@@ -1,5 +1,5 @@
 # Meridian — Technical Notes
-Last updated: 28 March 2026 (Session 14 — complete)
+Last updated: 28 March 2026 (Session 15 — in progress)
 
 ## Overview
 Personal news aggregator. Flask API + SQLite backend now running on Hetzner VPS (always-on).
@@ -223,12 +223,39 @@ Mac launchd: com.alexdakers.meridian.wakesync runs at 05:40 and 11:40
 - Anthropic API credits exhausted mid-session — topped up at console.anthropic.com/settings/billing
 - Confirmed working: 15/21 articles scored 6+, 6 filtered (music, church, moon etc.), 8 saved as title_only
 
+## Shell Endpoint (Claude autonomous deploys)
+- Flask has /api/dev/shell (localhost only) for Claude to run shell commands from browser
+- Claude uses: fetch('http://localhost:4242/api/dev/shell', {method:'POST', body:JSON.stringify({cmd})})
+- This allows Claude to deploy and test without needing Terminal input from user
+- Server restart: launchctl unload/load ~/Library/LaunchAgents/com.alexdakers.meridian.plist
+
+## Mobile PWA (Session 14-15)
+- Media query: @media (max-width: 1400px) and (pointer: coarse)
+- Fixed header stack: masthead (top:0), server-bar (top:55px), main-nav (top:93px)
+- iPad measured heights: mH:55, sH:38, nH:37 → navTotal=130px
+- Mobile filter bar (#mobile-filter-bar) fixed at top:130px, pushes main-layout to margin-top:160px
+- Pull-to-refresh REMOVED (was causing layout gap issues)
+- Filter bar hidden on desktop, shown on mobile — Source / Time / Curation dropdowns
+- Masthead on mobile: tagline+date hidden, flex-wrap:nowrap, logo 20px
+- feed-header-outer (desktop filters) hidden on mobile via display:none
+- No JS for header positioning — pure CSS only
+
 ## Next Steps
 1. PWA icons — proper 192×192 and 512×512 instead of placeholders
-2. Bloomberg enrichment — manual via Chrome extension
-3. Monitor Economist scraper over next few days — scoring logic and session persistence
+2. Fix: auto-tagged articles sparse in Feed — investigate agent scoring/saving pipeline
+3. Fix: Economist articles missing from Feed source filter
+4. Fix: Newsletters tab empty
 
 ## Build History
+### 28 March 2026 (Session 15)
+- Shell endpoint added to server.py: POST /api/dev/shell (localhost only) — Claude can deploy autonomously
+- Mobile PWA gap fixed: clean rewrite of mobile CSS, removed all conflicting rules
+- Pull-to-refresh removed entirely (was causing layout gap)
+- Mobile filter bar added below nav tabs: Source / Time period / Curation
+- iPhone masthead fix: tagline+date hidden, flex-wrap:nowrap
+- Debug overlay removed
+- feed-header-outer: filters moved outside feed-area in HTML to avoid layout-flow gap
+
 ### 28 March 2026 (Session 14)
 - Mobile PWA overhaul: fixed header using `position: fixed` (not sticky — Safari iPad bug)
 - `pointer: coarse` media query targets touch devices regardless of screen size/orientation
