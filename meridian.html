@@ -132,9 +132,8 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
   .main-layout { margin-top: 171px; }
   /* feed-area: minimal padding since feed-header is fixed */
   .feed-area { padding-top: 0 !important; padding-bottom: calc(14px + env(safe-area-inset-bottom)) !important; }
-  /* feed-header is fixed so hide its layout space; push counter below it */
-  .feed-header { margin-bottom: 0 !important; padding-bottom: 0 !important; }
-  #feed-counter { margin-top: 52px !important; }
+  /* feed-area: just a small padding at top */
+  .feed-area { padding-top: 8px !important; }
   #pull-to-refresh { margin-top: 130px; }
 
   /* ── Hide activity bar entirely on mobile ── */
@@ -213,6 +212,10 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
   #pull-to-refresh.visible { height: 44px; }
 }
 .feed-area { padding: 20px; border-right: 1px solid var(--rule); }
+/* On desktop, feed-header sits above feed-area as a normal block */
+@media not all and (pointer: coarse) {
+  #feed-header-outer { padding: 0 20px 10px; border-bottom: 1px solid var(--rule); margin-bottom: 0; }
+}
 .detail-view { display: none; padding: 20px; }
 .detail-view.open { display: block; }
 .feed-area.hidden { display: none; }
@@ -440,37 +443,38 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
   </div>
 </div>
 <div id="pull-to-refresh">↓ Release to refresh</div>
+<!-- feed-header moved outside feed-area so position:fixed doesn't leave a layout gap -->
+<div class="feed-header" id="feed-header-outer">
+  <span class="feed-title" id="feed-title" style="display:none"></span>
+  <div class="feed-controls" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+    <select class="filter-select" id="status-filter" onchange="renderFeed()"><option value="all">All articles</option><option value="full_text">Full text only</option><option value="title_only">Title only</option></select>
+    <select class="filter-select" id="curation-filter" onchange="renderFeed()">
+      <option value="all">All articles</option>
+      <option value="saved">My saves</option>
+      <option value="ai">AI suggested</option>
+    </select>
+    <select class="filter-select" id="source-filter" onchange="renderFeed()">
+      <option value="all">All sources</option>
+      <option value="Financial Times">FT</option>
+      <option value="The Economist">Economist</option>
+      <option value="Foreign Affairs">Foreign Affairs</option>
+    </select>
+    <select class="filter-select" id="date-filter" onchange="renderFeed()">
+      <option value="180">Last 6 months</option>
+      <option value="30">Last 30 days</option>
+      <option value="7">Last 7 days</option>
+      <option value="365">Last year</option>
+      <option value="9999">All time</option>
+    </select>
+    <div style="margin-left:auto;display:flex;gap:4px;align-items:center">
+      <button class="btn btn-outline" onclick="selectAll()" style="font-size:11px;padding:4px 8px" id="select-all-btn">Select all</button>
+      <button class="btn btn-outline" onclick="deleteSelected()" style="font-size:11px;padding:4px 8px;display:none;border-color:var(--red);color:var(--red)" id="delete-selected-btn">Delete selected</button>
+    </div>
+  </div>
+</div>
 <div class="main-layout">
   <div class="feed-area" id="feed-area">
-    <div class="feed-header">
-      <span class="feed-title" id="feed-title" style="display:none"></span>
-      <div class="feed-controls" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
-        <select class="filter-select" id="status-filter" onchange="renderFeed()"><option value="all">All articles</option><option value="full_text">Full text only</option><option value="title_only">Title only</option></select>
-        <select class="filter-select" id="curation-filter" onchange="renderFeed()">
-          <option value="all">All articles</option>
-          <option value="saved">My saves</option>
-          <option value="ai">AI suggested</option>
-        </select>
-        <select class="filter-select" id="source-filter" onchange="renderFeed()">
-          <option value="all">All sources</option>
-          <option value="Financial Times">FT</option>
-          <option value="The Economist">Economist</option>
-          <option value="Foreign Affairs">Foreign Affairs</option>
-        </select>
-        <select class="filter-select" id="date-filter" onchange="renderFeed()">
-          <option value="180">Last 6 months</option>
-          <option value="30">Last 30 days</option>
-          <option value="7">Last 7 days</option>
-          <option value="7">Last 7 days</option>
-          <option value="365">Last year</option>
-          <option value="9999">All time</option>
-        </select>
-        <div style="margin-left:auto;display:flex;gap:4px;align-items:center">
-          <button class="btn btn-outline" onclick="selectAll()" style="font-size:11px;padding:4px 8px" id="select-all-btn">Select all</button>
-          <button class="btn btn-outline" onclick="deleteSelected()" style="font-size:11px;padding:4px 8px;display:none;border-color:var(--red);color:var(--red)" id="delete-selected-btn">Delete selected</button>
-        </div>
-      </div>
-    </div><div id="feed-counter" style="font-size:11px;color:var(--ink-3);margin-bottom:10px;"></div><div id="autoclip-progress" style="display:none;font-size:12px;color:var(--muted);margin-bottom:8px;padding:6px 8px;background:var(--surface);border-radius:4px;border:1px solid var(--border)"></div><div id="feed-content"></div>
+    <div id="feed-counter" style="font-size:11px;color:var(--ink-3);margin-bottom:10px;"></div><div id="autoclip-progress" style="display:none;font-size:12px;color:var(--muted);margin-bottom:8px;padding:6px 8px;background:var(--surface);border-radius:4px;border:1px solid var(--border)"></div><div id="feed-content"></div>
   </div>
   <div class="detail-view" id="detail-view">
     <button class="back-btn" onclick="closeDetail()">← Back</button>
