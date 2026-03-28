@@ -449,17 +449,9 @@ class EconomistScraper:
                 args=["--disable-blink-features=AutomationControlled"])
             page = browser.new_page()
             try:
-                log.info("Economist: opening bookmarks")
-                page.goto(self.SAVED_URL, wait_until="domcontentloaded", timeout=45000)
+                log.info("Economist: opening homepage")
+                page.goto("https://www.economist.com", wait_until="domcontentloaded", timeout=45000)
                 page.wait_for_timeout(4000)
-
-                # Check for login redirect
-                if "login" in page.url or "signin" in page.url or "register" in page.url:
-                    log.warning("Economist: session expired — login required, waiting 90s for manual login")
-                    page.wait_for_timeout(90000)
-                    page.goto(self.SAVED_URL, wait_until="domcontentloaded", timeout=40000)
-                    page.wait_for_timeout(4000)
-
                 log.info(f"Economist: at URL {page.url}")
 
                 # Click Load more until we hit existing articles
@@ -516,19 +508,62 @@ class EconomistScraper:
                         parent = parent.parent
                     if not title:
                         title = a.get_text(strip=True)
-                    if not title or len(title) < 5: continue
+                    if not title or len(title) < 20: continue
+                    # Skip section labels (short phrases like 'United States', 'Culture')
+                    if len(title.split()) <= 3: continue
                     card_data.append((url, title))
 
                 log.info(f"Economist: found {len(card_data)} article links")
 
+                # Filter out already-seen articles
+                new_card_data = []
                 for url, title in card_data:
-                    if found_existing: break
                     art_id = make_id(self.name, url)
                     if article_exists(art_id):
-                        log.info("Economist: hit existing article, stopping")
+                        log.info("Economist: hit existing article, stopping early")
                         found_existing = True; break
+                    new_card_data.append((url, title))
+
+                if new_card_data and not found_existing:
+                    # Score titles with Claude before fetching any full text
+                    with sqlite3.connect(DB_PATH) as _cx:
+                        _rows = _cx.execute("SELECT topic, tags FROM articles ORDER BY saved_at DESC LIMIT 100").fetchall()
+                    topic_counts = {}
+                    for _r in _rows:
+                        if _r[0]: topic_counts[_r[0]] = topic_counts.get(_r[0], 0) + 1
+                        try:
+                            for _t in json.loads(_r[1] or "[]"):
+                                topic_counts[_t] = topic_counts.get(_t, 0) + 1
+                        except: pass
+                    top_interests = ", ".join(sorted(topic_counts, key=lambda x: -topic_counts[x])[:12]) or "geopolitics, economics, finance, markets"
+                    titles_str = json.dumps([{"title": t, "url": u} for u, t in new_card_data])
+                    score_prompt = (f"You are scoring Economist articles for a senior analyst interested in: {top_interests}. "
+                        "Score each 0-10 for relevance. Be strict — only 6+ if genuinely relevant to their interests. "
+                        "Exclude: lifestyle, recipes, sport, celebrity, arts reviews, obituaries, technology consumer products. "
+                        f"Articles: {titles_str} "
+                        "Respond ONLY with a JSON array (same order): [{\"score\":8}]")
+                    try:
+                        score_data = call_anthropic({"model": "claude-haiku-4-5-20251001", "max_tokens": 500,
+                            "messages": [{"role": "user", "content": score_prompt}]})
+                        score_text = "".join(b.get("text","") for b in score_data.get("content",[]) if b.get("type")=="text")
+                        score_match = re.search(r'\[[\s\S]*\]', score_text)
+                        if score_match:
+                            scores = json.loads(score_match.group(0))
+                            scored = [(new_card_data[i], scores[i].get("score", 0))
+                                      for i in range(min(len(new_card_data), len(scores)))]
+                            relevant = [(url, title) for (url, title), score in scored if score >= 6]
+                            log.info(f"Economist: {len(relevant)}/{len(new_card_data)} articles scored 6+ by Claude")
+                            new_card_data = relevant
+                        else:
+                            log.warning("Economist: could not parse Claude scores — using all articles")
+                    except Exception as _se:
+                        log.warning(f"Economist: Claude scoring failed: {_se} — using all articles")
+
+                for url, title in new_card_data[:8]:
+                    art_id = make_id(self.name, url)
                     articles.append({"id":art_id,"source":self.name,"url":url,"title":title,"body":"","summary":"","topic":"","tags":"[]","saved_at":now_ts(),"fetched_at":now_ts(),"status":"fetched","pub_date":""})
                     log.info(f"Economist: scraped '{title[:60]}'")
+                    if len(articles) >= 8: break
 
                 # Fallback: if no articles found via card_data, page may have different structure — log HTML snippet
                 if not articles and not found_existing:
