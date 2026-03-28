@@ -2387,7 +2387,7 @@ setInterval(updateActivityBar, 5*60*1000);
 
 // ── Fix mobile header margin at runtime ──
 function fixMobileHeaderMargin() {
-  if (!window.matchMedia('(pointer: coarse)').matches) return;
+  if (window.innerWidth > 1400) return; // only run on mobile widths
   const masthead = document.querySelector('.masthead');
   const serverBar = document.querySelector('.server-bar');
   const mainNav = document.querySelector('.main-nav');
