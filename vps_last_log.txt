@@ -1,5 +1,2 @@
-total 16
-drwxr-xr-x 2 root root 4096 Mar 28 09:42 .
-drwxr-xr-x 9 root root 4096 Mar 28 09:42 ..
--rw-r--r-- 1 root root  852 Mar 28 09:42 icon-192.png
--rw-r--r-- 1 root root 3348 Mar 28 09:42 icon-512.png
+Already up to date.
+Done
