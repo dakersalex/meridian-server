@@ -1860,6 +1860,18 @@ def scheduler_loop(interval_hours):
                 threading.Thread(target=_suggested_and_agent, daemon=True).start()
         time.sleep(60)  # Check every minute
 
+@app.route("/api/dev/shell", methods=["POST"])
+def dev_shell():
+    """Localhost-only shell exec for Claude automation. Never expose publicly."""
+    if request.remote_addr not in ('127.0.0.1', '::1'):
+        return jsonify({"error": "localhost only"}), 403
+    import subprocess
+    cmd = request.json.get('cmd', '')
+    if not cmd:
+        return jsonify({"error": "no cmd"}), 400
+    result = subprocess.run(cmd, shell=True, capture_output=True, text=True, cwd=str(BASE_DIR))
+    return jsonify({"stdout": result.stdout, "stderr": result.stderr, "returncode": result.returncode})
+
 @app.route("/api/newsletters/sync", methods=["POST"])
 def sync_newsletters_route():
     import subprocess

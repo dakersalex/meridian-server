@@ -2387,28 +2387,33 @@ setInterval(updateActivityBar, 5*60*1000);
 
 // ── Fix mobile header margin at runtime ──
 function fixMobileHeaderMargin() {
-  if (window.innerWidth > 1400) return; // only run on mobile widths
+  if (window.innerWidth > 1400) return;
   const masthead = document.querySelector('.masthead');
   const serverBar = document.querySelector('.server-bar');
   const mainNav = document.querySelector('.main-nav');
   const feedHeader = document.querySelector('.feed-header');
   const mainLayout = document.querySelector('.main-layout');
+  const feedArea = document.getElementById('feed-area');
   const ptr = document.getElementById('pull-to-refresh');
-  if (!feedHeader || !mainLayout) return;
-  // Measure actual rendered heights
+  if (!mainLayout) return;
+  // Measure actual rendered heights of the fixed rows
   const mH = masthead ? masthead.offsetHeight : 0;
   const sH = serverBar ? serverBar.offsetHeight : 0;
   const nH = mainNav ? mainNav.offsetHeight : 0;
   const fH = feedHeader ? feedHeader.offsetHeight : 0;
-  const total = mH + sH + nH + fH;
-  // Position each row precisely
+  const navTotal = mH + sH + nH; // height before feed-header
+  const total = navTotal + fH;   // full fixed stack height
+  // Position fixed rows precisely
   if (serverBar) serverBar.style.top = mH + 'px';
   if (mainNav) mainNav.style.top = (mH + sH) + 'px';
-  if (feedHeader) feedHeader.style.top = (mH + sH + nH) + 'px';
-  // Push content below all fixed rows
-  mainLayout.style.marginTop = total + 'px';
-  if (ptr) ptr.style.marginTop = (mH + sH + nH) + 'px';
-  // Update shield to cover full header
+  if (feedHeader) feedHeader.style.top = navTotal + 'px';
+  // main-layout margin only needs to clear masthead+serverbar+nav
+  // feed-header is position:fixed so it floats OVER the content
+  // feed-area needs padding-top to push content below the feed-header
+  mainLayout.style.marginTop = navTotal + 'px';
+  if (feedArea) feedArea.style.paddingTop = (fH + 10) + 'px';
+  if (ptr) ptr.style.marginTop = navTotal + 'px';
+  // Shield covers the full fixed stack
   let shieldStyle = document.getElementById('mobile-shield-style');
   if (!shieldStyle) {
     shieldStyle = document.createElement('style');
@@ -2417,8 +2422,8 @@ function fixMobileHeaderMargin() {
   }
   shieldStyle.textContent = `body::before { height: ${total}px !important; }`;
 }
-// Run after fonts and layout settle
-window.addEventListener('load', () => { fixMobileHeaderMargin(); setTimeout(fixMobileHeaderMargin, 500); });
+// Run after fonts and layout settle, and after articles render
+window.addEventListener('load', () => { fixMobileHeaderMargin(); setTimeout(fixMobileHeaderMargin, 500); setTimeout(fixMobileHeaderMargin, 1500); });
 window.addEventListener('resize', fixMobileHeaderMargin);
 
 // ── Pull to refresh ──
