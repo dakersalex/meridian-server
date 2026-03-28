@@ -1645,7 +1645,10 @@ document.getElementById('date-display').textContent=new Date().toLocaleDateStrin
     const fhTop = getComputedStyle(document.querySelector('.feed-header')).top;
     const fc = document.querySelector('.featured-card, .article-card');
     const fcTop = fc ? Math.round(fc.getBoundingClientRect().top) : '?';
-    div.innerHTML = `w:${window.innerWidth} coarse:${window.matchMedia('(pointer:coarse)').matches}<br>mH:${mH} sH:${sH} nH:${nH} fH:${fH}<br>ml-margin:${ml} fa-pad:${fp}<br>fh-pos:${fhPos} fh-top:${fhTop}<br>firstCard top:${fcTop}px`;
+    const ptr = document.getElementById('pull-to-refresh');
+    const ptrH = ptr ? ptr.offsetHeight : '?';
+    const ptrMt = ptr ? getComputedStyle(ptr).marginTop : '?';
+    div.innerHTML = `w:${window.innerWidth} coarse:${window.matchMedia('(pointer:coarse)').matches}<br>mH:${mH} sH:${sH} nH:${nH} fH:${fH}<br>ml-margin:${ml} fa-pad:${fp}<br>ptr-h:${ptrH} ptr-mt:${ptrMt}<br>firstCard top:${fcTop}px`;
   }
   setTimeout(update, 500);
   setTimeout(update, 1500);
