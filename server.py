@@ -1558,14 +1558,18 @@ def scrape_suggested_articles():
         return []
 
 
+def normalise_url(url):
+    """Strip query parameters and fragments for dedup purposes."""
+    return url.split('?')[0].split('#')[0].rstrip('/')
+
 def save_suggested_snapshot(articles):
     snapshot_date = datetime.now().strftime("%Y-%m-%d")
     added = 0
     with sqlite3.connect(DB_PATH) as cx:
-        existing_urls = set(r[0] for r in cx.execute("SELECT url FROM suggested_articles").fetchall())
+        existing_urls = set(normalise_url(r[0]) for r in cx.execute("SELECT url FROM suggested_articles").fetchall())
         for a in articles:
             url = a.get("url","")
-            if not url or url in existing_urls:
+            if not url or normalise_url(url) in existing_urls:
                 continue
             cx.execute(
                 "INSERT INTO suggested_articles (title,url,source,snapshot_date,score,reason,added_at,status,pub_date) VALUES (?,?,?,?,?,?,?,'new',?)",

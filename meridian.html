@@ -1804,7 +1804,8 @@ async function renderSuggested(autoRefreshCheck) {
       const scoreColor = a.score >= 9 ? 'var(--green)' : a.score >= 7 ? 'var(--accent)' : 'var(--ink-3)';
       const isFirst = i === 0 && suggestedStatus === 'all' && !suggestedSince;
       const alreadySaved = savedUrlSet.has(a.url) || a.status === 'saved';
-      const statusPill = a.status === 'new'
+      const pubDateDisplay = a.pub_date ? a.pub_date : new Date().toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'});
+        const statusPill = a.status === 'new'
         ? '<span style="font-size:10px;padding:2px 7px;border-radius:10px;background:var(--accent);color:#fff;font-weight:600;margin-left:6px">NEW</span>'
         : a.status === 'reviewed'
         ? '<span style="font-size:10px;padding:2px 7px;border-radius:10px;background:var(--ink-3);color:#fff;margin-left:6px">reviewed</span>'
@@ -1825,7 +1826,7 @@ async function renderSuggested(autoRefreshCheck) {
         + '<div class="article-meta" style="margin-bottom:5px">'
         + '<span style="font-size:11px;font-weight:600;color:' + srcColor + '">' + a.source + '</span>'
         + statusPill
-        + (a.pub_date ? '<span style="font-size:11px;color:var(--ink-3);margin-left:8px">' + a.pub_date + '</span>' : '')
+        + '<span style="font-size:11px;color:var(--ink-3);margin-left:8px">' + pubDateDisplay + '</span>'
         + '<span style="margin-left:auto;font-size:11px;font-weight:500;color:' + scoreColor + '">★ ' + a.score + '/10</span>'
         + '</div>'
         + '<div class="' + (isFirst ? 'featured-title' : 'article-title') + '" style="margin-bottom:5px">' + a.title + '</div>'
