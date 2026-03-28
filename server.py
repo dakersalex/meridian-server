@@ -843,11 +843,14 @@ def sync_all():
             threads.append(t)
             started.append(src)
     # After all scrapers finish, enrich any remaining title_only articles
+    # then score new FT/Economist articles for auto-save
     def _enrich_after_sync():
         for t in threads:
             t.join()
         log.info("Sync all complete — running title-only enrichment")
         enrich_title_only_articles()
+        log.info("Sync all complete — scoring new FT/Economist articles")
+        score_and_autosave_new_articles()
     if threads:
         threading.Thread(target=_enrich_after_sync, daemon=True).start()
     return jsonify({"ok": True, "started": started})
@@ -1751,6 +1754,114 @@ def bulk_delete_suggested():
     return jsonify({"ok":True,"deleted":len(ids)})
 
 # ── reading agent ─────────────────────────────────────────────────────────────
+def score_and_autosave_new_articles():
+    """Score recently-added FT/Economist articles from the main articles table
+    and auto-save those scoring >=8. Runs after every Mac sync so that
+    Playwright-scraped articles get the same agent treatment as web-search ones."""
+    cutoff_ts = now_ts() - (24 * 60 * 60 * 1000)  # last 24h
+    with sqlite3.connect(DB_PATH) as cx:
+        cx.row_factory = sqlite3.Row
+        rows = cx.execute("""
+            SELECT id, source, url, title, topic, tags
+            FROM articles
+            WHERE source IN ('Financial Times', 'The Economist')
+              AND auto_saved = 0
+              AND status NOT IN ('agent')
+              AND saved_at >= ?
+              AND title != ''
+        """, (cutoff_ts,)).fetchall()
+    candidates = [dict(r) for r in rows]
+    if not candidates:
+        log.info("score_and_autosave: no new FT/Economist articles in last 24h")
+        return []
+    log.info(f"score_and_autosave: scoring {len(candidates)} new FT/Economist articles")
+
+    # Build interest profile from saved articles
+    with sqlite3.connect(DB_PATH) as cx:
+        interest_rows = cx.execute(
+            "SELECT topic, tags FROM articles ORDER BY saved_at DESC LIMIT 100"
+        ).fetchall()
+    topic_counts: dict = {}
+    for r in interest_rows:
+        if r[0]: topic_counts[r[0]] = topic_counts.get(r[0], 0) + 1
+        try:
+            for t in json.loads(r[1] or "[]"):
+                topic_counts[t] = topic_counts.get(t, 0) + 1
+        except: pass
+    interests_str = ", ".join(sorted(topic_counts, key=lambda x: -topic_counts[x])[:15]) or "geopolitics, economics, finance, markets"
+
+    # Build negative signal
+    with sqlite3.connect(DB_PATH) as cx:
+        fb_rows = cx.execute("SELECT topics, tags FROM agent_feedback").fetchall()
+    avoid_counts: dict = {}
+    for fb_topics, fb_tags in fb_rows:
+        for t in (fb_topics or "").split(","):
+            t = t.strip()
+            if t: avoid_counts[t] = avoid_counts.get(t, 0) + 2
+        try:
+            for tag in json.loads(fb_tags or "[]"):
+                avoid_counts[tag] = avoid_counts.get(tag, 0) + 2
+        except: pass
+    avoid_str = ", ".join(sorted(avoid_counts, key=lambda x: -avoid_counts[x])[:10])
+
+    # Score all candidates in one Claude call
+    titles_str = json.dumps([{"id": a["id"], "title": a["title"], "source": a["source"]} for a in candidates])
+    score_prompt = (
+        "You are scoring news articles for a senior analyst. "
+        f"Their interests: {interests_str}. "
+        "Score each article 0-10 strictly: "
+        "9-10: essential reading — directly addresses geopolitics, war, sanctions, central banking, financial markets, trade policy, macro economics, energy markets, international relations, diplomacy. "
+        "7-8: highly relevant — important business/finance/politics story the analyst should know about. "
+        "5-6: moderately relevant — useful but not essential. "
+        "0-4: low relevance — lifestyle, health, science, culture, arts, sport, food, travel, personal finance, entertainment. "
+        + (f"The analyst has dismissed articles about: {avoid_str} — score these lower. " if avoid_str else "") +
+        f"Articles: {titles_str} "
+        "Respond ONLY with a JSON array (same order as input): "
+        '[{"id":"abc","score":8,"reason":"one sentence why relevant"}]'
+    )
+    try:
+        score_data = call_anthropic({
+            "model": "claude-haiku-4-5-20251001",
+            "max_tokens": 1000,
+            "messages": [{"role": "user", "content": score_prompt}]
+        })
+        score_text = "".join(b.get("text", "") for b in score_data.get("content", []) if b.get("type") == "text")
+        score_match = re.search(r'\[[\s\S]*\]', score_text)
+        if not score_match:
+            log.warning("score_and_autosave: could not parse scores")
+            return []
+        scores = json.loads(score_match.group(0))
+        # Map scores back by id
+        score_map = {s["id"]: s for s in scores if "id" in s}
+    except Exception as e:
+        log.warning(f"score_and_autosave: Claude scoring failed: {e}")
+        return []
+
+    saved = []
+    for art in candidates:
+        s = score_map.get(art["id"], {})
+        score = s.get("score", 0)
+        reason = s.get("reason", "")
+        if score < 8:
+            log.info(f"score_and_autosave: '{art['title'][:50]}' scored {score} — skipping")
+            continue
+        # Mark as auto_saved in the existing article record
+        with sqlite3.connect(DB_PATH) as cx:
+            cx.execute(
+                "UPDATE articles SET auto_saved=1, summary=CASE WHEN summary='' OR summary IS NULL THEN ? ELSE summary END WHERE id=?",
+                (reason, art["id"])
+            )
+            cx.execute(
+                "INSERT INTO agent_log (article_id,title,url,score,reason,saved_at) VALUES (?,?,?,?,?,?)",
+                (art["id"], art["title"], art["url"], score, reason, now_ts())
+            )
+        saved.append({"id": art["id"], "title": art["title"], "score": score})
+        log.info(f"score_and_autosave: auto-saved '{art['title'][:50]}' (score {score})")
+
+    log.info(f"score_and_autosave: done — {len(saved)}/{len(candidates)} articles auto-saved")
+    return saved
+
+
 def auto_dismiss_old_suggested(days=30):
     """Auto-dismiss suggested articles older than N days that are still unreviewed."""
     cutoff_ts = now_ts() - (days * 24 * 60 * 60 * 1000)
@@ -1801,6 +1912,94 @@ def run_agent():
 def agent_run():
     saved = run_agent()
     return jsonify({"ok": True, "saved": len(saved), "articles": saved})
+
+@app.route("/api/agent/score-new", methods=["POST"])
+def agent_score_new():
+    """Manually trigger scoring of recent FT/Economist articles.
+    Accepts optional ?hours=N param (default 24) to control lookback window."""
+    hours = int(request.args.get("hours", 24))
+    def _run():
+        # Temporarily patch cutoff for this call
+        original_now = None
+        try:
+            # Use the hours param by calling with extended window
+            cutoff_ts = now_ts() - (hours * 60 * 60 * 1000)
+            with sqlite3.connect(DB_PATH) as cx:
+                cx.row_factory = sqlite3.Row
+                rows = cx.execute("""
+                    SELECT id, source, url, title, topic, tags
+                    FROM articles
+                    WHERE source IN ('Financial Times', 'The Economist')
+                      AND auto_saved = 0
+                      AND status NOT IN ('agent')
+                      AND saved_at >= ?
+                      AND title != ''
+                """, (cutoff_ts,)).fetchall()
+            candidates = [dict(r) for r in rows]
+            if not candidates:
+                log.info(f"agent/score-new: no FT/Economist articles in last {hours}h")
+                return
+            log.info(f"agent/score-new: {len(candidates)} candidates in last {hours}h")
+            # Reuse score_and_autosave but we need to temporarily widen the window
+            # Simplest: just call it directly — it uses 24h internally, so for
+            # manual runs we re-implement inline with the requested window
+            with sqlite3.connect(DB_PATH) as cx:
+                interest_rows = cx.execute(
+                    "SELECT topic, tags FROM articles ORDER BY saved_at DESC LIMIT 100"
+                ).fetchall()
+            topic_counts: dict = {}
+            for r in interest_rows:
+                if r[0]: topic_counts[r[0]] = topic_counts.get(r[0], 0) + 1
+                try:
+                    for t in json.loads(r[1] or "[]"):
+                        topic_counts[t] = topic_counts.get(t, 0) + 1
+                except: pass
+            interests_str = ", ".join(sorted(topic_counts, key=lambda x: -topic_counts[x])[:15]) or "geopolitics, economics, finance, markets"
+            titles_str = json.dumps([{"id": a["id"], "title": a["title"], "source": a["source"]} for a in candidates])
+            score_prompt = (
+                "You are scoring news articles for a senior analyst. "
+                f"Their interests: {interests_str}. "
+                "Score each 0-10: 9-10 essential (geopolitics/finance/markets/diplomacy); "
+                "7-8 highly relevant; 5-6 moderate; 0-4 lifestyle/health/culture/sport. "
+                f"Articles: {titles_str} "
+                'Respond ONLY with JSON array: [{"id":"abc","score":8,"reason":"why"}]'
+            )
+            score_data = call_anthropic({
+                "model": "claude-haiku-4-5-20251001",
+                "max_tokens": 1500,
+                "messages": [{"role": "user", "content": score_prompt}]
+            })
+            score_text = "".join(b.get("text", "") for b in score_data.get("content", []) if b.get("type") == "text")
+            score_match = re.search(r'\[[\s\S]*\]', score_text)
+            if not score_match:
+                log.warning("agent/score-new: could not parse scores")
+                return
+            scores = json.loads(score_match.group(0))
+            score_map = {s["id"]: s for s in scores if "id" in s}
+            saved_count = 0
+            for art in candidates:
+                s = score_map.get(art["id"], {})
+                score = s.get("score", 0)
+                reason = s.get("reason", "")
+                log.info(f"agent/score-new: '{art['title'][:50]}' => {score}")
+                if score < 8:
+                    continue
+                with sqlite3.connect(DB_PATH) as cx:
+                    cx.execute(
+                        "UPDATE articles SET auto_saved=1, summary=CASE WHEN summary='' OR summary IS NULL THEN ? ELSE summary END WHERE id=?",
+                        (reason, art["id"])
+                    )
+                    cx.execute(
+                        "INSERT INTO agent_log (article_id,title,url,score,reason,saved_at) VALUES (?,?,?,?,?,?)",
+                        (art["id"], art["title"], art["url"], score, reason, now_ts())
+                    )
+                saved_count += 1
+                log.info(f"agent/score-new: auto-saved '{art['title'][:50]}' (score {score})")
+            log.info(f"agent/score-new: done — {saved_count}/{len(candidates)} saved")
+        except Exception as e:
+            log.warning(f"agent/score-new error: {e}")
+    threading.Thread(target=_run, daemon=True).start()
+    return jsonify({"ok": True, "started": True})
 
 @app.route("/api/agent/log", methods=["GET"])
 def agent_log_route():
