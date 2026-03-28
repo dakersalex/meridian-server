@@ -1,5 +1,5 @@
 # Meridian — Technical Notes
-Last updated: 28 March 2026 (Session 15 — in progress)
+Last updated: 28 March 2026 (Session 16 — complete)
 
 ## Overview
 Personal news aggregator. Flask API + SQLite backend now running on Hetzner VPS (always-on).
@@ -242,11 +242,20 @@ Mac launchd: com.alexdakers.meridian.wakesync runs at 05:40 and 11:40
 
 ## Next Steps
 1. PWA icons — proper 192×192 and 512×512 instead of placeholders
-2. Fix: auto-tagged articles sparse in Feed — investigate agent scoring/saving pipeline
-3. Fix: Economist articles missing from Feed source filter
-4. Fix: Newsletters tab empty
+2. Newsletter auto-sync — newsletter_sync.py is gitignored (has credentials), so VPS can’t auto-sync. Newsletters only update when Mac runs it manually or via launchd. Consider a credential-safe approach.
+3. Monitor auto-tagging over next few days — scoring bands working well (Iran/markets/geopolitics getting 8-9)
 
 ## Build History
+### 28 March 2026 (Session 16)
+- Newsletters fixed: added /newsletters location block to nginx on VPS (was 404 — only /api/ was proxied)
+- Auto-tagged FT/Economist articles fixed: added score_and_autosave_new_articles() function
+  - Scores recently-added FT/Economist articles from main articles table (not just suggested_articles)
+  - Runs automatically after every Mac Sync All via _enrich_after_sync()
+  - Uses claude-haiku in batches of 20, marks best articles (score ≥8) as auto_saved=1
+  - New route: POST /api/agent/score-new?hours=N for manual backfill
+  - Backfill run: 23/45 FT/Economist articles from last 7 days auto-saved
+- Economist filter: confirmed working — 85/86 articles in frontend with correct dates
+
 ### 28 March 2026 (Session 15)
 - Shell endpoint added to server.py: POST /api/dev/shell (localhost only) — Claude can deploy autonomously
 - Mobile PWA gap fixed: clean rewrite of mobile CSS, removed all conflicting rules
