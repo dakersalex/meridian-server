@@ -219,7 +219,9 @@ Article text:
         art["body"]     = parsed.get("fullSummary", art.get("body",""))
         art["tags"]     = json.dumps(parsed.get("tags", []))
         art["topic"]    = parsed.get("topic", art.get("topic",""))
-        art["pub_date"] = parsed.get("pub_date", art.get("pub_date",""))
+        # Only use Claude's pub_date if we don't already have one from URL extraction
+        if not art.get("pub_date"):
+            art["pub_date"] = parsed.get("pub_date", "")
         art["status"]   = "full_text"
         log.info(f"AI enriched: '{art.get('title','')[:50]}'")
     except Exception as e:
@@ -919,7 +921,7 @@ def enrich_title_only_articles():
             with sync_playwright() as pw:
                 browser = pw.chromium.launch_persistent_context(
                     str(eco_profile),
-                    headless=True, args=["--no-sandbox"]
+                    headless=False, args=["--no-sandbox","--disable-blink-features=AutomationControlled"]
                 )
                 page = browser.pages[0] if browser.pages else browser.new_page()
                 for a in eco_arts:
