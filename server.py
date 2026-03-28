@@ -1964,17 +1964,34 @@ def agent_score_new():
                 f"Articles: {titles_str} "
                 'Respond ONLY with JSON array: [{"id":"abc","score":8,"reason":"why"}]'
             )
-            score_data = call_anthropic({
-                "model": "claude-haiku-4-5-20251001",
-                "max_tokens": 1500,
-                "messages": [{"role": "user", "content": score_prompt}]
-            })
-            score_text = "".join(b.get("text", "") for b in score_data.get("content", []) if b.get("type") == "text")
-            score_match = re.search(r'\[[\s\S]*\]', score_text)
-            if not score_match:
-                log.warning("agent/score-new: could not parse scores")
-                return
-            scores = json.loads(score_match.group(0))
+            # Batch in groups of 20 to avoid token limits
+            all_scores = []
+            batch_size = 20
+            for batch_start in range(0, len(candidates), batch_size):
+                batch = candidates[batch_start:batch_start + batch_size]
+                batch_titles = json.dumps([{"id": a["id"], "title": a["title"], "source": a["source"]} for a in batch])
+                batch_prompt = (
+                    "You are scoring news articles for a senior analyst. "
+                    f"Their interests: {interests_str}. "
+                    "Score each 0-10: 9-10 essential (geopolitics/finance/markets/diplomacy); "
+                    "7-8 highly relevant; 5-6 moderate; 0-4 lifestyle/health/culture/sport. "
+                    f"Articles: {batch_titles} "
+                    'Respond ONLY with a JSON array, no prose: [{"id":"abc","score":8,"reason":"why"}]'
+                )
+                score_data = call_anthropic({
+                    "model": "claude-haiku-4-5-20251001",
+                    "max_tokens": 2000,
+                    "messages": [{"role": "user", "content": batch_prompt}]
+                })
+                score_text = "".join(b.get("text", "") for b in score_data.get("content", []) if b.get("type") == "text")
+                score_match = re.search(r'\[[\s\S]*?\]', score_text)
+                if not score_match:
+                    log.warning(f"agent/score-new: could not parse batch {batch_start//batch_size + 1} scores — response: {score_text[:200]}")
+                    continue
+                batch_scores = json.loads(score_match.group(0))
+                all_scores.extend(batch_scores)
+                log.info(f"agent/score-new: batch {batch_start//batch_size + 1} scored {len(batch_scores)} articles")
+            scores = all_scores
             score_map = {s["id"]: s for s in scores if "id" in s}
             saved_count = 0
             for art in candidates:
