@@ -444,7 +444,7 @@ class EconomistScraper:
         profile_dir.mkdir(exist_ok=True)
         with sync_playwright() as p:
             browser = p.chromium.launch_persistent_context(
-                str(profile_dir), headless=True,
+                str(profile_dir), headless=False,
                 user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
                 args=["--disable-blink-features=AutomationControlled"])
             page = browser.new_page()
@@ -1198,7 +1198,8 @@ def scrape_ft_most_read(limit=8):
 
 def scrape_economist_most_read(limit=8):
     """Scrape Economist most-read using logged-in Playwright profile.
-    Tries 3 URLs in order: most-read page, /latest, homepage."""
+    Tries 3 URLs in order: most-read page, /latest, homepage.
+    Uses headless=False to avoid Cloudflare challenge pages."""
     if not PLAYWRIGHT_OK:
         return []
     profile_dir = BASE_DIR / "economist_profile"
@@ -1251,7 +1252,7 @@ def scrape_economist_most_read(limit=8):
     try:
         with sync_playwright() as p:
             browser = p.chromium.launch_persistent_context(
-                str(profile_dir), headless=True,
+                str(profile_dir), headless=False,
                 user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
                 args=["--disable-blink-features=AutomationControlled"])
             page = browser.new_page()

@@ -1,5 +1,5 @@
 # Meridian — Technical Notes
-Last updated: 28 March 2026 (Session 12)
+Last updated: 28 March 2026 (Session 12 — complete)
 
 ## Overview
 Personal news aggregator. Flask API + SQLite backend now running on Hetzner VPS (always-on).
