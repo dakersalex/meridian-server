@@ -1619,6 +1619,29 @@ async function sendAIMessage(){
   }
 }
 document.getElementById('date-display').textContent=new Date().toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
+// Debug overlay — shows header measurements on device
+(function(){
+  if (!window.matchMedia('(pointer: coarse)').matches) return;
+  const div = document.createElement('div');
+  div.id = 'debug-overlay';
+  div.style.cssText = 'position:fixed;bottom:20px;right:10px;background:rgba(0,0,0,0.85);color:#fff;font-size:11px;padding:8px 10px;z-index:9999;border-radius:6px;font-family:monospace;line-height:1.6;pointer-events:none';
+  document.body.appendChild(div);
+  function update() {
+    const mH = document.querySelector('.masthead')?.offsetHeight || 0;
+    const sH = document.querySelector('.server-bar')?.offsetHeight || 0;
+    const nH = document.querySelector('.main-nav')?.offsetHeight || 0;
+    const fH = document.querySelector('.feed-header')?.offsetHeight || 0;
+    const ml = getComputedStyle(document.querySelector('.main-layout')).marginTop;
+    const fp = getComputedStyle(document.getElementById('feed-area')).paddingTop;
+    const fhPos = getComputedStyle(document.querySelector('.feed-header')).position;
+    const fhTop = getComputedStyle(document.querySelector('.feed-header')).top;
+    const fc = document.querySelector('.featured-card, .article-card');
+    const fcTop = fc ? Math.round(fc.getBoundingClientRect().top) : '?';
+    div.innerHTML = `w:${window.innerWidth} coarse:${window.matchMedia('(pointer:coarse)').matches}<br>mH:${mH} sH:${sH} nH:${nH} fH:${fH}<br>ml-margin:${ml} fa-pad:${fp}<br>fh-pos:${fhPos} fh-top:${fhTop}<br>firstCard top:${fcTop}px`;
+  }
+  setTimeout(update, 500);
+  setTimeout(update, 1500);
+})();
 // Clear stale localStorage cache if article count mismatches
 (async()=>{
   try{
