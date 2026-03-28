@@ -30,4 +30,45 @@ sleep 90
 echo "$(date): Triggering enrichment" >> "$LOG"
 curl -s -X POST "$API/api/enrich-title-only" >> "$LOG" 2>&1
 
+# Push recently-synced articles from Mac DB to VPS
+echo "$(date): Pushing new articles to VPS" >> "$LOG"
+python3 - << 'PYEOF' >> "$LOG" 2>&1
+import sqlite3, json, urllib.request, time
+
+DB = "/Users/alexdakers/meridian-server/meridian.db"
+VPS = "https://meridianreader.com/api/push-articles"
+
+# Articles saved in the last 3 hours
+cutoff = int((time.time() - 3*60*60) * 1000)
+conn = sqlite3.connect(DB)
+conn.row_factory = sqlite3.Row
+rows = conn.execute("""
+    SELECT id, source, url, title, body, summary, topic, tags,
+           saved_at, fetched_at, status, pub_date, auto_saved
+    FROM articles
+    WHERE saved_at >= ? AND source IN ('Financial Times','The Economist','Foreign Affairs')
+    ORDER BY saved_at DESC
+""", (cutoff,)).fetchall()
+conn.close()
+
+if not rows:
+    print(f"push: no recent articles to push")
+else:
+    arts = []
+    for r in rows:
+        a = dict(r)
+        try: a['tags'] = json.loads(a.get('tags') or '[]')
+        except: a['tags'] = []
+        arts.append(a)
+    payload = json.dumps({'articles': arts}).encode()
+    req = urllib.request.Request(VPS, data=payload,
+        headers={'Content-Type': 'application/json'}, method='POST')
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            result = json.loads(resp.read())
+            print(f"push: {result.get('upserted',0)} upserted, {result.get('skipped',0)} skipped of {len(arts)}")
+    except Exception as e:
+        print(f"push error: {e}")
+PYEOF
+
 echo "$(date): Wake sync complete" >> "$LOG"

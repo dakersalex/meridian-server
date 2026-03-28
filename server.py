@@ -2076,6 +2076,51 @@ def scheduler_loop(interval_hours):
                 threading.Thread(target=_suggested_and_agent, daemon=True).start()
         time.sleep(60)  # Check every minute
 
+@app.route("/api/push-articles", methods=["POST"])
+def push_articles():
+    """Receive a batch of articles from the Mac scraper and upsert them.
+    Called by wake_and_sync.sh after each sync to keep VPS DB in sync."""
+    data = request.json or {}
+    arts = data.get("articles", [])
+    if not arts:
+        return jsonify({"ok": True, "upserted": 0})
+    upserted = 0
+    skipped = 0
+    for a in arts:
+        if not a.get("id") or not a.get("title"):
+            continue
+        # Don't overwrite a richer existing version with a poorer incoming one
+        with sqlite3.connect(DB_PATH) as cx:
+            existing = cx.execute("SELECT status, body FROM articles WHERE id=?", (a["id"],)).fetchone()
+        if existing:
+            existing_status, existing_body = existing
+            # Already have full_text — skip unless incoming is also full_text
+            if existing_status == "full_text" and a.get("status") != "full_text":
+                skipped += 1
+                continue
+        art = {
+            "id": a["id"],
+            "source": a.get("source", ""),
+            "url": a.get("url", ""),
+            "title": a.get("title", ""),
+            "body": a.get("body", ""),
+            "summary": a.get("summary", ""),
+            "topic": a.get("topic", ""),
+            "tags": a.get("tags", "[]") if isinstance(a.get("tags"), str) else json.dumps(a.get("tags", [])),
+            "saved_at": a.get("saved_at", now_ts()),
+            "fetched_at": a.get("fetched_at"),
+            "status": a.get("status", "title_only"),
+            "pub_date": a.get("pub_date", ""),
+            "auto_saved": a.get("auto_saved", 0),
+        }
+        upsert_article(art)
+        upserted += 1
+    log.info(f"push-articles: upserted {upserted}, skipped {skipped} of {len(arts)}")
+    # After push, score any new FT/Economist articles that haven't been auto-saved yet
+    if upserted > 0:
+        threading.Thread(target=score_and_autosave_new_articles, daemon=True).start()
+    return jsonify({"ok": True, "upserted": upserted, "skipped": skipped})
+
 @app.route("/api/dev/shell", methods=["POST"])
 def dev_shell():
     """Localhost-only shell exec for Claude automation. Never expose publicly."""
