@@ -128,10 +128,13 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
     background: var(--paper);
     z-index: 48;
   }
-  /* main-layout margin = full fixed stack height */
+  /* main-layout margin = full fixed stack height (171px) */
   .main-layout { margin-top: 171px; }
-  /* feed-area: remove default padding, just a small top gap */
-  .feed-area { padding-top: 10px !important; }
+  /* feed-area: minimal padding since feed-header is fixed */
+  .feed-area { padding-top: 0 !important; padding-bottom: calc(14px + env(safe-area-inset-bottom)) !important; }
+  /* feed-header is fixed so hide its layout space; push counter below it */
+  .feed-header { margin-bottom: 0 !important; padding-bottom: 0 !important; }
+  #feed-counter { margin-top: 52px !important; }
   #pull-to-refresh { margin-top: 130px; }
 
   /* ── Hide activity bar entirely on mobile ── */
