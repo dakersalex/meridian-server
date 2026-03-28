@@ -109,13 +109,35 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
   .feed-area { padding: 0 14px calc(14px + env(safe-area-inset-bottom)); }
   #feed-counter { margin: 10px 0 6px; }
 
+  /* ── Mobile filter bar — sits below nav tabs ── */
+  #mobile-filter-bar {
+    display: flex !important;
+    position: fixed; top: 130px; left: 0; right: 0; z-index: 49;
+    background: var(--paper-2); border-bottom: 1px solid var(--rule);
+    padding: 4px 10px; gap: 6px; overflow-x: auto; scrollbar-width: none;
+    align-items: center;
+  }
+  #mobile-filter-bar::-webkit-scrollbar { display: none; }
+  #mobile-filter-bar select {
+    font-size: 11px; padding: 3px 6px; border: 1px solid var(--rule);
+    background: var(--paper); color: var(--ink-2);
+    font-family: 'IBM Plex Sans', sans-serif; border-radius: 3px;
+    flex-shrink: 0;
+  }
+  /* 130px (masthead+bar+nav) + ~30px filter bar = 160px */
+  .main-layout { margin-top: 160px; }
+  body::before { height: 160px; }
+
   /* ── Read-only mode ── */
   #select-all-btn, #delete-selected-btn { display: none !important; }
   .article-card button[title="Delete"], .featured-card button[title="Delete"] { display: none !important; }
   .mobile-sync-btn { display: inline-flex !important; }
 
   /* ── Masthead ── */
-  .logo { font-size: 22px; }
+  .logo { font-size: 20px; }
+  .tagline { display: none; }
+  .date-line { display: none; }
+  .masthead { flex-wrap: nowrap; padding: 8px 14px; }
   .masthead-right { gap: 5px; }
   .btn { padding: 6px 10px; font-size: 11px; }
   .masthead-right .btn { display: none !important; }
@@ -374,6 +396,27 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
   <button class="nav-tab" onclick="setView('suggested',this)">Suggested <span class="nav-count" id="count-suggested">0</span></button>
   <div id="folder-tabs"></div>
   <button class="add-folder-btn" onclick="promptNewFolder()">+ New Folder</button>
+</div>
+<!-- Mobile filter bar: hidden on desktop, shown on mobile via CSS -->
+<div id="mobile-filter-bar" style="display:none">
+  <select onchange="document.getElementById('source-filter').value=this.value;renderFeed()">
+    <option value="all">All sources</option>
+    <option value="Financial Times">FT</option>
+    <option value="The Economist">Economist</option>
+    <option value="Foreign Affairs">Foreign Affairs</option>
+  </select>
+  <select onchange="document.getElementById('date-filter').value=this.value;renderFeed()">
+    <option value="180">6 months</option>
+    <option value="30">30 days</option>
+    <option value="7">7 days</option>
+    <option value="365">1 year</option>
+    <option value="9999">All time</option>
+  </select>
+  <select onchange="document.getElementById('curation-filter').value=this.value;renderFeed()">
+    <option value="all">All articles</option>
+    <option value="saved">My saves</option>
+    <option value="ai">AI picks</option>
+  </select>
 </div>
 <div class="activity-bar" id="activity-bar" style="display:flex;align-items:center;gap:16px;padding:7px 20px;background:var(--paper-2);border-bottom:1px solid var(--rule);font-size:11px;">
   <span class="activity-label">Last 24h:</span>
