@@ -517,16 +517,15 @@ class EconomistScraper:
 
                 log.info(f"Economist: found {len(card_data)} article links")
 
-                # Filter out already-seen articles
+                # Filter out already-seen articles — check ALL, don't stop early
                 new_card_data = []
                 for url, title in card_data:
                     art_id = make_id(self.name, url)
-                    if article_exists(art_id):
-                        log.info("Economist: hit existing article, stopping early")
-                        found_existing = True; break
-                    new_card_data.append((url, title))
+                    if not article_exists(art_id):
+                        new_card_data.append((url, title))
+                log.info(f"Economist: {len(new_card_data)} new articles after filtering existing")
 
-                if new_card_data and not found_existing:
+                if new_card_data:
                     # Score titles with Claude before fetching any full text
                     with sqlite3.connect(DB_PATH) as _cx:
                         _rows = _cx.execute("SELECT topic, tags FROM articles ORDER BY saved_at DESC LIMIT 100").fetchall()
