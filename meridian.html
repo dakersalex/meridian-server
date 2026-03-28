@@ -128,10 +128,10 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
     background: var(--paper);
     z-index: 48;
   }
-  /* main-layout clears masthead+serverbar+nav (130px) */
-  .main-layout { margin-top: 130px; }
-  /* feed-area padding clears the fixed filter row (41px) + small gap */
-  .feed-area { padding-top: 49px !important; }
+  /* main-layout margin = full fixed stack height */
+  .main-layout { margin-top: 171px; }
+  /* feed-area: remove default padding, just a small top gap */
+  .feed-area { padding-top: 10px !important; }
   #pull-to-refresh { margin-top: 130px; }
 
   /* ── Hide activity bar entirely on mobile ── */
