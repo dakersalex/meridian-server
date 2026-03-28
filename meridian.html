@@ -128,8 +128,10 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
     background: var(--paper);
     z-index: 48;
   }
-  /* Push content below all fixed rows — set by JS at runtime */
-  .main-layout { margin-top: 200px; }
+  /* main-layout clears masthead+serverbar+nav only */
+  .main-layout { margin-top: 148px; }
+  /* feed-area gets padding to clear the fixed filter row */
+  .feed-area { padding-top: 52px !important; }
   #pull-to-refresh { margin-top: 148px; }
 
   /* ── Hide activity bar entirely on mobile ── */
@@ -2385,46 +2387,7 @@ async function updateActivityBar() {
 updateActivityBar();
 setInterval(updateActivityBar, 5*60*1000);
 
-// ── Fix mobile header margin at runtime ──
-function fixMobileHeaderMargin() {
-  if (window.innerWidth > 1400) return;
-  const masthead = document.querySelector('.masthead');
-  const serverBar = document.querySelector('.server-bar');
-  const mainNav = document.querySelector('.main-nav');
-  const feedHeader = document.querySelector('.feed-header');
-  const mainLayout = document.querySelector('.main-layout');
-  const feedArea = document.getElementById('feed-area');
-  const ptr = document.getElementById('pull-to-refresh');
-  if (!mainLayout) return;
-  // Measure actual rendered heights of the fixed rows
-  const mH = masthead ? masthead.offsetHeight : 0;
-  const sH = serverBar ? serverBar.offsetHeight : 0;
-  const nH = mainNav ? mainNav.offsetHeight : 0;
-  const fH = feedHeader ? feedHeader.offsetHeight : 0;
-  const navTotal = mH + sH + nH; // height before feed-header
-  const total = navTotal + fH;   // full fixed stack height
-  // Position fixed rows precisely
-  if (serverBar) serverBar.style.top = mH + 'px';
-  if (mainNav) mainNav.style.top = (mH + sH) + 'px';
-  if (feedHeader) feedHeader.style.top = navTotal + 'px';
-  // main-layout margin only needs to clear masthead+serverbar+nav
-  // feed-header is position:fixed so it floats OVER the content
-  // feed-area needs padding-top to push content below the feed-header
-  mainLayout.style.marginTop = navTotal + 'px';
-  if (feedArea) feedArea.style.paddingTop = (fH + 10) + 'px';
-  if (ptr) ptr.style.marginTop = navTotal + 'px';
-  // Shield covers the full fixed stack
-  let shieldStyle = document.getElementById('mobile-shield-style');
-  if (!shieldStyle) {
-    shieldStyle = document.createElement('style');
-    shieldStyle.id = 'mobile-shield-style';
-    document.head.appendChild(shieldStyle);
-  }
-  shieldStyle.textContent = `body::before { height: ${total}px !important; }`;
-}
-// Run after fonts and layout settle, and after articles render
-window.addEventListener('load', () => { fixMobileHeaderMargin(); setTimeout(fixMobileHeaderMargin, 500); setTimeout(fixMobileHeaderMargin, 1500); });
-window.addEventListener('resize', fixMobileHeaderMargin);
+// (mobile header layout handled by CSS only)
 
 // ── Pull to refresh ──
 (function(){
