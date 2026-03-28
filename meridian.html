@@ -105,6 +105,9 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
   /* ── Hide activity bar entirely on mobile ── */
   .activity-bar { display: none !important; }
 
+  /* ── Add sync button to server bar on mobile ── */
+  .mobile-sync-btn { display: inline-flex !important; }
+
   /* ── Masthead ── */
   .logo { font-size: 22px; }
   .masthead-right { gap: 5px; }
@@ -358,6 +361,7 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
   <div class="sync-sources">
 
     <span class="last-sync" id="last-sync-label"></span><button class="btn btn-dark" onclick="openAIPanel()" style="margin-left:auto;background:var(--accent);font-size:12px;padding:5px 14px">✦ AI Analysis</button>
+    <button class="btn btn-dark mobile-sync-btn" onclick="syncAll()" style="display:none;background:var(--accent);font-size:11px;padding:4px 10px;margin-left:6px">🔄 Sync</button>
   </div>
 
 </div>
