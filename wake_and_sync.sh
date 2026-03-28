@@ -38,7 +38,9 @@ import sqlite3, json, urllib.request, time
 DB = "/Users/alexdakers/meridian-server/meridian.db"
 VPS = "https://meridianreader.com/api/push-articles"
 
-# Articles saved in the last 3 hours
+# Push recently-synced articles from Mac to VPS:
+# - Foreign Affairs: all (you actively save these)
+# - FT/Economist: only auto_saved=1 (agent-scored >=8) to avoid flooding VPS with junk
 cutoff = int((time.time() - 3*60*60) * 1000)
 conn = sqlite3.connect(DB)
 conn.row_factory = sqlite3.Row
@@ -46,7 +48,11 @@ rows = conn.execute("""
     SELECT id, source, url, title, body, summary, topic, tags,
            saved_at, fetched_at, status, pub_date, auto_saved
     FROM articles
-    WHERE saved_at >= ? AND source IN ('Financial Times','The Economist','Foreign Affairs')
+    WHERE saved_at >= ?
+      AND (
+        source = 'Foreign Affairs'
+        OR (source IN ('Financial Times','The Economist') AND auto_saved = 1)
+      )
     ORDER BY saved_at DESC
 """, (cutoff,)).fetchall()
 conn.close()

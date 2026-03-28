@@ -515,6 +515,11 @@ class EconomistScraper:
                     if len(title.split()) <= 4: continue
                     # Skip if it looks like a section label (contains & and is short)
                     if '&' in title and len(title.split()) <= 5: continue
+                    # Skip newsletter digests and daily briefings
+                    JUNK_PREFIXES_ECO = ("The War Room newsletter:", "Blighty newsletter:", "The US in Brief:",
+                                        "Espresso:", "The World in Brief:", "The Economist explains:",
+                                        "Graphic detail:", "KAL's cartoon")
+                    if any(title.startswith(p) for p in JUNK_PREFIXES_ECO): continue
                     card_data.append((url, title))
 
                 log.info(f"Economist: found {len(card_data)} article links")
