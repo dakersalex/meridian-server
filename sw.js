@@ -1,4 +1,4 @@
-const CACHE = 'meridian-v3';
+const CACHE = 'meridian-v4';
 const STATIC_ASSETS = [
   '/meridian.html',
   '/manifest.json',
@@ -23,6 +23,20 @@ self.addEventListener('activate', e => {
 
 self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);
+
+  // Always network-first for the main HTML — never serve stale page
+  if (url.pathname === '/meridian.html' || url.pathname === '/') {
+    e.respondWith(
+      fetch(e.request)
+        .then(res => {
+          const clone = res.clone();
+          caches.open(CACHE).then(cache => cache.put(e.request, clone));
+          return res;
+        })
+        .catch(() => caches.match(e.request))
+    );
+    return;
+  }
 
   // Network-first for API GET requests — cache responses for offline reading
   if (url.pathname.startsWith('/api/') && e.request.method === 'GET') {
