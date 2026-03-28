@@ -148,7 +148,7 @@ def call_anthropic(payload: dict, timeout: int = 30, retries: int = 2) -> dict:
     api_key = load_creds().get("anthropic_api_key", "")
     if not api_key:
         raise RuntimeError("No Anthropic API key configured")
-    data = json.dumps(payload).encode()
+    data = json.dumps(payload, ensure_ascii=False).encode('utf-8')
     for attempt in range(retries):
         req = urllib.request.Request(
             "https://api.anthropic.com/v1/messages",
