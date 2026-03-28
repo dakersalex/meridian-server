@@ -1,5 +1,5 @@
 # Meridian — Technical Notes
-Last updated: 28 March 2026 (Session 16 — complete)
+Last updated: 28 March 2026 (Session 17 — complete)
 
 ## Overview
 Personal news aggregator. Flask API + SQLite backend now running on Hetzner VPS (always-on).
@@ -244,8 +244,18 @@ Mac launchd: com.alexdakers.meridian.wakesync runs at 05:40 and 11:40
 1. PWA icons — proper 192×192 and 512×512 instead of placeholders
 2. Newsletter auto-sync — newsletter_sync.py is gitignored (has credentials), so VPS can’t auto-sync. Newsletters only update when Mac runs it manually or via launchd. Consider a credential-safe approach.
 3. Monitor auto-tagging over next few days — scoring bands working well (Iran/markets/geopolitics getting 8-9)
+4. 28 Mar articles still missing from VPS (scraped today 11:40 but push was 3h window; next sync will push them)
 
 ## Build History
+### 28 March 2026 (Session 17)
+- Root cause: Mac-scraped articles go to Mac DB only; VPS has separate DB and never saw them
+- Fix: added POST /api/push-articles endpoint — receives batch of articles, upserts them, triggers scoring
+- Fix: wake_and_sync.sh now pushes articles saved in last 3h to VPS after every sync
+- Manual backfill: pushed 22 articles (FT/Economist/FA last 24h) to VPS immediately
+- VPS now has Economist articles up to 27 Mar; will have 28 Mar after next Mac sync at 17:40 CEST
+- Auto-scoring ran on push: 9/20 + 2/11 articles auto-saved with ✔ Auto badge
+- Good scores: Autonomous swarms (8), Growing divide America/Israel (9), Christine Lagarde (8), Stocks slump (9)
+
 ### 28 March 2026 (Session 16)
 - Newsletters fixed: added /newsletters location block to nginx on VPS (was 404 — only /api/ was proxied)
 - Auto-tagged FT/Economist articles fixed: added score_and_autosave_new_articles() function
