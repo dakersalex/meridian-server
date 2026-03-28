@@ -16,7 +16,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 from server import (
-    init_db, run_sync, SCRAPERS, load_creds, log
+    init_db, run_sync, SCRAPERS, load_creds, log, enrich_title_only_articles
 )
 
 
@@ -40,6 +40,8 @@ def main():
         print(f"\nSyncing {source} …")
         run_sync(source)
 
+    print("\nEnriching title-only articles (including agent-saved)…")
+    enrich_title_only_articles()
     print("\nSync complete.")
 
 

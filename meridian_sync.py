@@ -51,6 +51,11 @@ def run_sync():
         r.raise_for_status()
         data = r.json()
         logging.info(f"Sync complete: {data}")
+        # Enrich any title-only articles — including agent-saved ones from VPS
+        logging.info("Enriching title-only articles...")
+        r2 = requests.post(f"{API_BASE}/api/enrich-title-only", timeout=300)
+        r2.raise_for_status()
+        logging.info(f"Enrichment complete: {r2.json()}")
     except Exception as e:
         logging.error(f"Sync failed: {e}")
 
