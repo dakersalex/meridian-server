@@ -539,9 +539,13 @@ class EconomistScraper:
                         except: pass
                     top_interests = ", ".join(sorted(topic_counts, key=lambda x: -topic_counts[x])[:12]) or "geopolitics, economics, finance, markets"
                     titles_str = json.dumps([{"title": t.replace("\u2019", "'").replace("\u2018", "'"), "url": u} for u, t in new_card_data], ensure_ascii=True)
-                    score_prompt = (f"You are scoring Economist articles for a senior analyst interested in: {top_interests}. "
-                        "Score each 0-10 for relevance. Be strict — only 6+ if genuinely relevant to their interests. "
-                        "Exclude: lifestyle, recipes, sport, celebrity, arts reviews, obituaries, technology consumer products. "
+                    score_prompt = (f"You are scoring Economist articles for a senior analyst. "
+                        f"Their interests: {top_interests}. "
+                        "Score 0-10 strictly by these bands: "
+                        "8-10: geopolitics, war, sanctions, central banking, financial markets, trade policy, macro economics, energy markets, international relations, diplomacy. "
+                        "5-7: business strategy, corporate finance, technology policy, regulatory affairs, emerging markets. "
+                        "0-4: lifestyle, health, science, culture, arts, sport, food, travel, personal finance, medicine, psychology, entertainment, music, brain science, fitness. "
+                        "A health or science article should score 1-2 even if tangentially economic. Be ruthless about scoring down anything not directly relevant to geopolitics or macro finance. "
                         f"Articles: {titles_str} "
                         "Respond ONLY with a JSON array (same order): [{\"score\":8}]")
                     try:
