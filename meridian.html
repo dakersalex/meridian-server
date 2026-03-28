@@ -89,7 +89,7 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
     border-bottom: 2px solid var(--ink);
   }
   .server-bar {
-    top: 75px;
+    top: 68px;
     z-index: 51;
     padding: 5px 14px;
     gap: 6px;
@@ -98,7 +98,7 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
     border-bottom: 1px solid var(--rule);
   }
   .main-nav {
-    top: 111px;
+    top: 112px;
     z-index: 50;
     background: var(--paper);
     padding: 0 10px;
@@ -108,7 +108,7 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
   /* Feed header (filters) also fixed */
   .feed-header {
     position: fixed;
-    top: 151px;
+    top: 152px;
     left: 0;
     right: 0;
     z-index: 49;
@@ -117,12 +117,27 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
     border-bottom: 1px solid var(--rule);
     margin-bottom: 0;
   }
+  /* Solid shield behind all fixed rows — prevents article text bleeding through gaps */
+  body::before {
+    content: '';
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 152px;
+    background: var(--paper);
+    z-index: 48;
+  }
   /* Push content below all fixed rows */
-  .main-layout { margin-top: 240px; }
-  #pull-to-refresh { margin-top: 151px; }
+  .main-layout { margin-top: 250px; }
+  #pull-to-refresh { margin-top: 152px; }
 
   /* ── Hide activity bar entirely on mobile ── */
   .activity-bar { display: none !important; }
+
+  /* ── Read-only mode: hide select/delete controls ── */
+  #select-all-btn, #delete-selected-btn { display: none !important; }
+  .article-card button[title="Delete"], .featured-card button[title="Delete"] { display: none !important; }
 
   /* ── Add sync button to server bar on mobile ── */
   .mobile-sync-btn { display: inline-flex !important; }
