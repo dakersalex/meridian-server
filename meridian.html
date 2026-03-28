@@ -162,8 +162,8 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
   .nav-tab { padding: 9px 10px; font-size: 11px; letter-spacing: 0.2px; }
   .add-folder-btn { display: none; }
 
-  /* ── Feed area — add top padding so content clears fixed header ── */
-  .feed-area { padding: 14px 14px calc(14px + env(safe-area-inset-bottom)); }
+  /* ── Feed area — no top padding, content starts right below fixed header ── */
+  .feed-area { padding: 0 14px calc(14px + env(safe-area-inset-bottom)) !important; }
   .feed-header { flex-direction: column; align-items: flex-start; gap: 8px; }
   .feed-controls { width: 100%; flex-wrap: wrap; gap: 5px; }
   .filter-select { font-size: 11px; padding: 4px 6px; flex: 1; min-width: 80px; }
