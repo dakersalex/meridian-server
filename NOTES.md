@@ -1,5 +1,5 @@
 # Meridian — Technical Notes
-Last updated: 28 March 2026 (Session 12 — complete)
+Last updated: 28 March 2026 (Session 13 — complete)
 
 ## Overview
 Personal news aggregator. Flask API + SQLite backend now running on Hetzner VPS (always-on).
@@ -206,14 +206,43 @@ VPS scheduler: fixed UTC times 03:50 and 09:50 (= 05:50 and 11:50 CEST)
 Mac pmset: wakepoweron at 05:40 daily
 Mac launchd: com.alexdakers.meridian.wakesync runs at 05:40 and 11:40
 
+## Economist Scraper (Session 13 overhaul)
+- Source: economist.com homepage (not bookmarks — Cloudflare blocks that)
+- headless=False to bypass Cloudflare challenge page
+- Persistent profile: economist_profile/ (login session saved, no daily login needed)
+- Flow: open homepage → collect all article titles+URLs → filter section labels → Claude scores titles → save passing articles as title_only → enrich_title_only_articles() fetches full text on next Mac sync
+- Title filters: length ≥ 20 chars, word count > 4, no & with ≤ 5 words (removes section labels)
+- Scoring: claude-haiku-4-5-20251001, explicit score bands:
+  - 8-10: geopolitics, war, sanctions, central banking, financial markets, trade policy, macro economics, energy markets, international relations, diplomacy
+  - 5-7: business strategy, corporate finance, technology policy, regulatory affairs, emerging markets
+  - 0-4: lifestyle, health, science, culture, arts, sport, food, travel, personal finance, music, brain science, fitness
+- Checks ALL homepage articles (no early-exit on first existing article)
+- Cap: 8 articles max after scoring
+- Articles saved as title_only, full text fetched by enrich_title_only_articles() on next Mac sync
+- call_anthropic() fix: json.dumps(payload, ensure_ascii=False).encode('utf-8') — fixes 400 errors from curly apostrophes in titles
+- Anthropic API credits exhausted mid-session — topped up at console.anthropic.com/settings/billing
+- Confirmed working: 15/21 articles scored 6+, 6 filtered (music, church, moon etc.), 8 saved as title_only
+
 ## Next Steps
-1. Economist scraper intermittency — Cloudflare blocking VPS, works on Mac but inconsistent
-   Fix: improve selector resilience, handle Just a moment... challenge page gracefully
-2. PWA icons — proper 192×192 and 512×512 instead of placeholders
-3. Bloomberg enrichment — manual via Chrome extension
-4. Terminal output visibility — need a better pattern so Claude can read output without pasting
+1. PWA icons — proper 192×192 and 512×512 instead of placeholders
+2. Bloomberg enrichment — manual via Chrome extension
+3. Monitor Economist scraper over next few days — scoring logic and session persistence
 
 ## Build History
+### 28 March 2026 (Session 13)
+- Economist scraper completely overhauled: switched from bookmarks to homepage scraping
+- headless=False added to bypass Cloudflare challenge page
+- economist_profile/ persistent session (no daily login needed)
+- Claude title scoring added BEFORE fetching any articles: collect titles → score → only open articles scoring 6+
+- Explicit scoring bands in prompt (8-10 geopolitics/finance, 5-7 business/tech, 0-4 lifestyle/health/science)
+- Removed early-exit on first existing article: now checks ALL homepage articles for new ones
+- Articles saved as title_only (not fetched inline), enriched by enrich_title_only_articles() on next Mac sync
+- call_anthropic() fixed: ensure_ascii=False + encode('utf-8') — fixes 400 errors from curly apostrophes
+- Cleaned up ~32 bad Economist articles from DB (section labels, title_only with no body)
+- Anthropic API credits exhausted mid-session — Mac API key depleted, VPS unaffected
+- Confirmed working end-to-end: 15/21 homepage articles scored 6+, 6 filtered out, 8 saved
+- mlog helper confirmed working: mlog <command> writes output to vps_last_log.txt for Claude to read
+
 ### 28 March 2026 (Session 12)
 - Auto badge (✦ Auto orange pill) on agent-saved articles — implemented and live
 - Curation filter (All / My saves / AI suggested) in Feed — implemented and live

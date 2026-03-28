@@ -1749,6 +1749,19 @@ def bulk_delete_suggested():
     return jsonify({"ok":True,"deleted":len(ids)})
 
 # ── reading agent ─────────────────────────────────────────────────────────────
+def auto_dismiss_old_suggested(days=30):
+    """Auto-dismiss suggested articles older than N days that are still unreviewed."""
+    cutoff_ts = now_ts() - (days * 24 * 60 * 60 * 1000)
+    with sqlite3.connect(DB_PATH) as cx:
+        result = cx.execute(
+            "UPDATE suggested_articles SET status='dismissed' WHERE status='new' AND added_at < ?",
+            (cutoff_ts,)
+        )
+        dismissed = result.rowcount
+    if dismissed:
+        log.info(f"Auto-dismiss: {dismissed} suggested articles older than {days} days dismissed")
+    return dismissed
+
 def run_agent():
     """Auto-save high-scoring suggested articles to Feed."""
     with sqlite3.connect(DB_PATH) as cx:
@@ -1839,6 +1852,7 @@ def scheduler_loop(interval_hours):
                         log.info(f"Scheduler: suggested refresh done — {len(arts)} articles")
                         saved = run_agent()
                         log.info(f"Scheduler: agent saved {len(saved)} articles")
+                        auto_dismiss_old_suggested(days=30)
                     except Exception as e:
                         log.warning(f"Scheduler: suggested/agent error — {e}")
                 threading.Thread(target=_suggested_and_agent, daemon=True).start()
