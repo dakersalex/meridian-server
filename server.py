@@ -509,8 +509,10 @@ class EconomistScraper:
                     if not title:
                         title = a.get_text(strip=True)
                     if not title or len(title) < 20: continue
-                    # Skip section labels (short phrases like 'United States', 'Culture')
-                    if len(title.split()) <= 3: continue
+                    # Skip section labels (short phrases like 'United States', 'Middle East & Africa')
+                    if len(title.split()) <= 4: continue
+                    # Skip if it looks like a section label (contains & and is short)
+                    if '&' in title and len(title.split()) <= 5: continue
                     card_data.append((url, title))
 
                 log.info(f"Economist: found {len(card_data)} article links")
@@ -536,7 +538,7 @@ class EconomistScraper:
                                 topic_counts[_t] = topic_counts.get(_t, 0) + 1
                         except: pass
                     top_interests = ", ".join(sorted(topic_counts, key=lambda x: -topic_counts[x])[:12]) or "geopolitics, economics, finance, markets"
-                    titles_str = json.dumps([{"title": t, "url": u} for u, t in new_card_data])
+                    titles_str = json.dumps([{"title": t.replace("\u2019", "'").replace("\u2018", "'"), "url": u} for u, t in new_card_data], ensure_ascii=True)
                     score_prompt = (f"You are scoring Economist articles for a senior analyst interested in: {top_interests}. "
                         "Score each 0-10 for relevance. Be strict — only 6+ if genuinely relevant to their interests. "
                         "Exclude: lifestyle, recipes, sport, celebrity, arts reviews, obituaries, technology consumer products. "
