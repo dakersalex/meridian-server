@@ -1,5 +1,5 @@
 # Meridian — Technical Notes
-Last updated: 27 March 2026 (Session 11)
+Last updated: 28 March 2026 (Session 12)
 
 ## Overview
 Personal news aggregator. Flask API + SQLite backend now running on Hetzner VPS (always-on).
@@ -24,7 +24,7 @@ Frontend served via nginx with HTTPS. Accessible from anywhere at https://meridi
 - /opt/meridian-server/server.py       — Flask API (port 4242)
 - /opt/meridian-server/meridian.html   — Main frontend
 - /opt/meridian-server/meridian.db     — SQLite database
-- /opt/meridian-server/credentials.json — Anthropic API key
+- /opt/meridian-server/credentials.json — Anthropic API key + FA login
 - /opt/meridian-server/venv/           — Python virtualenv (not in git)
 
 ## File Locations (Mac — local dev only)
@@ -54,6 +54,7 @@ Restart Flask: systemctl restart meridian
 Check nginx: systemctl status nginx
 Restart nginx: systemctl restart nginx
 View logs: journalctl -u meridian -f
+Dump recent VPS logs to file: ssh root@204.168.179.158 "journalctl -u meridian --since '10 minutes ago'" > ~/meridian-server/vps_last_log.txt
 
 ## Deploying Code Updates
 One command from Mac Terminal:
@@ -64,16 +65,15 @@ One command from Mac Terminal:
 ## GitHub
 Repo: https://github.com/dakersalex/meridian-server (public)
 Token stored in Mac keychain (credential.helper osxkeychain)
-Sensitive files excluded: credentials.json, cookies.json, meridian.db, newsletter_sync.py, venv/, *.wav, *.mp4
+Sensitive files excluded: credentials.json, cookies.json, meridian.db, newsletter_sync.py, venv/, *.wav, *.mp4, vps_last_log.txt
 
-## Database (27 March 2026)
-Total: ~302 articles
+## Database (28 March 2026)
+Total: ~299 articles
 - Financial Times: 122
 - The Economist: 86
 - Foreign Affairs: 42
 - Bloomberg: 39
-- Other (CNN, Atlantic Council, Foreign Policy, CFR): ~13
-- ~295 full_text, ~4 title_only (3 FT pending sync, 1 Bloomberg manual)
+- Other (CNN, Atlantic Council, Foreign Policy, CFR): ~10
 
 ## Syncing
 Note: Playwright scrapers still run on Mac via launchd (browser profiles not yet on VPS)
@@ -82,6 +82,7 @@ Economist: Auto-syncs every 6h via launchd using Playwright + persistent profile
 Foreign Affairs: Auto-syncs every 6h via launchd using Playwright + fa_profile/
 All quiet hours 1-6am.
 Sync All button fires all 3 scrapers in parallel, then runs enrich_title_only_articles().
+sync_now.py and meridian_sync.py both call enrich_title_only_articles() after sync — picks up agent-saved title_only articles.
 
 ## Newsletter Pipeline
 - iCloud alias: meridian.newsletters@icloud.com
@@ -93,7 +94,7 @@ Sync All button fires all 3 scrapers in parallel, then runs enrich_title_only_ar
 - Manual sync: curl -s https://meridianreader.com/api/newsletters/sync -X POST
 
 ## Title-only Enrichment
-- enrich_title_only_articles() runs after every Sync All
+- enrich_title_only_articles() runs after every Sync All and every scheduled sync
 - FT/Economist: uses logged-in Playwright profiles (ft_profile, economist_profile)
 - Foreign Affairs: uses fa_profile
 - Other sources: generic BeautifulSoup scrape, no login
@@ -129,9 +130,10 @@ Sync All button fires all 3 scrapers in parallel, then runs enrich_title_only_ar
 ### How it works
 - DB table: suggested_articles (id, title, url, source, snapshot_date, score, reason, added_at, status, reviewed_at, pub_date)
 - Status states: new / reviewed / saved / dismissed
-- Inbox model — articles accumulate, no duplicates (URL dedup)
+- Inbox model — articles accumulate, no duplicates (URL dedup, normalised to strip query params)
 - Saved articles (already in Feed) auto-excluded from view
 - Nav badge shows new-count only
+- Missing pub_date shows today's date as fallback
 
 ### Sources
 - FT: Playwright scrapes ft.com homepage (logged in, 8 articles)
@@ -153,6 +155,13 @@ Sync All button fires all 3 scrapers in parallel, then runs enrich_title_only_ar
 7. Save new articles (URL dedup)
 Total: ~2 minutes
 
+### Scheduler (VPS — runs every 6h automatically, Mac not required)
+- scrape_suggested_articles() runs on VPS scheduler
+- Playwright part gets FT/Economist (works because Mac scrapers push profiles to VPS — actually VPS IP blocked, so Playwright gets 0 from FT/Economist on VPS)
+- Claude web search finds FA, Foreign Policy, CFR, Atlantic Council etc. — works on VPS
+- run_agent() runs after refresh, auto-saves articles scoring 8+ to Feed as title_only
+- Next Mac sync picks up title_only articles and enriches to full_text
+
 ### Flask routes
 - GET /api/suggested — accepts since=, status=, source= params
 - POST /api/suggested/refresh
@@ -160,12 +169,19 @@ Total: ~2 minutes
 - PATCH /api/suggested/<id>
 - POST /api/suggested/bulk-delete
 
+### UI buttons
+- 🔍 Find Articles — triggers suggested refresh (Suggested tab)
+- 🔄 Sync all — triggers Mac Playwright scrapers + enrichment (activity bar)
+- 📎 Clip Bloomberg — opens Bloomberg title-only articles for extension clipping (conditional)
+
 ## Autonomous Reading Agent
 - run_agent() function, agent_log table, agent_feedback table
 - POST /api/agent/run, GET /api/agent/log, POST /api/agent/feedback
-- meridian-agent.service + meridian-agent.timer (every 6h via systemd on VPS)
+- Runs automatically after every suggested refresh (VPS scheduler, every 6h)
 - Auto-saved articles: status='agent', auto_saved=1 in DB
-- Deleted auto-saved articles write to agent_feedback table (topics, tags, title, url, dismissed_at)
+- ✦ Auto orange pill badge shown on Feed cards for agent-saved articles
+- Curation filter in Feed: All / My saves / AI suggested
+- Deleting agent-saved article shows feedback toast + writes to agent_feedback table
 - agent_feedback feeds into scrape_suggested_articles() via avoid_str in scoring prompt
 
 ## AI Analysis
@@ -178,61 +194,37 @@ Total: ~2 minutes
 - New articles via Chrome extension manual clip only
 - 📎 Clip Bloomberg (N) button in activity bar: opens each title-only Bloomberg article with ?meridian_autoclip=1; extension auto-clips; button hidden when no BBG title-only articles
 
-## PENDING — Next Session (HIGH PRIORITY)
-— All three Session 11 features now implemented and live ✓
-
-Three features requested but NOT YET IMPLEMENTED (now done):
-
-### 1. ✦ Auto badge on AI-suggested articles
-- ROOT CAUSE: `auto_saved` field not mapped in loadFromServer()
-- The mapping in loadFromServer() creates article objects but drops `auto_saved`
-- FIX: add `auto_saved: a.auto_saved || 0` to the mapping object in loadFromServer()
-- The orange pill badge code and var(--paper-2) background render logic likely already
-  exists in renderFeed() — it just never fires because auto_saved is always 0 in frontend
-- Confirmed: 1 article has status='agent' in DB but frontend shows auto_saved=0
-
-### 2. Curation filter (My saves vs AI suggested)
-- Add a third <select> to feed-controls after source-filter:
-  <select class="filter-select" id="curation-filter" onchange="renderFeed()">
-    <option value="all">All articles</option>
-    <option value="saved">My saves</option>
-    <option value="ai">AI suggested</option>
-  </select>
-- Update renderFeed() to apply filter:
-  - 'saved': arts.filter(a => !a.auto_saved && a.status !== 'agent')
-  - 'ai':    arts.filter(a => a.auto_saved || a.status === 'agent')
-
-### 3. Delete with feedback toast
-- Server side already complete: DELETE /api/articles/:id checks auto_saved,
-  inserts into agent_feedback table
-- Frontend: show a toast "Feedback recorded — won't suggest similar articles"
-  when deleting an auto-saved article (check a.auto_saved || a.status === 'agent'
-  before calling delete, then show appropriate toast)
-
-### Implementation order for next session:
-1. Fix auto_saved mapping in loadFromServer() (one line)
-2. Add curation filter dropdown + wire renderFeed()
-3. Add feedback toast on delete of auto-saved articles
-4. Deploy
-
-## Next Steps (lower priority)
-1. Mac-independent scraping — Option B (pmset wake schedule), free
-2. PWA icons — proper 192×192 and 512×512
-3. Economist scraper live testing (improved but untested)
-4. Bloomberg Norway article — manual enrichment via Chrome extension
+## Next Steps
+1. Mac-independent scraping — Option B (pmset wake schedule) recommended, free
+   pmset schedule Mac to wake every 6h, run scrapers, sleep again (works lid-closed if plugged in)
+2. PWA icons — proper 192×192 and 512×512 instead of placeholders
+3. Economist scraper intermittency — needs live testing
+4. Bloomberg enrichment — manual via Chrome extension
 
 ## Build History
+### 28 March 2026 (Session 12)
+- Auto badge (✦ Auto orange pill) on agent-saved articles — implemented and live
+- Curation filter (All / My saves / AI suggested) in Feed — implemented and live
+- Delete feedback toast for AI-saved articles — implemented and live
+- Suggested refresh + agent added to VPS scheduler (runs every 6h automatically, Mac not required)
+- sync_now.py and meridian_sync.py now call enrich_title_only_articles() after sync
+- Activity bar cleaned up: removed individual FT/Economist/FA/Newsletters/Reload buttons
+- Suggested tab: ↻ Refresh renamed to 🔍 Find Articles, Run Agent button removed
+- VPS credentials.json updated with correct Anthropic API key (was expired/truncated)
+- Suggested URL dedup fixed: normalise_url() strips query params before dedup check
+- Missing pub_date on suggested cards now shows today's date as fallback
+- vps_last_log.txt added to .gitignore
+- Terminal bracket paste mode fixed: printf '\e[?2004l'
+- Diagnosed VPS log reading pattern: ssh root@... "journalctl -u meridian --since '10 minutes ago'" > ~/meridian-server/vps_last_log.txt
+
 ### 27 March 2026 (Session 11)
-- Investigated auto_saved badge issue: confirmed auto_saved=0 in all frontend article
-  objects, status=agent=1 (1 article). Root cause: auto_saved not mapped in loadFromServer()
-- Bloomberg clip button deployed and verified: HTML correct, button present in DOM,
-  display:none default, updateClipBloombergBtn() correctly shows it when BBG title-only exist
-- Three features (auto badge, curation filter, delete feedback) diagnosed and fully
-  specced above — NOT YET IMPLEMENTED, carry forward to next session
+- Investigated auto_saved badge issue: confirmed auto_saved=0 in all frontend article objects, status=agent=1 (1 article). Root cause: auto_saved not mapped in loadFromServer()
+- Bloomberg clip button deployed and verified
+- Three features (auto badge, curation filter, delete feedback) diagnosed and fully specced
 
 ### 27 March 2026 (Session 10)
 - Auto NOTES.md update: handled directly by Claude via filesystem MCP at session end
-- Bloomberg clip button: '📎 Clip Bloomberg (N)' appears in activity bar when Bloomberg title-only articles exist; opens each article with ?meridian_autoclip=1 so Chrome extension auto-clips; 8s delay between tabs; button hidden when no BBG title-only articles
+- Bloomberg clip button: '📎 Clip Bloomberg (N)' appears in activity bar when Bloomberg title-only articles exist
 - updateClipBloombergBtn() hooked into renderAll() so visibility updates automatically
 
 ### 27 March 2026 (Session 9)
@@ -240,79 +232,42 @@ Three features requested but NOT YET IMPLEMENTED (now done):
 - Code review: identified 11 issues across server.py
 - Credentials caching: load_creds() now checks mtime, avoids 20+ disk reads per scrape
 - call_anthropic() shared helper: single place for all Anthropic API calls with 429 retry
-- enrich_article_with_ai() refactored to use call_anthropic(), removed internal imports
-- preview_suggested() refactored to use call_anthropic()
-- FT Suggested scoring bug fixed: agentic loop fallback now scores and returns Playwright articles even when web search exhausts without end_turn
-- All _json/_re aliases replaced with standard json/re module names
-- syncSource() fixed: replaced 20s fixed wait with proper polling (5s interval)
-- Server status panel: now shows 'meridianreader.com · connected' instead of 'localhost:4242'
+- enrich_article_with_ai() refactored to use call_anthropic()
+- FT Suggested scoring bug fixed: agentic loop fallback now scores and returns Playwright articles
+- syncSource() fixed: replaced 20s fixed wait with proper polling
+- Server status panel: now shows 'meridianreader.com · connected'
 - deploy.sh created: single command git add/commit/push + SSH pull + systemctl restart
-- Economist scraper fixed: login detection, locator() fix for Load more button (:has-text was failing silently), better title extraction, date-path filter, debug logging
-- fetch_fa_article_text() added as top-level function with proper selectors
-- fetch_bloomberg_article_text() added (for Chrome extension enrichment path)
-- enrich_title_only_articles(): FA path now uses fetch_fa_article_text(), Bloomberg path added
-- Bloomberg scraper not viable (no saved articles URL) — manual enrichment via Chrome extension
-- CSIS articles excluded (scraper-blocked), Bloomberg kept (manual via extension)
-- Bulk status fix: 19 articles incorrectly stuck as title_only despite having body — patched to full_text
-- 295 articles now full_text, 4 genuinely title_only (3 FT pending next sync, 1 Bloomberg manual)
+- Economist scraper fixed: login detection, locator() fix, better title extraction
+- Bulk status fix: 19 articles incorrectly stuck as title_only — patched to full_text
 
 ### 27 March 2026 (Session 8)
-- Claude Code installed (v2.1.85, ~/.local/bin/claude, added to ~/.bashrc and ~/.zshrc PATH)
-- iPad PWA: manifest.json + sw.js (meridian-v2 cache) created, nginx updated with /sw.js location block (Service-Worker-Allowed header), /icons/ directory created on VPS
-- ↻ Refresh button added to header (always visible, window.location.reload())
-- ✦ Preview button on Suggested cards: POST /api/suggested/<id>/preview, BeautifulSoup fetch + Claude summary, cached in preview column on suggested_articles table
-- Autonomous reading agent: run_agent() function, agent_log table, agent_feedback table, POST /api/agent/run, GET /api/agent/log, POST /api/agent/feedback, meridian-agent.service + meridian-agent.timer (every 6h via systemd on VPS), ✦ Auto orange pill badge + var(--paper-2) background on auto-saved Feed articles, delete feedback hook
-- Playwright VPS migration: browser profiles copied (ft_profile 487MB, economist_profile 316MB, fa_profile 116MB), Chromium + deps installed (playwright install chromium + install-deps), all scrapers switched to headless=True — VPS IP blocked by FT/FA/Economist, scrapers remain on Mac via launchd
-- FA auto-login: reads fa.email/fa.password from credentials.json, multiple selector fallbacks, domcontentloaded wait — login fails due to VPS IP block
-- Filesystem MCP server configured in Claude Desktop: /opt/homebrew/bin/npx @modelcontextprotocol/server-filesystem /Users/alexdakers/meridian-server — server connects successfully, available in new chat sessions
+- Claude Code installed
+- iPad PWA: manifest.json + sw.js created
+- ↻ Refresh button added to header
+- ✦ Preview button on Suggested cards
+- Autonomous reading agent: run_agent(), agent_log, agent_feedback tables
+- Playwright VPS migration attempted — VPS IP blocked by FT/FA/Economist, scrapers remain on Mac
+- Filesystem MCP server configured in Claude Desktop
 
 ### 26 March 2026 (Session 7)
-- Purchased meridianreader.com (Namecheap, expires Mar 26 2027)
-- DNS A records set: @ and www → 204.168.179.158
-- Let's Encrypt SSL cert via Certbot (auto-renews)
-- nginx updated: HTTPS on 443, HTTP→HTTPS redirect on 80
-- SERVER constant updated: http://204.168.179.158:4242 → https://meridianreader.com
+- Purchased meridianreader.com, DNS, SSL via Certbot
 - Meridian now live at https://meridianreader.com/meridian.html
 
 ### 26 March 2026 (Session 6)
-- GitHub repo created (private): dakersalex/meridian-server
-- Sensitive files excluded from git: credentials.json, cookies.json, meridian.db, newsletter_sync.py, venv/
-- Hetzner VPS provisioned: CPX22, Helsinki, Ubuntu 24.04, €7/mo
-- Flask migrated to VPS, running as systemd service
-- nginx installed, serving meridian.html on port 80
-- SERVER constant updated to VPS IP (204.168.179.158:4242)
-- Meridian accessible from any network at http://204.168.179.158/meridian.html
-- younger_economist.wav, younger_interview.mp4, younger_interview.wav deleted from Mac
+- GitHub repo created, Hetzner VPS provisioned
+- Flask migrated to VPS as systemd service, nginx installed
 
 ### 26 March 2026 (Sessions 1-5)
-- Interviews & Briefings tab: built and live
-- Suggested Articles: complete rebuild (inbox model, status tracking, Claude scoring, filters, bulk actions)
-- Title-only enrichment: embedded in Sync All, generic scrape for open-access sources
-- Negative signal: dismissed articles feed into Claude scoring
-- Economist selector hardening, pub_date on suggested cards
-- Dismissed card UI: grey opacity, red pill, inline undo
-- Source filter on Suggested tab, avoid_str NameError fix
-- Rate limit delays (30s) between API calls
+- Interviews & Briefings tab, Suggested Articles, Title-only enrichment
+- Newsletter pipeline (iCloud IMAP), Bloomberg removed
 
-### 25 March 2026
-- FA pub_date fixed, Economist pub_date from URL, Economist auto-clip
-- Bloomberg removed, newsletter pipeline complete (iCloud IMAP)
-
-### 24 March 2026
-- FT sync overhauled (persistent profile, early-exit, pub_date)
-- Economist selector fixed, Foreign Affairs scraper added
-- Per-source sync buttons, Sync All
-
-### 17-20 March 2026
-- AI Analysis panel, PDF briefing, article feed improvements
-- Newsletter tab, Settings page, 24h activity bar
-- HTTP server launchd, new API key
+### 24-25 March 2026
+- FT sync overhauled, Economist selector fixed, Foreign Affairs scraper added
+- Per-source sync buttons, Sync All, AI Analysis panel
 
 ## GitHub Visibility
 - Repo is currently PUBLIC: github.com/dakersalex/meridian-server
 - No sensitive files in repo (credentials.json, cookies.json, meridian.db excluded)
-- REMINDER: Consider making private again once Claude has better direct access options
-- If making private: Settings → Danger Zone → Change visibility → Make private
 
 ## Session Starter Prompt
 Copy and paste this at the start of each Claude session:
