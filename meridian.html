@@ -70,81 +70,48 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
 .add-folder-btn:hover { border-color: var(--accent); color: var(--accent); }
 .main-layout { display: grid; grid-template-columns: 1fr 260px; min-height: calc(100vh - 120px); }
 @media (max-width: 1400px) and (pointer: coarse) {
+  /* ── Layout ── */
   .main-layout { grid-template-columns: 1fr; }
   .sidebar { display: none; }
+  .activity-bar { display: none !important; }
+  #pull-to-refresh { display: none !important; }
+  #feed-header-outer { display: none !important; }
 
-  /* ── Fixed header ── */
-  .masthead, .server-bar, .main-nav {
-    position: fixed;
-    left: 0;
-    right: 0;
-    z-index: 50;
-  }
+  /* ── Fixed header rows ── */
   .masthead {
-    top: 0;
-    padding: 10px 14px 8px;
-    gap: 6px;
-    z-index: 52;
-    background: var(--paper);
-    border-bottom: 2px solid var(--ink);
+    position: fixed; top: 0; left: 0; right: 0; z-index: 52;
+    background: var(--paper); border-bottom: 2px solid var(--ink);
+    padding: 10px 14px 8px; gap: 6px;
   }
   .server-bar {
-    top: 55px;
-    z-index: 51;
-    padding: 5px 14px;
-    gap: 6px;
-    flex-wrap: nowrap;
-    background: var(--paper-2);
-    border-bottom: 1px solid var(--rule);
+    position: fixed; top: 55px; left: 0; right: 0; z-index: 51;
+    background: var(--paper-2); border-bottom: 1px solid var(--rule);
+    padding: 5px 14px; gap: 6px; flex-wrap: nowrap;
   }
   .main-nav {
-    top: 93px;
-    z-index: 50;
+    position: fixed; top: 93px; left: 0; right: 0; z-index: 50;
     background: var(--paper);
     padding: 0 10px;
     -webkit-mask-image: linear-gradient(to right, black 85%, transparent 100%);
     mask-image: linear-gradient(to right, black 85%, transparent 100%);
   }
-  /* Feed header (filters) also fixed */
-  .feed-header {
-    position: fixed;
-    top: 130px;
-    left: 0;
-    right: 0;
-    z-index: 49;
-    background: var(--paper);
-    padding: 6px 14px;
-    border-bottom: 1px solid var(--rule);
-    margin-bottom: 0;
-  }
-  /* Solid shield behind ALL fixed rows including filter — prevents bleed-through */
+
+  /* Shield behind fixed rows */
   body::before {
-    content: '';
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: 130px;
-    background: var(--paper);
-    z-index: 48;
+    content: ''; position: fixed; top: 0; left: 0; right: 0;
+    height: 130px; background: var(--paper); z-index: 48;
   }
-  /* main-layout margin = masthead+serverbar+nav only */
+
+  /* Push content below fixed header. 130px = 55+38+37 (measured on iPad) */
   .main-layout { margin-top: 130px; }
-  /* Hide filter row on mobile */
-  #feed-header-outer { display: none !important; }
-  /* Zero out all spacing before first article */
-  .feed-area { padding: 0 14px calc(14px + env(safe-area-inset-bottom)) !important; }
-  #feed-counter { margin: 8px 0 4px !important; }
-  #pull-to-refresh { margin-top: 130px; }
 
-  /* ── Hide activity bar entirely on mobile ── */
-  .activity-bar { display: none !important; }
+  /* Feed area: NO top padding at all */
+  .feed-area { padding: 0 14px calc(14px + env(safe-area-inset-bottom)); }
+  #feed-counter { margin: 10px 0 6px; }
 
-  /* ── Read-only mode: hide select/delete controls ── */
+  /* ── Read-only mode ── */
   #select-all-btn, #delete-selected-btn { display: none !important; }
   .article-card button[title="Delete"], .featured-card button[title="Delete"] { display: none !important; }
-
-  /* ── Add sync button to server bar on mobile ── */
   .mobile-sync-btn { display: inline-flex !important; }
 
   /* ── Masthead ── */
@@ -158,17 +125,11 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
   .sync-sources { flex-wrap: nowrap; gap: 5px; }
   .last-sync { display: none; }
 
-  /* ── Nav tabs ── */
+  /* ── Nav ── */
   .nav-tab { padding: 9px 10px; font-size: 11px; letter-spacing: 0.2px; }
   .add-folder-btn { display: none; }
 
-  /* ── Feed area — no top padding, content starts right below fixed header ── */
-  .feed-area { padding: 0 14px calc(14px + env(safe-area-inset-bottom)) !important; }
-  .feed-header { flex-direction: column; align-items: flex-start; gap: 8px; }
-  .feed-controls { width: 100%; flex-wrap: wrap; gap: 5px; }
-  .filter-select { font-size: 11px; padding: 4px 6px; flex: 1; min-width: 80px; }
-
-  /* ── Article cards — bigger tap targets, better typography ── */
+  /* ── Cards ── */
   .article-card { padding: 16px 0; }
   .article-title { font-size: 17px; line-height: 1.3; }
   .featured-title { font-size: 20px; line-height: 1.25; }
@@ -187,30 +148,13 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
   /* ── Modals ── */
   .modal-backdrop { padding: 16px 10px; align-items: flex-end; }
   .modal { padding: 16px; max-height: 92vh; border-radius: 12px 12px 0 0; }
-
-  /* ── AI panel ── */
   #ai-panel > div { max-height: 95vh !important; border-radius: 12px 12px 0 0; }
   #ai-panel { align-items: flex-end !important; padding: 0 !important; }
 
-  /* ── Toast — above iPhone home bar ── */
+  /* ── Toast ── */
   .toast { bottom: calc(20px + env(safe-area-inset-bottom)); right: 14px; left: 14px; max-width: none; border-radius: 8px; }
 
-  /* ── Smooth scroll ── */
   body { -webkit-overflow-scrolling: touch; }
-
-  /* ── Pull to refresh indicator ── */
-  #pull-to-refresh {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    height: 0;
-    overflow: hidden;
-    font-size: 12px;
-    color: var(--ink-3);
-    transition: height 0.2s;
-    background: var(--paper);
-  }
-  #pull-to-refresh.visible { height: 44px; }
 }
 .feed-area { padding: 20px; border-right: 1px solid var(--rule); }
 /* On desktop, feed-header sits above feed-area as a normal block */
@@ -443,8 +387,7 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
     <button class="btn btn-outline" onclick="clipBloomberg()" id="clip-bbg-btn" style="font-size:10px;padding:3px 7px;display:none">📎 Clip Bloomberg</button>
   </div>
 </div>
-<div id="pull-to-refresh">↓ Release to refresh</div>
-<!-- feed-header moved outside feed-area so position:fixed doesn't leave a layout gap -->
+<!-- feed-header outside feed-area so it doesn't affect document flow -->
 <div class="feed-header" id="feed-header-outer">
   <span class="feed-title" id="feed-title" style="display:none"></span>
   <div class="feed-controls" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
@@ -1627,32 +1570,7 @@ async function sendAIMessage(){
   }
 }
 document.getElementById('date-display').textContent=new Date().toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
-// Debug overlay — shows header measurements on device
-(function(){
-  if (!window.matchMedia('(pointer: coarse)').matches) return;
-  const div = document.createElement('div');
-  div.id = 'debug-overlay';
-  div.style.cssText = 'position:fixed;bottom:20px;right:10px;background:rgba(0,0,0,0.85);color:#fff;font-size:11px;padding:8px 10px;z-index:9999;border-radius:6px;font-family:monospace;line-height:1.6;pointer-events:none';
-  document.body.appendChild(div);
-  function update() {
-    const mH = document.querySelector('.masthead')?.offsetHeight || 0;
-    const sH = document.querySelector('.server-bar')?.offsetHeight || 0;
-    const nH = document.querySelector('.main-nav')?.offsetHeight || 0;
-    const fH = document.querySelector('.feed-header')?.offsetHeight || 0;
-    const ml = getComputedStyle(document.querySelector('.main-layout')).marginTop;
-    const fp = getComputedStyle(document.getElementById('feed-area')).paddingTop;
-    const fhPos = getComputedStyle(document.querySelector('.feed-header')).position;
-    const fhTop = getComputedStyle(document.querySelector('.feed-header')).top;
-    const fc = document.querySelector('.featured-card, .article-card');
-    const fcTop = fc ? Math.round(fc.getBoundingClientRect().top) : '?';
-    const ptr = document.getElementById('pull-to-refresh');
-    const ptrH = ptr ? ptr.offsetHeight : '?';
-    const ptrMt = ptr ? getComputedStyle(ptr).marginTop : '?';
-    div.innerHTML = `w:${window.innerWidth} coarse:${window.matchMedia('(pointer:coarse)').matches}<br>mH:${mH} sH:${sH} nH:${nH} fH:${fH}<br>ml-margin:${ml} fa-pad:${fp}<br>ptr-h:${ptrH} ptr-mt:${ptrMt}<br>firstCard top:${fcTop}px`;
-  }
-  setTimeout(update, 500);
-  setTimeout(update, 1500);
-})();
+
 // Clear stale localStorage cache if article count mismatches
 (async()=>{
   try{
@@ -2421,36 +2339,7 @@ async function updateActivityBar() {
 updateActivityBar();
 setInterval(updateActivityBar, 5*60*1000);
 
-// (mobile header layout handled by CSS only)
 
-// ── Pull to refresh ──
-(function(){
-  let startY = 0, pulling = false;
-  const ptr = document.getElementById('pull-to-refresh');
-  document.addEventListener('touchstart', e => {
-    if (window.scrollY === 0) { startY = e.touches[0].clientY; pulling = true; }
-  }, { passive: true });
-  document.addEventListener('touchmove', e => {
-    if (!pulling) return;
-    const dy = e.touches[0].clientY - startY;
-    if (dy > 60) { ptr.classList.add('visible'); ptr.textContent = '↑ Release to refresh'; }
-    else { ptr.classList.remove('visible'); ptr.textContent = '↓ Pull to refresh'; }
-  }, { passive: true });
-  document.addEventListener('touchend', e => {
-    if (!pulling) return;
-    const dy = e.changedTouches[0].clientY - startY;
-    if (dy > 60) {
-      ptr.textContent = '↻ Refreshing…';
-      loadFromServer().then(() => {
-        ptr.classList.remove('visible');
-        ptr.textContent = '↓ Pull to refresh';
-      });
-    } else {
-      ptr.classList.remove('visible');
-    }
-    pulling = false;
-  }, { passive: true });
-})();
 </script>
 
 <script>
