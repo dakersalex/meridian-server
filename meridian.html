@@ -78,6 +78,7 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
   .logo { font-size: 22px; }
   .masthead-right { gap: 5px; }
   .btn { padding: 6px 10px; font-size: 11px; }
+  #add-article-btn, #add-interview-btn { display: none !important; }
 
   /* Server bar */
   .server-bar { padding: 5px 14px; gap: 6px; flex-wrap: nowrap; }
@@ -89,13 +90,16 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
   .main-nav { padding: 0 10px; }
   .nav-tab { padding: 9px 10px; font-size: 11px; letter-spacing: 0.2px; }
   .add-folder-btn { display: none; }
+  /* Fade right edge to hint scrollability */
+  .main-nav { -webkit-mask-image: linear-gradient(to right, black 85%, transparent 100%); mask-image: linear-gradient(to right, black 85%, transparent 100%); }
 
   /* Activity bar */
   .activity-bar { padding: 5px 14px !important; font-size: 11px !important; gap: 8px !important; flex-wrap: nowrap !important; overflow-x: auto; scrollbar-width: none; }
   .activity-bar::-webkit-scrollbar { display: none; }
   .activity-sync-time { display: none; }
-  #sync-all-btn { font-size: 11px !important; padding: 4px 10px !important; background: var(--accent) !important; }
-  #clip-bbg-btn { font-size: 11px !important; padding: 4px 8px !important; }
+  #sync-all-btn { font-size: 10px !important; padding: 3px 8px !important; background: var(--accent) !important; line-height: 1.4 !important; }
+  #clip-bbg-btn { font-size: 10px !important; padding: 3px 6px !important; line-height: 1.4 !important; }
+  .activity-bar > div:last-child { margin-left: auto; display: flex; gap: 4px; flex-shrink: 0; }
 
   /* Feed area */
   .feed-area { padding: 14px; }
@@ -313,7 +317,7 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
   </div>
   <div class="masthead-right">
     <div class="date-line" id="date-display"></div>
-    <button class="btn btn-outline" onclick="openModal()">+ Add Article</button>
+    <button class="btn btn-outline" onclick="openModal()" id="add-article-btn">+ Add Article</button>
     <button class="btn btn-outline" onclick="openInterviewModal()" id="add-interview-btn" style="display:none">+ Add Interview</button>
 
   </div>
