@@ -1,2 +1,2 @@
-HEAD is now at f6a9b43 Mobile: solid background shield behind fixed header rows
+HEAD is now at 2b01177 Mobile: hide select/delete controls (read-only mode)
 Done

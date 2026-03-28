@@ -89,7 +89,7 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
     border-bottom: 2px solid var(--ink);
   }
   .server-bar {
-    top: 68px;
+    top: 72px;
     z-index: 51;
     padding: 5px 14px;
     gap: 6px;
@@ -98,7 +98,7 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
     border-bottom: 1px solid var(--rule);
   }
   .main-nav {
-    top: 112px;
+    top: 108px;
     z-index: 50;
     background: var(--paper);
     padding: 0 10px;
@@ -108,29 +108,29 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
   /* Feed header (filters) also fixed */
   .feed-header {
     position: fixed;
-    top: 152px;
+    top: 148px;
     left: 0;
     right: 0;
     z-index: 49;
     background: var(--paper);
-    padding: 8px 14px;
+    padding: 6px 14px;
     border-bottom: 1px solid var(--rule);
     margin-bottom: 0;
   }
-  /* Solid shield behind all fixed rows — prevents article text bleeding through gaps */
+  /* Solid shield behind ALL fixed rows including filter — prevents bleed-through */
   body::before {
     content: '';
     position: fixed;
     top: 0;
     left: 0;
     right: 0;
-    height: 152px;
+    height: 196px;
     background: var(--paper);
     z-index: 48;
   }
-  /* Push content below all fixed rows */
-  .main-layout { margin-top: 250px; }
-  #pull-to-refresh { margin-top: 152px; }
+  /* Push content below all fixed rows — exactly the total fixed height */
+  .main-layout { margin-top: 196px; }
+  #pull-to-refresh { margin-top: 148px; }
 
   /* ── Hide activity bar entirely on mobile ── */
   .activity-bar { display: none !important; }
