@@ -1771,35 +1771,40 @@ def agent_feedback():
     log.info(f"Agent feedback: negative signal for '{title[:50]}' — topics={topics}")
     return jsonify({"ok": True})
 
+# Fixed run times in UTC: 03:50 and 09:50 (= 05:50 and 11:50 Geneva/CEST)
+SCHEDULER_TIMES_UTC = [(3, 50), (9, 50)]
+
 def scheduler_loop(interval_hours):
+    log.info(f"Scheduler: fixed times UTC {SCHEDULER_TIMES_UTC}")
+    last_run_date = {t: None for t in SCHEDULER_TIMES_UTC}
     while True:
-        time.sleep(interval_hours * 3600)
-        now = datetime.now().hour
-        if 1 <= now < 6:
-            log.info("Scheduler: quiet hours, skipping")
-            continue
-        log.info("Scheduler: triggering auto-sync")
-        for src in SCRAPERS:
-            if not sync_status.get(src, {}).get("running"):
-                threading.Thread(target=run_sync, args=(src,), daemon=True).start()
-        # Also sync newsletters
-        import subprocess
-        subprocess.Popen(["python3", str(BASE_DIR / "newsletter_sync.py")])
-        log.info("Scheduler: triggered newsletter sync")
-        # Refresh suggested articles and run agent
-        def _suggested_and_agent():
-            try:
-                log.info("Scheduler: refreshing suggested articles")
-                arts = scrape_suggested_articles()
-                if arts:
-                    save_suggested_snapshot(arts)
-                log.info(f"Scheduler: suggested refresh done — {len(arts)} articles")
-                # Run agent after suggestions are refreshed
-                saved = run_agent()
-                log.info(f"Scheduler: agent saved {len(saved)} articles")
-            except Exception as e:
-                log.warning(f"Scheduler: suggested/agent error — {e}")
-        threading.Thread(target=_suggested_and_agent, daemon=True).start()
+        now = datetime.utcnow()
+        for (h, m) in SCHEDULER_TIMES_UTC:
+            # Check if it's within 5 minutes after the scheduled time and not already run today
+            scheduled = now.replace(hour=h, minute=m, second=0, microsecond=0)
+            diff_minutes = (now - scheduled).total_seconds() / 60
+            if 0 <= diff_minutes < 5 and last_run_date[(h, m)] != now.date():
+                last_run_date[(h, m)] = now.date()
+                log.info(f"Scheduler: triggering run for {h:02d}:{m:02d} UTC")
+                for src in SCRAPERS:
+                    if not sync_status.get(src, {}).get("running"):
+                        threading.Thread(target=run_sync, args=(src,), daemon=True).start()
+                import subprocess
+                subprocess.Popen(["python3", str(BASE_DIR / "newsletter_sync.py")])
+                log.info("Scheduler: triggered newsletter sync")
+                def _suggested_and_agent():
+                    try:
+                        log.info("Scheduler: refreshing suggested articles")
+                        arts = scrape_suggested_articles()
+                        if arts:
+                            save_suggested_snapshot(arts)
+                        log.info(f"Scheduler: suggested refresh done — {len(arts)} articles")
+                        saved = run_agent()
+                        log.info(f"Scheduler: agent saved {len(saved)} articles")
+                    except Exception as e:
+                        log.warning(f"Scheduler: suggested/agent error — {e}")
+                threading.Thread(target=_suggested_and_agent, daemon=True).start()
+        time.sleep(60)  # Check every minute
 
 @app.route("/api/newsletters/sync", methods=["POST"])
 def sync_newsletters_route():
