@@ -1,2 +1,2 @@
-Already up to date.
+HEAD is now at 0810f50 Bump service worker cache to v3 to force mobile refresh
 Done
