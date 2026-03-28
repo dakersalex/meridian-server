@@ -1,4 +1,4 @@
-const CACHE = 'meridian-v2';
+const CACHE = 'meridian-v3';
 const STATIC_ASSETS = [
   '/meridian.html',
   '/manifest.json',
