@@ -194,12 +194,24 @@ Total: ~2 minutes
 - New articles via Chrome extension manual clip only
 - 📎 Clip Bloomberg (N) button in activity bar: opens each title-only Bloomberg article with ?meridian_autoclip=1; extension auto-clips; button hidden when no BBG title-only articles
 
+## Schedule (Geneva/CEST time)
+- 05:40 — Mac wakes (pmset), Playwright scrapes FT + Economist + FA
+- 05:50 — VPS scores articles, agent auto-saves 8+ to Feed
+- 06:00 — Fresh articles ready to read ✅
+- 11:40 — launchd fires wake_and_sync.sh, Playwright scrapes again
+- 11:50 — VPS scores again
+- 12:00 — Fresh articles ready for lunchtime ✅
+
+VPS scheduler: fixed UTC times 03:50 and 09:50 (= 05:50 and 11:50 CEST)
+Mac pmset: wakepoweron at 05:40 daily
+Mac launchd: com.alexdakers.meridian.wakesync runs at 05:40 and 11:40
+
 ## Next Steps
-1. Mac-independent scraping — Option B (pmset wake schedule) recommended, free
-   pmset schedule Mac to wake every 6h, run scrapers, sleep again (works lid-closed if plugged in)
+1. Economist scraper intermittency — Cloudflare blocking VPS, works on Mac but inconsistent
+   Fix: improve selector resilience, handle Just a moment... challenge page gracefully
 2. PWA icons — proper 192×192 and 512×512 instead of placeholders
-3. Economist scraper intermittency — needs live testing
-4. Bloomberg enrichment — manual via Chrome extension
+3. Bloomberg enrichment — manual via Chrome extension
+4. Terminal output visibility — need a better pattern so Claude can read output without pasting
 
 ## Build History
 ### 28 March 2026 (Session 12)
