@@ -1,2 +1,2 @@
-HEAD is now at 2e7a9c3 Fix iPad breakpoint: 1025px to catch exact 1024px iPad width
+HEAD is now at 3106e3d Mobile: use pointer:coarse media query to target touch devices only
 Done

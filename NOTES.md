@@ -1,5 +1,5 @@
 # Meridian — Technical Notes
-Last updated: 28 March 2026 (Session 13 — complete)
+Last updated: 28 March 2026 (Session 14 — complete)
 
 ## Overview
 Personal news aggregator. Flask API + SQLite backend now running on Hetzner VPS (always-on).
@@ -229,6 +229,21 @@ Mac launchd: com.alexdakers.meridian.wakesync runs at 05:40 and 11:40
 3. Monitor Economist scraper over next few days — scoring logic and session persistence
 
 ## Build History
+### 28 March 2026 (Session 14)
+- Mobile PWA overhaul: fixed header using `position: fixed` (not sticky — Safari iPad bug)
+- `pointer: coarse` media query targets touch devices regardless of screen size/orientation
+- Activity bar hidden on mobile; compact 🔄 Sync button added to server bar instead
+- + Add Article button hidden on mobile (reading-focused use case)
+- Pull-to-refresh gesture implemented (touchstart/move/end, 60px threshold)
+- Service worker updated: always network-first for meridian.html (never serve stale)
+- Service worker cache bumped to v4
+- Economist pub_date fixes: 24 articles corrected using URL regex `/YYYY/MM/DD/`
+- AI enrichment fixed: no longer overwrites URL-extracted pub_dates
+- enrich_title_only_articles() fixed: now uses headless=False for Economist (was headless=True → 0/19 enriched)
+- Breakpoint: `@media (max-width: 1400px) and (pointer: coarse)` — catches iPhone + iPad all orientations
+- Mobile typography improvements: larger titles, better line-height, safe-area padding
+- Modals slide up from bottom on mobile (iOS sheet style)
+
 ### 28 March 2026 (Session 13)
 - Economist scraper completely overhauled: switched from bookmarks to homepage scraping
 - headless=False added to bypass Cloudflare challenge page

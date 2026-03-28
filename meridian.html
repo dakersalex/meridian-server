@@ -89,7 +89,7 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
     border-bottom: 2px solid var(--ink);
   }
   .server-bar {
-    top: 57px;
+    top: 68px;
     z-index: 51;
     padding: 5px 14px;
     gap: 6px;
@@ -98,16 +98,28 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
     border-bottom: 1px solid var(--rule);
   }
   .main-nav {
-    top: 93px;
+    top: 104px;
     z-index: 50;
     background: var(--paper);
     padding: 0 10px;
     -webkit-mask-image: linear-gradient(to right, black 85%, transparent 100%);
     mask-image: linear-gradient(to right, black 85%, transparent 100%);
   }
-  /* Push content below fixed header */
-  .main-layout { margin-top: 130px; }
-  #pull-to-refresh { margin-top: 130px; }
+  /* Feed header (filters) also fixed */
+  .feed-header {
+    position: fixed;
+    top: 142px;
+    left: 0;
+    right: 0;
+    z-index: 49;
+    background: var(--paper);
+    padding: 8px 14px;
+    border-bottom: 1px solid var(--rule);
+    margin-bottom: 0;
+  }
+  /* Push content below all fixed rows */
+  .main-layout { margin-top: 220px; }
+  #pull-to-refresh { margin-top: 142px; }
 
   /* ── Hide activity bar entirely on mobile ── */
   .activity-bar { display: none !important; }
