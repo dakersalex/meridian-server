@@ -1,2 +1,2 @@
-HEAD is now at ae5583a Mobile: fix large gap, correct fixed header heights
+HEAD is now at be11c4e Mobile: measure header height at runtime to eliminate gap
 Done

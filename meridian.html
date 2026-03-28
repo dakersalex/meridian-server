@@ -2388,28 +2388,37 @@ setInterval(updateActivityBar, 5*60*1000);
 // ── Fix mobile header margin at runtime ──
 function fixMobileHeaderMargin() {
   if (!window.matchMedia('(pointer: coarse)').matches) return;
+  const masthead = document.querySelector('.masthead');
+  const serverBar = document.querySelector('.server-bar');
+  const mainNav = document.querySelector('.main-nav');
   const feedHeader = document.querySelector('.feed-header');
-  const mainLayout = document.getElementById('feed-area')?.closest('.main-layout');
+  const mainLayout = document.querySelector('.main-layout');
   const ptr = document.getElementById('pull-to-refresh');
   if (!feedHeader || !mainLayout) return;
-  // Measure actual bottom of feed-header
-  const rect = feedHeader.getBoundingClientRect();
-  const totalHeight = rect.bottom;
-  mainLayout.style.marginTop = totalHeight + 'px';
-  if (ptr) ptr.style.marginTop = (totalHeight - feedHeader.offsetHeight) + 'px';
-  // Also update shield height
-  const shield = document.querySelector('style[data-shield]');
-  // Update body::before via a style tag
+  // Measure actual rendered heights
+  const mH = masthead ? masthead.offsetHeight : 0;
+  const sH = serverBar ? serverBar.offsetHeight : 0;
+  const nH = mainNav ? mainNav.offsetHeight : 0;
+  const fH = feedHeader ? feedHeader.offsetHeight : 0;
+  const total = mH + sH + nH + fH;
+  // Position each row precisely
+  if (serverBar) serverBar.style.top = mH + 'px';
+  if (mainNav) mainNav.style.top = (mH + sH) + 'px';
+  if (feedHeader) feedHeader.style.top = (mH + sH + nH) + 'px';
+  // Push content below all fixed rows
+  mainLayout.style.marginTop = total + 'px';
+  if (ptr) ptr.style.marginTop = (mH + sH + nH) + 'px';
+  // Update shield to cover full header
   let shieldStyle = document.getElementById('mobile-shield-style');
   if (!shieldStyle) {
     shieldStyle = document.createElement('style');
     shieldStyle.id = 'mobile-shield-style';
     document.head.appendChild(shieldStyle);
   }
-  shieldStyle.textContent = `@media (max-width: 1400px) and (pointer: coarse) { body::before { height: ${totalHeight}px !important; } }`;
+  shieldStyle.textContent = `body::before { height: ${total}px !important; }`;
 }
-// Run after fonts/layout settle
-window.addEventListener('load', () => setTimeout(fixMobileHeaderMargin, 300));
+// Run after fonts and layout settle
+window.addEventListener('load', () => { fixMobileHeaderMargin(); setTimeout(fixMobileHeaderMargin, 500); });
 window.addEventListener('resize', fixMobileHeaderMargin);
 
 // ── Pull to refresh ──
