@@ -1,17 +1,5 @@
-=== Suggested articles by status ===
-  saved: 20
-  new: 11
-  dismissed: 5
-
-=== New articles (showing in Suggested tab) ===
-  [9] Foreign Affairs: Trump's Way of War: Iran, Venezuela, and the End of the Powe
-  [9] Foreign Affairs: Iran's Long Game
-  [8] Foreign Affairs: The Abiding Question of the Iranian Bomb
-  [8] CNN: Analysis: If Trump's diplomacy fails, the Iran war could get
-  [8] Atlantic Council: Trump is fighting two wars with Iran. He needs to win both.
-  [8] CNN: Analysis: Trump's new red line could set the Iran war on a f
-  [7] CNBC: Could U.S. attack Iran's Kharg Island as it sends more troop
-  [7] Chicago Council on Global Affairs: The Strategic Challenges of the US Military Campaign Against
-  [7] The Soufan Center: Misplaced Assumptions Have Plagued U.S. War Efforts Against 
-  [6] The Washington Institute: Assessing U.S. Progress in the Iran War
-  [6] Council on Foreign Relations: Iran Is a Test of Trump's National Defense Strategy
+total 16
+drwxr-xr-x 2 root root 4096 Mar 28 09:42 .
+drwxr-xr-x 9 root root 4096 Mar 28 09:42 ..
+-rw-r--r-- 1 root root  852 Mar 28 09:42 icon-192.png
+-rw-r--r-- 1 root root 3348 Mar 28 09:42 icon-512.png
