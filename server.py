@@ -577,15 +577,12 @@ class EconomistScraper:
                 log.info(f"Economist: {len(new_arts)} new articles to enrich")
                 for art in new_arts:
                     if not art.get("url"): continue
-                    log.info(f"Economist: fetching full text for '{art['title'][:50]}'")
-                    text, pub_date = fetch_economist_article_text(page, art["url"])
+                    pub_date = extract_pub_date_from_url(art["url"])
                     if pub_date:
                         art["pub_date"] = pub_date
-                    if text:
-                        art["body"] = text
-                        enrich_article_with_ai(art)
-                    else:
-                        log.info(f"Economist: no text extracted for '{art['title'][:50]}'")
+                    art["status"] = "title_only"
+                    log.info(f"Economist: saved as title_only '{art['title'][:50]}'")
+                    # Full text will be fetched by enrich_title_only_articles() on next Mac sync
                 # clip any previously fetched articles missing full text
                 import sqlite3 as _sq
                 _cx = _sq.connect(DB_PATH)
