@@ -73,60 +73,88 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
   .main-layout { grid-template-columns: 1fr; }
   .sidebar { display: none; }
 
-  /* Masthead */
-  .masthead { padding: 10px 14px 8px; gap: 6px; }
+  /* ── Fixed header ── */
+  .masthead, .server-bar, .main-nav {
+    position: sticky;
+    z-index: 50;
+  }
+  .masthead {
+    top: 0;
+    padding: 10px 14px 8px;
+    gap: 6px;
+    z-index: 52;
+    background: var(--paper);
+  }
+  .server-bar {
+    top: 57px; /* height of masthead */
+    z-index: 51;
+    padding: 5px 14px;
+    gap: 6px;
+    flex-wrap: nowrap;
+    background: var(--paper-2);
+  }
+  .main-nav {
+    top: 93px; /* masthead + server-bar */
+    z-index: 50;
+    background: var(--paper);
+    padding: 0 10px;
+    -webkit-mask-image: linear-gradient(to right, black 85%, transparent 100%);
+    mask-image: linear-gradient(to right, black 85%, transparent 100%);
+  }
+
+  /* ── Hide activity bar entirely on mobile ── */
+  .activity-bar { display: none !important; }
+
+  /* ── Masthead ── */
   .logo { font-size: 22px; }
   .masthead-right { gap: 5px; }
   .btn { padding: 6px 10px; font-size: 11px; }
   .masthead-right .btn { display: none !important; }
 
-  /* Server bar */
-  .server-bar { padding: 5px 14px; gap: 6px; flex-wrap: nowrap; }
+  /* ── Server bar ── */
   .server-status { font-size: 11px; }
   .sync-sources { flex-wrap: nowrap; gap: 5px; }
   .last-sync { display: none; }
 
-  /* Nav tabs */
-  .main-nav { padding: 0 10px; }
+  /* ── Nav tabs ── */
   .nav-tab { padding: 9px 10px; font-size: 11px; letter-spacing: 0.2px; }
   .add-folder-btn { display: none; }
-  /* Fade right edge to hint scrollability */
-  .main-nav { -webkit-mask-image: linear-gradient(to right, black 85%, transparent 100%); mask-image: linear-gradient(to right, black 85%, transparent 100%); }
 
-  /* Activity bar */
-  .activity-bar { padding: 5px 14px !important; font-size: 11px !important; gap: 8px !important; flex-wrap: nowrap !important; overflow-x: auto; scrollbar-width: none; }
-  .activity-bar::-webkit-scrollbar { display: none; }
-  .activity-sync-time { display: none; }
-  #sync-all-btn { font-size: 10px !important; padding: 3px 8px !important; background: var(--accent) !important; line-height: 1.4 !important; }
-  #clip-bbg-btn { font-size: 10px !important; padding: 3px 6px !important; line-height: 1.4 !important; }
-  .activity-bar > div:last-child { margin-left: auto; display: flex; gap: 4px; flex-shrink: 0; }
-
-  /* Feed area */
-  .feed-area { padding: 14px; }
+  /* ── Feed area — add top padding so content clears fixed header ── */
+  .feed-area { padding: 14px 14px calc(14px + env(safe-area-inset-bottom)); }
   .feed-header { flex-direction: column; align-items: flex-start; gap: 8px; }
   .feed-controls { width: 100%; flex-wrap: wrap; gap: 5px; }
   .filter-select { font-size: 11px; padding: 4px 6px; flex: 1; min-width: 80px; }
 
-  /* Article cards */
-  .article-title { font-size: 16px; }
-  .featured-title { font-size: 18px; }
-  .article-meta { flex-wrap: wrap; gap: 4px; }
+  /* ── Article cards — bigger tap targets, better typography ── */
+  .article-card { padding: 16px 0; }
+  .article-title { font-size: 17px; line-height: 1.3; }
+  .featured-title { font-size: 20px; line-height: 1.25; }
+  .article-summary { font-size: 14px; line-height: 1.65; }
+  .article-meta { flex-wrap: wrap; gap: 5px; }
   .article-date-label { margin-left: 0 !important; }
   .article-footer { flex-wrap: wrap; gap: 5px; }
+  .source-label { font-size: 12px; }
 
-  /* Detail view */
-  .detail-title { font-size: 20px; }
-  .detail-body { font-size: 13px; }
+  /* ── Detail view ── */
+  .detail-view { padding: 16px 14px calc(40px + env(safe-area-inset-bottom)); }
+  .detail-title { font-size: 22px; line-height: 1.2; }
+  .detail-body { font-size: 15px; line-height: 1.85; }
+  .detail-body p { margin-bottom: 14px; }
 
-  /* Modals */
-  .modal-backdrop { padding: 20px 10px; }
-  .modal { padding: 16px; }
+  /* ── Modals ── */
+  .modal-backdrop { padding: 16px 10px; align-items: flex-end; }
+  .modal { padding: 16px; max-height: 92vh; border-radius: 12px 12px 0 0; }
 
-  /* AI panel */
-  #ai-panel > div { padding: 20px 10px !important; }
+  /* ── AI panel ── */
+  #ai-panel > div { max-height: 95vh !important; border-radius: 12px 12px 0 0; }
+  #ai-panel { align-items: flex-end !important; padding: 0 !important; }
 
-  /* Toast */
-  .toast { bottom: 80px; right: 10px; left: 10px; max-width: none; }
+  /* ── Toast — above iPhone home bar ── */
+  .toast { bottom: calc(20px + env(safe-area-inset-bottom)); right: 14px; left: 14px; max-width: none; border-radius: 8px; }
+
+  /* ── Smooth scroll ── */
+  body { -webkit-overflow-scrolling: touch; }
 }
 .feed-area { padding: 20px; border-right: 1px solid var(--rule); }
 .detail-view { display: none; padding: 20px; }
