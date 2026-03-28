@@ -292,12 +292,7 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
   <span class="activity-warning" id="act-warning" style="display:none">⚠ FT sync found 0 articles</span>
   <span class="activity-sync-time" id="act-sync-time"></span>
   <div style="margin-left:auto;display:flex;gap:4px">
-    <button class="btn btn-outline" onclick="window.location.reload()" id="pwa-refresh-btn" style="font-size:10px;padding:3px 9px">↻ Refresh</button>
     <button class="btn btn-dark" onclick="syncAll()" id="sync-all-btn" style="font-size:10px;padding:3px 9px;background:var(--accent)">🔄 Sync all</button>
-    <button class="btn btn-outline" onclick="syncSource('ft')" style="font-size:10px;padding:3px 7px">🔄 FT</button>
-    <button class="btn btn-outline" onclick="syncSource('economist')" style="font-size:10px;padding:3px 7px">🔄 Economist</button>
-    <button class="btn btn-outline" onclick="syncSource('fa')" style="font-size:10px;padding:3px 7px">🔄 Foreign Affairs</button>
-    <button class="btn btn-outline" onclick="syncNewsletters()" style="font-size:10px;padding:3px 7px">🔄 Newsletters</button>
     <button class="btn btn-outline" onclick="clipBloomberg()" id="clip-bbg-btn" style="font-size:10px;padding:3px 7px;display:none">📎 Clip Bloomberg</button>
   </div>
 </div>
@@ -1906,8 +1901,7 @@ function renderSuggestedHeader(area, newCount) {
     + '<select class="filter-select" onchange="suggestedSource=this.value;renderSuggested()" style="font-size:11px">' + sourceOpts + '</select>'
     + '<input type="date" class="filter-select" style="font-size:11px" value="' + (suggestedSince||'') + '" onchange="suggestedSince=this.value;renderSuggested()">'
     + '<span style="font-size:11px;color:var(--ink-3)">' + suggestedArticles.length + ' articles' + (newCount ? ' · <strong>' + newCount + ' new</strong>' : '') + '</span>'
-    + '<button onclick="runAgent()" class="btn btn-outline" id="agent-run-btn" style="margin-left:auto;font-size:11px;padding:4px 10px">▶ Run Agent</button>'
-    + '<button onclick="startSuggestedRefresh(false)" class="btn btn-outline" id="sug-refresh-btn" style="font-size:11px;padding:4px 10px">↻ Refresh</button>'
+    + '<button onclick="startSuggestedRefresh(false)" class="btn btn-outline" id="sug-refresh-btn" style="margin-left:auto;font-size:11px;padding:4px 10px">🔍 Find Articles</button>'
     + '</div>'
     + '<div id="sug-bulk-bar" style="display:none;align-items:center;gap:8px;margin-bottom:10px;padding:8px 12px;background:var(--bg-2);border-radius:8px;flex-wrap:wrap">'
     + '<span id="sug-bulk-count" style="font-size:12px;color:var(--ink-2)">0 selected</span>'
