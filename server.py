@@ -1782,6 +1782,20 @@ def scheduler_loop(interval_hours):
         import subprocess
         subprocess.Popen(["python3", str(BASE_DIR / "newsletter_sync.py")])
         log.info("Scheduler: triggered newsletter sync")
+        # Refresh suggested articles and run agent
+        def _suggested_and_agent():
+            try:
+                log.info("Scheduler: refreshing suggested articles")
+                arts = scrape_suggested_articles()
+                if arts:
+                    save_suggested_snapshot(arts)
+                log.info(f"Scheduler: suggested refresh done — {len(arts)} articles")
+                # Run agent after suggestions are refreshed
+                saved = run_agent()
+                log.info(f"Scheduler: agent saved {len(saved)} articles")
+            except Exception as e:
+                log.warning(f"Scheduler: suggested/agent error — {e}")
+        threading.Thread(target=_suggested_and_agent, daemon=True).start()
 
 @app.route("/api/newsletters/sync", methods=["POST"])
 def sync_newsletters_route():

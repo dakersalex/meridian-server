@@ -1,5 +1,5 @@
 # Meridian — Technical Notes
-Last updated: 27 March 2026 (Session 8)
+Last updated: 27 March 2026 (Session 11)
 
 ## Overview
 Personal news aggregator. Flask API + SQLite backend now running on Hetzner VPS (always-on).
@@ -18,7 +18,7 @@ Frontend served via nginx with HTTPS. Accessible from anywhere at https://meridi
 - Flask service: systemd (auto-starts, auto-restarts)
 - HTTP: nginx on port 80 (redirects to HTTPS)
 - HTTPS: nginx on port 443
-- GitHub: https://github.com/dakersalex/meridian-server (private)
+- GitHub: https://github.com/dakersalex/meridian-server (public)
 
 ## File Locations (VPS)
 - /opt/meridian-server/server.py       — Flask API (port 4242)
@@ -56,27 +56,24 @@ Restart nginx: systemctl restart nginx
 View logs: journalctl -u meridian -f
 
 ## Deploying Code Updates
-On Mac:
-  cd ~/meridian-server
-  git add -A && git commit -m "description" && git push
+One command from Mac Terminal:
+  cd ~/meridian-server && ./deploy.sh "description"
 
-On VPS (Tab 1 SSH):
-  cd /opt/meridian-server
-  git pull
-  systemctl restart meridian
+(deploy.sh: git add -A, commit, push, SSH pull on VPS, systemctl restart meridian)
 
 ## GitHub
-Repo: https://github.com/dakersalex/meridian-server (private)
+Repo: https://github.com/dakersalex/meridian-server (public)
 Token stored in Mac keychain (credential.helper osxkeychain)
 Sensitive files excluded: credentials.json, cookies.json, meridian.db, newsletter_sync.py, venv/, *.wav, *.mp4
 
-## Database (26 March 2026)
-Total: ~292 articles
-- Financial Times: 122 (119 full_text)
-- The Economist: 86 (all full_text)
-- Foreign Affairs: 39 (32 full_text)
-- Bloomberg: 39 (37 full_text)
-- Other (CNN, Atlantic Council, Foreign Policy, CFR, Al Jazeera, NPR): 6
+## Database (27 March 2026)
+Total: ~302 articles
+- Financial Times: 122
+- The Economist: 86
+- Foreign Affairs: 42
+- Bloomberg: 39
+- Other (CNN, Atlantic Council, Foreign Policy, CFR): ~13
+- ~295 full_text, ~4 title_only (3 FT pending sync, 1 Bloomberg manual)
 
 ## Syncing
 Note: Playwright scrapers still run on Mac via launchd (browser profiles not yet on VPS)
@@ -163,21 +160,76 @@ Total: ~2 minutes
 - PATCH /api/suggested/<id>
 - POST /api/suggested/bulk-delete
 
+## Autonomous Reading Agent
+- run_agent() function, agent_log table, agent_feedback table
+- POST /api/agent/run, GET /api/agent/log, POST /api/agent/feedback
+- meridian-agent.service + meridian-agent.timer (every 6h via systemd on VPS)
+- Auto-saved articles: status='agent', auto_saved=1 in DB
+- Deleted auto-saved articles write to agent_feedback table (topics, tags, title, url, dismissed_at)
+- agent_feedback feeds into scrape_suggested_articles() via avoid_str in scoring prompt
+
 ## AI Analysis
 - Includes interviews in context (summary + transcript excerpt)
 - Interest profile built from saved article topics/tags
 
-## Next Steps
-1. Mac-independent scraping — three options to investigate:
-   A. Residential proxy (~$10/mo) — route VPS Playwright through home IP, cleanest solution
-   B. pmset wake schedule (free) — schedule Mac to wake every 6h, run scrapers, sleep again (works lid-closed if plugged in)
-   C. noVNC on VPS (free) — install lightweight desktop, re-authenticate browser profiles once via browser-based remote desktop
-   Recommended starting point: Option B (pmset) — free and quick to set up
-2. PWA icons — proper 192x192 and 512x512 instead of placeholders
-3. Economist scraper intermittency — improved in Session 8 but needs live testing
-4. Bloomberg enrichment — manual via Chrome extension (save URL, extension pastes text)
+## Bloomberg
+- Scraping not viable (Cloudflare bot detection, no saved articles URL)
+- Existing articles retained
+- New articles via Chrome extension manual clip only
+- 📎 Clip Bloomberg (N) button in activity bar: opens each title-only Bloomberg article with ?meridian_autoclip=1; extension auto-clips; button hidden when no BBG title-only articles
+
+## PENDING — Next Session (HIGH PRIORITY)
+— All three Session 11 features now implemented and live ✓
+
+Three features requested but NOT YET IMPLEMENTED (now done):
+
+### 1. ✦ Auto badge on AI-suggested articles
+- ROOT CAUSE: `auto_saved` field not mapped in loadFromServer()
+- The mapping in loadFromServer() creates article objects but drops `auto_saved`
+- FIX: add `auto_saved: a.auto_saved || 0` to the mapping object in loadFromServer()
+- The orange pill badge code and var(--paper-2) background render logic likely already
+  exists in renderFeed() — it just never fires because auto_saved is always 0 in frontend
+- Confirmed: 1 article has status='agent' in DB but frontend shows auto_saved=0
+
+### 2. Curation filter (My saves vs AI suggested)
+- Add a third <select> to feed-controls after source-filter:
+  <select class="filter-select" id="curation-filter" onchange="renderFeed()">
+    <option value="all">All articles</option>
+    <option value="saved">My saves</option>
+    <option value="ai">AI suggested</option>
+  </select>
+- Update renderFeed() to apply filter:
+  - 'saved': arts.filter(a => !a.auto_saved && a.status !== 'agent')
+  - 'ai':    arts.filter(a => a.auto_saved || a.status === 'agent')
+
+### 3. Delete with feedback toast
+- Server side already complete: DELETE /api/articles/:id checks auto_saved,
+  inserts into agent_feedback table
+- Frontend: show a toast "Feedback recorded — won't suggest similar articles"
+  when deleting an auto-saved article (check a.auto_saved || a.status === 'agent'
+  before calling delete, then show appropriate toast)
+
+### Implementation order for next session:
+1. Fix auto_saved mapping in loadFromServer() (one line)
+2. Add curation filter dropdown + wire renderFeed()
+3. Add feedback toast on delete of auto-saved articles
+4. Deploy
+
+## Next Steps (lower priority)
+1. Mac-independent scraping — Option B (pmset wake schedule), free
+2. PWA icons — proper 192×192 and 512×512
+3. Economist scraper live testing (improved but untested)
+4. Bloomberg Norway article — manual enrichment via Chrome extension
 
 ## Build History
+### 27 March 2026 (Session 11)
+- Investigated auto_saved badge issue: confirmed auto_saved=0 in all frontend article
+  objects, status=agent=1 (1 article). Root cause: auto_saved not mapped in loadFromServer()
+- Bloomberg clip button deployed and verified: HTML correct, button present in DOM,
+  display:none default, updateClipBloombergBtn() correctly shows it when BBG title-only exist
+- Three features (auto badge, curation filter, delete feedback) diagnosed and fully
+  specced above — NOT YET IMPLEMENTED, carry forward to next session
+
 ### 27 March 2026 (Session 10)
 - Auto NOTES.md update: handled directly by Claude via filesystem MCP at session end
 - Bloomberg clip button: '📎 Clip Bloomberg (N)' appears in activity bar when Bloomberg title-only articles exist; opens each article with ?meridian_autoclip=1 so Chrome extension auto-clips; 8s delay between tabs; button hidden when no BBG title-only articles

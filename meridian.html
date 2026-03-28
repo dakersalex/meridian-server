@@ -307,11 +307,15 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
       <span class="feed-title" id="feed-title" style="display:none"></span>
       <div class="feed-controls" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
         <select class="filter-select" id="status-filter" onchange="renderFeed()"><option value="all">All articles</option><option value="full_text">Full text only</option><option value="title_only">Title only</option></select>
+        <select class="filter-select" id="curation-filter" onchange="renderFeed()">
+          <option value="all">All articles</option>
+          <option value="saved">My saves</option>
+          <option value="ai">AI suggested</option>
+        </select>
         <select class="filter-select" id="source-filter" onchange="renderFeed()">
           <option value="all">All sources</option>
           <option value="Financial Times">FT</option>
           <option value="The Economist">Economist</option>
-
           <option value="Foreign Affairs">Foreign Affairs</option>
         </select>
         <select class="filter-select" id="date-filter" onchange="renderFeed()">
@@ -580,7 +584,7 @@ async function loadFromServer(){
   if(!serverOnline){renderAll();return;}
   try{
     const r=await fetch(SERVER+'/api/articles?limit=2000');const data=await r.json();
-    const sa=(data.articles||[]).map(a=>({id:a.id,ts:(()=>{if(!a.pub_date)return a.saved_at;try{const d=new Date(a.pub_date);if(!isNaN(d.getTime()))return d.getTime();return a.saved_at;}catch(e){return a.saved_at;}})(),pub_date:a.pub_date||'',source:a.source||'Unknown',url:a.url||'',title:a.title||'Untitled',summary:a.summary||a.body?.slice(0,200)||'',fullSummary:a.body||'',keyPoints:[],tags:a.tags||[],topic:a.topic||'',folder:a.folder||'',status:a.status||'title_only',fromServer:true}));
+    const sa=(data.articles||[]).map(a=>({id:a.id,ts:(()=>{if(!a.pub_date)return a.saved_at;try{const d=new Date(a.pub_date);if(!isNaN(d.getTime()))return d.getTime();return a.saved_at;}catch(e){return a.saved_at;}})(),pub_date:a.pub_date||'',source:a.source||'Unknown',url:a.url||'',title:a.title||'Untitled',summary:a.summary||a.body?.slice(0,200)||'',fullSummary:a.body||'',keyPoints:[],tags:a.tags||[],topic:a.topic||'',folder:a.folder||'',status:a.status||'title_only',auto_saved:a.auto_saved||0,fromServer:true}));
     const sids=new Set(sa.map(a=>a.id));
     articles=[...sa,...articles.filter(a=>!sids.has(a.id))].sort((a,b)=>b.ts-a.ts);
     const needs=articles.filter(a=>!a.folder&&!pendingSuggestions[a.id]&&a.title);
@@ -761,6 +765,9 @@ function renderFeed(){
   if(sourceFilter!=='all')arts=arts.filter(a=>a.source===sourceFilter);
   const statusFilter=document.getElementById('status-filter')?.value||'all';
   if(statusFilter==='no_date')arts=arts.filter(a=>!a.pub_date||a.pub_date==='');else if(statusFilter==='title_only')arts=arts.filter(a=>a.status==='title_only'||a.status==='fetched');else if(statusFilter!=='all')arts=arts.filter(a=>a.status===statusFilter);
+  const curationFilter=document.getElementById('curation-filter')?.value||'all';
+  if(curationFilter==='saved')arts=arts.filter(a=>!a.auto_saved&&a.status!=='agent');
+  else if(curationFilter==='ai')arts=arts.filter(a=>a.auto_saved||a.status==='agent');
   let filtered;
   if(currentView==='feed')filtered=arts.filter(a=>a.ts>=cutoff);
   else if(currentView==='archive')filtered=arts.filter(a=>a.ts<cutoff);
@@ -2146,6 +2153,27 @@ async function clipBloomberg(){
   setTimeout(() => loadFromServer(), 10000);
 }
 
+async function deleteArticle(id){
+  const art=articles.find(a=>a.id===id);if(!art)return;
+  const isAI=art.auto_saved||art.status==='agent';
+  articles=articles.filter(a=>a.id!==id);
+  saveAll();renderAll();
+  if(serverOnline){
+    try{
+      await fetch(SERVER+'/api/articles/'+id,{method:'DELETE'});
+      if(isAI){
+        // Send negative feedback signal
+        await fetch(SERVER+'/api/agent/feedback',{method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({topics:art.topic||'',tags:(art.tags||[]).join(', '),title:art.title,url:art.url})});
+        toast('Deleted · feedback recorded — AI will deprioritise similar articles');
+      } else {
+        toast('Article deleted');
+      }
+    }catch(e){toast('Deleted locally — server sync pending');}
+  } else {
+    toast('Deleted locally');
+  }
+}
 function updateClipBloombergBtn(){
   const bbgCount = articles.filter(a =>
     a.source === 'Bloomberg' && (a.status === 'title_only' || a.status === 'fetched')
