@@ -128,8 +128,8 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
     background: var(--paper);
     z-index: 48;
   }
-  /* Push content below all fixed rows — exactly the total fixed height */
-  .main-layout { margin-top: 196px; }
+  /* Push content below all fixed rows — set by JS at runtime */
+  .main-layout { margin-top: 200px; }
   #pull-to-refresh { margin-top: 148px; }
 
   /* ── Hide activity bar entirely on mobile ── */
@@ -2384,6 +2384,33 @@ async function updateActivityBar() {
 
 updateActivityBar();
 setInterval(updateActivityBar, 5*60*1000);
+
+// ── Fix mobile header margin at runtime ──
+function fixMobileHeaderMargin() {
+  if (!window.matchMedia('(pointer: coarse)').matches) return;
+  const feedHeader = document.querySelector('.feed-header');
+  const mainLayout = document.getElementById('feed-area')?.closest('.main-layout');
+  const ptr = document.getElementById('pull-to-refresh');
+  if (!feedHeader || !mainLayout) return;
+  // Measure actual bottom of feed-header
+  const rect = feedHeader.getBoundingClientRect();
+  const totalHeight = rect.bottom;
+  mainLayout.style.marginTop = totalHeight + 'px';
+  if (ptr) ptr.style.marginTop = (totalHeight - feedHeader.offsetHeight) + 'px';
+  // Also update shield height
+  const shield = document.querySelector('style[data-shield]');
+  // Update body::before via a style tag
+  let shieldStyle = document.getElementById('mobile-shield-style');
+  if (!shieldStyle) {
+    shieldStyle = document.createElement('style');
+    shieldStyle.id = 'mobile-shield-style';
+    document.head.appendChild(shieldStyle);
+  }
+  shieldStyle.textContent = `@media (max-width: 1400px) and (pointer: coarse) { body::before { height: ${totalHeight}px !important; } }`;
+}
+// Run after fonts/layout settle
+window.addEventListener('load', () => setTimeout(fixMobileHeaderMargin, 300));
+window.addEventListener('resize', fixMobileHeaderMargin);
 
 // ── Pull to refresh ──
 (function(){

@@ -1,2 +1,2 @@
-HEAD is now at 2b01177 Mobile: hide select/delete controls (read-only mode)
+HEAD is now at ae5583a Mobile: fix large gap, correct fixed header heights
 Done
