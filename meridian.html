@@ -128,11 +128,13 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
     background: var(--paper);
     z-index: 48;
   }
-  /* main-layout margin = masthead+serverbar+nav only, no feed-header */
+  /* main-layout margin = masthead+serverbar+nav only */
   .main-layout { margin-top: 130px; }
-  /* Hide filter row entirely on mobile — keep it simple */
+  /* Hide filter row on mobile */
   #feed-header-outer { display: none !important; }
-  .feed-area { padding-top: 10px !important; padding-bottom: calc(14px + env(safe-area-inset-bottom)) !important; }
+  /* Zero out all spacing before first article */
+  .feed-area { padding: 0 14px calc(14px + env(safe-area-inset-bottom)) !important; }
+  #feed-counter { margin: 8px 0 4px !important; }
   #pull-to-refresh { margin-top: 130px; }
 
   /* ── Hide activity bar entirely on mobile ── */
