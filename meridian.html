@@ -124,16 +124,15 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
     top: 0;
     left: 0;
     right: 0;
-    height: 171px;
+    height: 130px;
     background: var(--paper);
     z-index: 48;
   }
-  /* main-layout margin = full fixed stack height (171px) */
-  .main-layout { margin-top: 171px; }
-  /* feed-area: minimal padding since feed-header is fixed */
-  .feed-area { padding-top: 0 !important; padding-bottom: calc(14px + env(safe-area-inset-bottom)) !important; }
-  /* feed-area: just a small padding at top */
-  .feed-area { padding-top: 8px !important; }
+  /* main-layout margin = masthead+serverbar+nav only, no feed-header */
+  .main-layout { margin-top: 130px; }
+  /* Hide filter row entirely on mobile — keep it simple */
+  #feed-header-outer { display: none !important; }
+  .feed-area { padding-top: 10px !important; padding-bottom: calc(14px + env(safe-area-inset-bottom)) !important; }
   #pull-to-refresh { margin-top: 130px; }
 
   /* ── Hide activity bar entirely on mobile ── */
