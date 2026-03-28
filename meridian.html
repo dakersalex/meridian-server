@@ -89,7 +89,7 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
     border-bottom: 2px solid var(--ink);
   }
   .server-bar {
-    top: 72px;
+    top: 55px;
     z-index: 51;
     padding: 5px 14px;
     gap: 6px;
@@ -98,7 +98,7 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
     border-bottom: 1px solid var(--rule);
   }
   .main-nav {
-    top: 108px;
+    top: 93px;
     z-index: 50;
     background: var(--paper);
     padding: 0 10px;
@@ -108,7 +108,7 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
   /* Feed header (filters) also fixed */
   .feed-header {
     position: fixed;
-    top: 148px;
+    top: 130px;
     left: 0;
     right: 0;
     z-index: 49;
@@ -124,15 +124,15 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
     top: 0;
     left: 0;
     right: 0;
-    height: 196px;
+    height: 171px;
     background: var(--paper);
     z-index: 48;
   }
-  /* main-layout clears masthead+serverbar+nav only */
-  .main-layout { margin-top: 148px; }
-  /* feed-area gets padding to clear the fixed filter row */
-  .feed-area { padding-top: 52px !important; }
-  #pull-to-refresh { margin-top: 148px; }
+  /* main-layout clears masthead+serverbar+nav (130px) */
+  .main-layout { margin-top: 130px; }
+  /* feed-area padding clears the fixed filter row (41px) + small gap */
+  .feed-area { padding-top: 49px !important; }
+  #pull-to-refresh { margin-top: 130px; }
 
   /* ── Hide activity bar entirely on mobile ── */
   .activity-bar { display: none !important; }
