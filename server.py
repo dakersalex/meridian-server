@@ -490,27 +490,30 @@ class EconomistScraper:
 
                 def extract_bookmark_title(a_tag, url):
                     """Extract article title from an Economist bookmark card.
-                    The <a> tag often contains only a section label or image.
-                    The real headline is typically in a sibling or nearby element."""
-                    # Strategy 1: look for h3/h2 that is a sibling of <a> or nearby
-                    # Walk up to find the article card container, then find headline within it
-                    container = a_tag
-                    for _ in range(6):
-                        if container is None: break
-                        # Look for headline siblings at this level
-                        for sel in ['h3', 'h2', '[class*="headline"]', '[class*="flytitle"]',
-                                    '[data-test-id*="headline"]', 'p[class*="subheadline"]']:
-                            found = container.select(sel)
-                            for el in found:
-                                t = el.get_text(strip=True)
-                                if t and len(t) > 15 and t not in SECTION_LABELS:
-                                    return t
-                        container = container.parent
-                    # Strategy 2: anchor text itself if it's a real title
+                    Structure: <h3 class='headline_mb-teaser__headline__...'>
+                                 <a href='/YYYY/MM/DD/slug'>headline text</a>
+                               </h3>
+                    The <a> is INSIDE the h3 — so the anchor text IS the title.
+                    The section label (Middle East & Africa etc.) is in a sibling <p>."""
+                    # Strategy 1: anchor text is the title if <a> is inside h3/h2
+                    parent = a_tag.parent
+                    if parent and parent.name in ('h3', 'h2'):
+                        t = a_tag.get_text(strip=True)
+                        if t and len(t) > 15 and t not in SECTION_LABELS:
+                            return t
+                    # Strategy 2: look for headline class on parent or grandparent
+                    for ancestor in [a_tag.parent, a_tag.parent.parent if a_tag.parent else None]:
+                        if ancestor is None: continue
+                        cls = ' '.join(ancestor.get('class', []))
+                        if 'headline' in cls.lower():
+                            t = ancestor.get_text(strip=True)
+                            if t and len(t) > 15 and t not in SECTION_LABELS:
+                                return t
+                    # Strategy 3: anchor text if substantial and not a section label
                     anchor_text = a_tag.get_text(strip=True)
                     if anchor_text and len(anchor_text) > 20 and anchor_text not in SECTION_LABELS:
                         return anchor_text
-                    # Strategy 3: extract from URL slug
+                    # Strategy 4: URL slug as last resort
                     slug = url.rstrip('/').split('/')[-1].replace('-', ' ')
                     if len(slug) > 20:
                         return slug.title()

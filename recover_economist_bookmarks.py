@@ -44,23 +44,30 @@ def is_junk_url(url):
     return any(p in url for p in JUNK_URL_PATHS)
 
 def extract_title(a_tag, url):
-    """Try multiple strategies to extract real article title."""
-    # Strategy 1: walk up DOM finding h3/h2 that isn't a section label
-    container = a_tag
-    for _ in range(6):
-        if container is None: break
-        for sel in ['h3', 'h2', '[class*="headline"]', '[class*="flytitle"]',
-                    '[data-test-id*="headline"]', 'p[class*="subheadline"]']:
-            for el in container.select(sel):
-                t = el.get_text(strip=True)
-                if t and len(t) > 15 and t not in SECTION_LABELS:
-                    return t
-        container = container.parent
-    # Strategy 2: anchor text if substantial
+    """Extract article title from Economist bookmark card.
+    Structure: <h3 class='headline_mb-teaser__headline__...'>
+                 <a href='/YYYY/MM/DD/slug'>headline text</a>
+               </h3>
+    The <a> is INSIDE the h3, so its text IS the title."""
+    # Strategy 1: anchor text is the title if <a> is inside h3/h2
+    parent = a_tag.parent
+    if parent and parent.name in ('h3', 'h2'):
+        t = a_tag.get_text(strip=True)
+        if t and len(t) > 15 and t not in SECTION_LABELS:
+            return t
+    # Strategy 2: headline class on parent or grandparent
+    for ancestor in [a_tag.parent, a_tag.parent.parent if a_tag.parent else None]:
+        if ancestor is None: continue
+        cls = ' '.join(ancestor.get('class', []))
+        if 'headline' in cls.lower():
+            t = ancestor.get_text(strip=True)
+            if t and len(t) > 15 and t not in SECTION_LABELS:
+                return t
+    # Strategy 3: anchor text if substantial
     anchor = a_tag.get_text(strip=True)
     if anchor and len(anchor) > 20 and anchor not in SECTION_LABELS:
         return anchor
-    # Strategy 3: URL slug as fallback
+    # Strategy 4: URL slug as last resort
     slug = url.rstrip('/').split('/')[-1].replace('-', ' ')
     if len(slug) > 20:
         return slug.title()
