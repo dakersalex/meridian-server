@@ -1763,7 +1763,7 @@ def score_and_autosave_new_articles():
     """Score recently-added FT/Economist articles from the main articles table
     and auto-save those scoring >=8. Runs after every Mac sync so that
     Playwright-scraped articles get the same agent treatment as web-search ones."""
-    cutoff_ts = now_ts() - (24 * 60 * 60 * 1000)  # last 24h
+    cutoff_ts = now_ts() - (48 * 60 * 60 * 1000)  # last 48h — covers articles that arrived just before previous scoring window
     with sqlite3.connect(DB_PATH) as cx:
         cx.row_factory = sqlite3.Row
         rows = cx.execute("""
