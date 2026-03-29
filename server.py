@@ -110,7 +110,7 @@ def upsert_article(art):
           {**art, "auto_saved": art.get("auto_saved", 0)})
         cx.commit()
 
-def all_articles(source=None, limit=200):
+def all_articles(source=None, limit=500):
     with sqlite3.connect(DB_PATH) as cx:
         cx.row_factory = sqlite3.Row
         if source:
@@ -523,7 +523,7 @@ class EconomistScraper:
                     href = a.get("href", "")
                     if not re.search(r'/\d{4}/\d{2}/\d{2}/', href): continue
                     url = ("https://www.economist.com" + href if href.startswith("/") else href).split("?")[0]
-                    if is_junk(url, url): continue  # URL-based junk filter
+                    if any(p in url for p in JUNK_URL_PATHS): continue  # URL-based junk filter
                     art_id = make_id(self.name, url)
                     if art_id in bookmark_urls: continue
                     if article_exists(art_id):
