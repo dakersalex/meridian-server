@@ -363,6 +363,31 @@ then navigate Tab B to the live site if it isn't already there.
 - feed-header-outer (desktop filters) hidden on mobile via display:none
 - No JS for header positioning — pure CSS only
 
+## Backup & Recovery
+
+### What is backed up
+- **GitHub** (`github.com/dakersalex/meridian-server`) — all code, NOTES.md, scripts. Every session is a git commit so any prior version is recoverable via `git checkout <hash>`
+- **VPS DB** (`/opt/meridian-server/db_backups/`) — daily backup of Mac `meridian.db` at 23:00, 7 days retained
+- **VPS DB itself** — has all articles ever pushed from Mac (~468 articles)
+
+### What is NOT on GitHub (by design — sensitive)
+- `meridian.db` — article database (backed up to VPS nightly)
+- `credentials.json` — Anthropic API key + FA login
+- `newsletter_sync.py` — has iCloud credentials
+- Browser profiles (`ft_profile/`, `economist_profile/`, `fa_profile/`) — Playwright login sessions
+
+### Recovery scenarios
+**Lost Mac DB** → `scp root@204.168.179.158:/opt/meridian-server/db_backups/meridian_mac_YYYY-MM-DD.db ~/meridian-server/meridian.db`
+**Lost all code** → `git clone https://github.com/dakersalex/meridian-server`
+**Lost VPS** → Rebuild from GitHub + restore DB from local Mac backup
+**Lost everything** → GitHub has all code; article DB is gone beyond last VPS push (worst case lose unsynced Mac-only articles)
+
+### Daily backup
+- Script: `~/meridian-server/backup_db.sh`
+- Runs: daily at 23:00 via launchd (`com.alexdakers.meridian.dbbackup`)
+- Destination: `root@204.168.179.158:/opt/meridian-server/db_backups/meridian_mac_YYYY-MM-DD.db`
+- Retention: 7 days
+
 ## Next Steps
 1. PWA icons — proper 192×192 and 512×512 instead of placeholders
 2. Newsletter auto-sync — newsletter_sync.py is gitignored (has credentials), so VPS can’t auto-sync.
