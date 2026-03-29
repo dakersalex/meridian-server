@@ -515,7 +515,10 @@ class EconomistScraper:
                     if len(title.split()) <= 4: continue
                     # Skip if it looks like a section label (contains & and is short)
                     if '&' in title and len(title.split()) <= 5: continue
-                    # Skip newsletter digests and daily briefings
+                    # Skip non-article URL paths (podcasts, newsletters, events etc.)
+                    JUNK_URL_PATHS = ("/podcasts/", "/newsletters/", "/events/", "/films/")
+                    if any(p in url for p in JUNK_URL_PATHS): continue
+                    # Skip newsletter digest titles
                     JUNK_PREFIXES_ECO = ("The War Room newsletter:", "Blighty newsletter:", "The US in Brief:",
                                         "Espresso:", "The World in Brief:", "The Economist explains:",
                                         "Graphic detail:", "KAL's cartoon")
