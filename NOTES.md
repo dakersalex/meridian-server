@@ -1,5 +1,5 @@
 # Meridian — Technical Notes
-Last updated: 29 March 2026 (Session 21 — complete)
+Last updated: 29 March 2026 (Session 22 — complete)
 
 ## Overview
 Personal news aggregator. Flask API + SQLite backend now running on Hetzner VPS (always-on).
@@ -389,7 +389,8 @@ then navigate Tab B to the live site if it isn't already there.
 - Retention: 7 days
 
 ## Next Steps
-1. PWA icons — proper 192×192 and 512×512 instead of placeholders
+1. **Key Themes JS routing fix** — generateThemes() and generateBrief() still call api.anthropic.com directly. Replace with SERVER + /api/kt/generate and SERVER + /api/kt/brief. Flask routes already in server.py. Do this FIRST.
+2. PWA icons — proper 192×192 and 512×512 instead of placeholders
 2. Newsletter auto-sync — newsletter_sync.py is gitignored (has credentials), so VPS can’t auto-sync.
 3. **Key Themes feature** — fully designed, ready to build. See design spec below.
 
@@ -431,6 +432,20 @@ then navigate Tab B to the live site if it isn't already there.
 - Article matching: each article matched to theme by comparing its tags against theme keywords
 
 ## Build History
+### 29 March 2026 (Session 22)
+- Designed and built Key Themes feature end-to-end
+- Folder tab switcher: News Feed (orange, raised) / Key Themes (recessed behind) with continuous dark ink divider line
+- Switcher inserted between masthead and server bar — CSS uses border-bottom on #folder-switcher, active tab uses matching border-bottom colour to erase the line beneath it
+- Key Themes JS: switchMode(), renderKeyThemes(), renderThemeGrid(), selectTheme(), renderThemeDetail(), renderSubtopicDetail(), toggleSubtopic(), generateThemes(), generateBrief(), generateBrief()
+- Theme grid: 5x2, emoji+name+article count, click selects/dims others, downward arrow indicator
+- Theme detail: eyebrow, title, meta, Short Brief / Full Brief buttons, AI Overview panel, Key Facts 5x2 grid, sub-topics pills with dark inline panel, article grid with sort
+- Brief modal: amber exec summary panel, markdown-to-HTML rendering
+- Themes cached in localStorage('meridian_themes_v1'), Regenerate button clears it
+- Article drill-down: clicking article in Key Themes switches back to News Feed and opens it
+- Added /api/kt/generate and /api/kt/brief to server.py — both use call_anthropic() server-side
+- INCOMPLETE: JS still calls api.anthropic.com directly — Flask routing patch did not apply due to Filesystem MCP instability and extension blocking shell output. Fix next session.
+- Tooling issues this session: Filesystem MCP went down twice; Chrome extension blocked shell output containing certain keywords (folder, fetch etc)
+
 ### 29 March 2026 (Session 21)
 - Added tally bar below nav tabs: My saves / AI picks / Total (hidden on mobile)
 - Expanded activity bar from 2 sources (FT, Economist) to 5 (FT, Economist, FA, Bloomberg, FP)
