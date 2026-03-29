@@ -450,17 +450,68 @@ class EconomistScraper:
                 user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
                 args=["--disable-blink-features=AutomationControlled"])
             page = browser.new_page()
+            # Junk filters applied to all Economist articles regardless of source
+            JUNK_URL_PATHS = ("/podcasts/", "/newsletters/", "/events/", "/films/")
+            JUNK_PREFIXES_ECO = ("The War Room newsletter:", "Blighty newsletter:", "The US in Brief:",
+                                "Espresso:", "The World in Brief:", "The Economist explains:",
+                                "Graphic detail:", "KAL's cartoon")
+
+            def is_junk(url, title):
+                if any(p in url for p in JUNK_URL_PATHS): return True
+                if any(title.startswith(p) for p in JUNK_PREFIXES_ECO): return True
+                return False
+
             try:
-                log.info("Economist: opening homepage")
+                # ── Step 1: Pull from bookmarks (your explicit saves) ──────────────
+                log.info("Economist: opening bookmarks")
+                page.goto(self.SAVED_URL, wait_until="domcontentloaded", timeout=45000)
+                page.wait_for_timeout(4000)
+                if "login" in page.url or "signin" in page.url:
+                    log.info("Economist: login required — waiting 90s for manual login")
+                    page.wait_for_timeout(90000)
+                    page.goto(self.SAVED_URL, wait_until="domcontentloaded", timeout=40000)
+                    page.wait_for_timeout(4000)
+
+                bookmark_urls = set()
+                soup = BeautifulSoup(page.content(), "html.parser")
+                found_existing = False
+                for a in soup.select("a[href*='/20']"):
+                    href = a.get("href", "")
+                    if not re.search(r'/\d{4}/\d{2}/\d{2}/', href): continue
+                    url = ("https://www.economist.com" + href if href.startswith("/") else href).split("?")[0]
+                    if is_junk(url, a.get_text(strip=True)): continue
+                    art_id = make_id(self.name, url)
+                    if article_exists(art_id):
+                        log.info("Economist: hit existing bookmark, stopping")
+                        found_existing = True; break
+                    bookmark_urls.add(url)
+                    # Find title
+                    title = ""
+                    parent = a.parent
+                    for _ in range(4):
+                        if parent is None: break
+                        heading = parent.select_one("h3, h2, [class*='headline'], [class*='title']")
+                        if heading:
+                            title = heading.get_text(strip=True); break
+                        parent = parent.parent
+                    if not title: title = a.get_text(strip=True)
+                    if not title or len(title) < 10: continue
+                    art = {"id": art_id, "source": self.name, "url": url, "title": title,
+                           "body": "", "summary": "", "topic": "", "tags": "[]",
+                           "saved_at": now_ts(), "fetched_at": now_ts(),
+                           "status": "title_only", "pub_date": extract_pub_date_from_url(url),
+                           "auto_saved": 0}  # 0 = explicitly saved by user
+                    articles.append(art)
+                    log.info(f"Economist bookmark: '{title[:60]}'")
+                log.info(f"Economist: {len(articles)} new bookmark articles")
+
+                # ── Step 2: Pull from homepage, score, keep only >=8 (agent picks) ─
+                log.info("Economist: opening homepage for agent picks")
                 page.goto("https://www.economist.com", wait_until="domcontentloaded", timeout=45000)
                 page.wait_for_timeout(4000)
-                log.info(f"Economist: at URL {page.url}")
 
-                # Click Load more until we hit existing articles
-                # Use locator() not query_selector() — :has-text is a Playwright extension, not CSS
-                found_existing = False
-                for _ in range(20):
-                    if found_existing: break
+                # Click Load more a few times to get more articles
+                for _ in range(5):
                     try:
                         btn = (
                             page.locator("button[data-test-id='load-more']").first
@@ -472,131 +523,90 @@ class EconomistScraper:
                         if btn is None: break
                         btn.click()
                         page.wait_for_timeout(2000)
-                        soup = BeautifulSoup(page.content(), "html.parser")
-                        for a in soup.select("a[href*='/20']"):
-                            url = "https://www.economist.com" + a["href"] if a["href"].startswith("/") else a["href"]
-                            art_id = make_id(self.name, url.split("?")[0])
-                            if article_exists(art_id):
-                                log.info("Economist: found existing article after Load more, stopping")
-                                found_existing = True; break
-                        log.info("Economist: clicked Load more")
                     except Exception as _e:
-                        log.warning(f"Economist: Load more error: {_e}"); break
+                        break
 
                 soup = BeautifulSoup(page.content(), "html.parser")
-
-                # Collect article URLs + titles from bookmark cards
-                # Economist bookmark cards: article link contains the date path /YYYY/MM/DD/
-                # Try to get the title from the card heading, fall back to link text
-                seen_urls = set()
-                card_data = []  # list of (url, title)
+                seen_urls = bookmark_urls.copy()
+                homepage_candidates = []  # (url, title)
                 for a in soup.select("a[href*='/20']"):
                     href = a.get("href", "")
-                    if not re.search(r'/\d{4}/\d{2}/\d{2}/', href):
-                        continue  # skip non-article links (nav, homepage etc)
-                    url = "https://www.economist.com" + href if href.startswith("/") else href
-                    url = url.split("?")[0]
+                    if not re.search(r'/\d{4}/\d{2}/\d{2}/', href): continue
+                    url = ("https://www.economist.com" + href if href.startswith("/") else href).split("?")[0]
                     if url in seen_urls: continue
-                    seen_urls.add(url)
-                    # Try to find a heading nearby: h3, h2, or a sibling with class containing 'headline'
+                    if article_exists(make_id(self.name, url)): continue
                     title = ""
                     parent = a.parent
-                    for _ in range(4):  # walk up max 4 levels
+                    for _ in range(4):
                         if parent is None: break
                         heading = parent.select_one("h3, h2, [class*='headline'], [class*='title']")
                         if heading:
-                            title = heading.get_text(strip=True)
-                            break
+                            title = heading.get_text(strip=True); break
                         parent = parent.parent
-                    if not title:
-                        title = a.get_text(strip=True)
+                    if not title: title = a.get_text(strip=True)
                     if not title or len(title) < 20: continue
-                    # Skip section labels (short phrases like 'United States', 'Middle East & Africa')
                     if len(title.split()) <= 4: continue
-                    # Skip if it looks like a section label (contains & and is short)
-                    if '&' in title and len(title.split()) <= 5: continue
-                    # Skip non-article URL paths (podcasts, newsletters, events etc.)
-                    JUNK_URL_PATHS = ("/podcasts/", "/newsletters/", "/events/", "/films/")
-                    if any(p in url for p in JUNK_URL_PATHS): continue
-                    # Skip newsletter digest titles
-                    JUNK_PREFIXES_ECO = ("The War Room newsletter:", "Blighty newsletter:", "The US in Brief:",
-                                        "Espresso:", "The World in Brief:", "The Economist explains:",
-                                        "Graphic detail:", "KAL's cartoon")
-                    if any(title.startswith(p) for p in JUNK_PREFIXES_ECO): continue
-                    card_data.append((url, title))
+                    if is_junk(url, title): continue
+                    seen_urls.add(url)
+                    homepage_candidates.append((url, title))
 
-                log.info(f"Economist: found {len(card_data)} article links")
+                log.info(f"Economist: {len(homepage_candidates)} homepage candidates to score")
 
-                # Filter out already-seen articles — check ALL, don't stop early
-                new_card_data = []
-                for url, title in card_data:
-                    art_id = make_id(self.name, url)
-                    if not article_exists(art_id):
-                        new_card_data.append((url, title))
-                log.info(f"Economist: {len(new_card_data)} new articles after filtering existing")
-
-                if new_card_data:
-                    # Score titles with Claude before fetching any full text
+                if homepage_candidates:
+                    # Score with Claude — only keep >=8 (these become auto_saved=1)
                     with sqlite3.connect(DB_PATH) as _cx:
                         _rows = _cx.execute("SELECT topic, tags FROM articles ORDER BY saved_at DESC LIMIT 100").fetchall()
                     topic_counts = {}
                     for _r in _rows:
                         if _r[0]: topic_counts[_r[0]] = topic_counts.get(_r[0], 0) + 1
                         try:
-                            for _t in json.loads(_r[1] or "[]"):
-                                topic_counts[_t] = topic_counts.get(_t, 0) + 1
+                            for _t in json.loads(_r[1] or "[]"): topic_counts[_t] = topic_counts.get(_t, 0) + 1
                         except: pass
                     top_interests = ", ".join(sorted(topic_counts, key=lambda x: -topic_counts[x])[:12]) or "geopolitics, economics, finance, markets"
-                    titles_str = json.dumps([{"title": t.replace("\u2019", "'").replace("\u2018", "'"), "url": u} for u, t in new_card_data], ensure_ascii=True)
-                    score_prompt = (f"You are scoring Economist articles for a senior analyst. "
-                        f"Their interests: {top_interests}. "
-                        "Score 0-10 strictly by these bands: "
-                        "8-10: geopolitics, war, sanctions, central banking, financial markets, trade policy, macro economics, energy markets, international relations, diplomacy. "
-                        "5-7: business strategy, corporate finance, technology policy, regulatory affairs, emerging markets. "
-                        "0-4: lifestyle, health, science, culture, arts, sport, food, travel, personal finance, medicine, psychology, entertainment, music, brain science, fitness. "
-                        "A health or science article should score 1-2 even if tangentially economic. Be ruthless about scoring down anything not directly relevant to geopolitics or macro finance. "
+                    titles_str = json.dumps([{"title": t.replace("\u2019", "'").replace("\u2018", "'"), "url": u} for u, t in homepage_candidates], ensure_ascii=True)
+                    score_prompt = (
+                        f"You are scoring Economist articles for a senior analyst. Interests: {top_interests}. "
+                        "Score 0-10 strictly. 9-10: essential geopolitics/war/markets/energy/diplomacy/central banking. "
+                        "7-8: highly relevant business/finance/politics. 5-6: moderate. 0-4: lifestyle/health/culture/sport/science. "
+                        "Only articles scoring >=8 will be added to the feed as auto-selected. Be selective. "
                         f"Articles: {titles_str} "
-                        "Respond ONLY with a JSON array (same order): [{\"score\":8}]")
+                        'Respond ONLY with a JSON array (same order): [{"score":8,"reason":"one sentence"}]'
+                    )
                     try:
-                        score_data = call_anthropic({"model": "claude-haiku-4-5-20251001", "max_tokens": 500,
+                        score_data = call_anthropic({"model": "claude-haiku-4-5-20251001", "max_tokens": 800,
                             "messages": [{"role": "user", "content": score_prompt}]})
                         score_text = "".join(b.get("text","") for b in score_data.get("content",[]) if b.get("type")=="text")
                         score_match = re.search(r'\[[\s\S]*\]', score_text)
                         if score_match:
                             scores = json.loads(score_match.group(0))
-                            scored = [(new_card_data[i], scores[i].get("score", 0))
-                                      for i in range(min(len(new_card_data), len(scores)))]
-                            relevant = [(url, title) for (url, title), score in scored if score >= 6]
-                            log.info(f"Economist: {len(relevant)}/{len(new_card_data)} articles scored 6+ by Claude")
-                            new_card_data = relevant
+                            for i, (url, title) in enumerate(homepage_candidates):
+                                if i >= len(scores): break
+                                score = scores[i].get("score", 0)
+                                reason = scores[i].get("reason", "")
+                                if score >= 8:
+                                    art_id = make_id(self.name, url)
+                                    art = {"id": art_id, "source": self.name, "url": url, "title": title,
+                                           "body": "", "summary": reason, "topic": "", "tags": "[]",
+                                           "saved_at": now_ts(), "fetched_at": now_ts(),
+                                           "status": "title_only", "pub_date": extract_pub_date_from_url(url),
+                                           "auto_saved": 1}  # 1 = agent selected
+                                    articles.append(art)
+                                    log.info(f"Economist agent pick (score {score}): '{title[:55]}'")
+                            log.info(f"Economist: {sum(1 for a in articles if a.get('auto_saved')==1)} agent picks from homepage")
                         else:
-                            log.warning("Economist: could not parse Claude scores — using all articles")
+                            log.warning("Economist: could not parse homepage scores")
                     except Exception as _se:
-                        log.warning(f"Economist: Claude scoring failed: {_se} — using all articles")
+                        log.warning(f"Economist: homepage scoring failed: {_se}")
 
-                for url, title in new_card_data[:8]:
-                    art_id = make_id(self.name, url)
-                    articles.append({"id":art_id,"source":self.name,"url":url,"title":title,"body":"","summary":"","topic":"","tags":"[]","saved_at":now_ts(),"fetched_at":now_ts(),"status":"fetched","pub_date":""})
-                    log.info(f"Economist: scraped '{title[:60]}'")
-                    if len(articles) >= 8: break
+                log.info(f"Economist: total {len(articles)} articles (bookmarks + agent picks)")
 
-                # Fallback: if no articles found via card_data, page may have different structure — log HTML snippet
-                if not articles and not found_existing:
-                    log.warning(f"Economist: 0 articles scraped — page snippet: {soup.get_text()[:300]}")
-                    log.warning(f"Economist: page URL was {page.url}")
-                log.info(f"Economist: total {len(articles)} articles scraped")
-                # full text + AI enrichment for new articles
+                # Enrich all new articles as title_only — full text fetched later
                 new_arts = [a for a in articles if not article_exists(a["id"])]
-                log.info(f"Economist: {len(new_arts)} new articles to enrich")
+                log.info(f"Economist: {len(new_arts)} new articles to save")
                 for art in new_arts:
-                    if not art.get("url"): continue
-                    pub_date = extract_pub_date_from_url(art["url"])
-                    if pub_date:
-                        art["pub_date"] = pub_date
-                    art["status"] = "title_only"
-                    log.info(f"Economist: saved as title_only '{art['title'][:50]}'")
-                    # Full text will be fetched by enrich_title_only_articles() on next Mac sync
-                # clip any previously fetched articles missing full text
+                    log.info(f"Economist: saving '{art['title'][:55]}' (auto_saved={art['auto_saved']})")
+
+                # Clip previously fetched articles still missing full text
                 import sqlite3 as _sq
                 _cx = _sq.connect(DB_PATH)
                 pending = _cx.execute(
