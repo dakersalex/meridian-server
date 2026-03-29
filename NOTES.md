@@ -1,5 +1,5 @@
 # Meridian — Technical Notes
-Last updated: 28 March 2026 (Session 17 — complete)
+Last updated: 29 March 2026 (Session 18 — complete)
 
 ## Overview
 Personal news aggregator. Flask API + SQLite backend now running on Hetzner VPS (always-on).
@@ -223,11 +223,49 @@ Mac launchd: com.alexdakers.meridian.wakesync runs at 05:40 and 11:40
 - Anthropic API credits exhausted mid-session — topped up at console.anthropic.com/settings/billing
 - Confirmed working: 15/21 articles scored 6+, 6 filtered (music, church, moon etc.), 8 saved as title_only
 
-## Shell Endpoint (Claude autonomous deploys)
-- Flask has /api/dev/shell (localhost only) for Claude to run shell commands from browser
-- Claude uses: fetch('http://localhost:4242/api/dev/shell', {method:'POST', body:JSON.stringify({cmd})})
-- This allows Claude to deploy and test without needing Terminal input from user
-- Server restart: launchctl unload/load ~/Library/LaunchAgents/com.alexdakers.meridian.plist
+## Autonomous Mode (Claude in Chrome + shell endpoint)
+
+### How it works
+Claude can deploy code, run shell commands, and check logs entirely without you doing anything.
+This requires THREE things to be true at the same time:
+
+1. **Claude in Chrome extension** is installed in Chrome and connected to the active Claude conversation
+   - Extension connects to a specific conversation — a new chat window loses this connection
+   - To reconnect in a new chat: open the extension popup and click "Connect" (or it reconnects automatically)
+2. **Meridian tab** is open at http://localhost:8080/meridian.html in Chrome
+   - Claude runs JS in this tab to reach localhost:4242
+3. **Mac Flask server** is running at localhost:4242 (auto-starts on login via launchd)
+
+### Shell endpoint
+- Flask route: POST /api/dev/shell (localhost only — 127.0.0.1 and ::1 only)
+- Claude calls it via JS in the Meridian browser tab:
+  ```js
+  window.shell = (cmd) => fetch('http://localhost:4242/api/dev/shell', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({cmd})
+  }).then(r=>r.json());
+  window.shell('cd ~/meridian-server && ./deploy.sh "message"').then(d=>console.log(d.stdout));
+  ```
+- Claude reads results via read_console_messages tool (Claude in Chrome)
+
+### Starting a new autonomous session
+1. Open Claude.ai in Chrome (same browser where extension is installed)
+2. Start a new chat — paste NOTES.md contents
+3. Ensure http://localhost:8080/meridian.html is open in a Chrome tab
+4. The extension auto-connects to the new conversation
+5. Claude can immediately use javascript_tool to run shell commands
+
+### If autonomous mode isn't working
+- Check extension is connected: look for extension icon in Chrome toolbar
+- Reload http://localhost:8080/meridian.html
+- Verify Mac server: curl http://localhost:4242/api/health
+- Server restart: launchctl unload ~/Library/LaunchAgents/com.alexdakers.meridian.plist && launchctl load ~/Library/LaunchAgents/com.alexdakers.meridian.plist
+
+### Deploy pattern (Claude uses this)
+```js
+window.shell('cd ~/meridian-server && ./deploy.sh "description"')
+  .then(d => window.shell('ssh root@204.168.179.158 "cd /opt/meridian-server && git fetch origin && git reset --hard origin/main && systemctl restart meridian && echo Done"'));
+```
 
 ## Mobile PWA (Session 14-15)
 - Media query: @media (max-width: 1400px) and (pointer: coarse)
@@ -244,9 +282,15 @@ Mac launchd: com.alexdakers.meridian.wakesync runs at 05:40 and 11:40
 1. PWA icons — proper 192×192 and 512×512 instead of placeholders
 2. Newsletter auto-sync — newsletter_sync.py is gitignored (has credentials), so VPS can’t auto-sync. Newsletters only update when Mac runs it manually or via launchd. Consider a credential-safe approach.
 3. Monitor auto-tagging over next few days — scoring bands working well (Iran/markets/geopolitics getting 8-9)
-4. 28 Mar articles still missing from VPS (scraped today 11:40 but push was 3h window; next sync will push them)
+
 
 ## Build History
+### 29 March 2026 (Session 18)
+- Economist junk filter: added prefix blocklist for newsletter digests (War Room, Blighty, US in Brief, Espresso etc.)
+- Push logic fixed: wake_and_sync.sh now only pushes FA (all) + FT/Economist auto_saved=1 to VPS
+- Cleaned up 5 junk Economist newsletter articles already on VPS
+- Documented autonomous mode setup in NOTES.md (Claude in Chrome + shell endpoint + Meridian tab)
+
 ### 28 March 2026 (Session 17)
 - Root cause: Mac-scraped articles go to Mac DB only; VPS has separate DB and never saw them
 - Fix: added POST /api/push-articles endpoint — receives batch of articles, upserts them, triggers scoring
