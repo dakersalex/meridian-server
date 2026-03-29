@@ -391,9 +391,44 @@ then navigate Tab B to the live site if it isn't already there.
 ## Next Steps
 1. PWA icons — proper 192×192 and 512×512 instead of placeholders
 2. Newsletter auto-sync — newsletter_sync.py is gitignored (has credentials), so VPS can’t auto-sync.
-3. Economist bookmarks enrichment — 246 title_only articles pending full text fetch (runs automatically at next sync)
-4. Watch tomorrow’s 05:40 sync — first run of new Economist bookmarks scraper in normal operation
+3. **Key Themes feature** — fully designed, ready to build. See design spec below.
 
+## Key Themes — Design Spec
+
+### Layout
+- Mode switcher row between server bar and tally bar: [News Feed] [Key Themes] — two large full-width toggle buttons
+- Key Themes replaces the entire area below the switcher (nav tabs + feed + sidebar hidden)
+- News Feed shows current layout unchanged
+
+### Theme grid
+- 10 themes in a 5x2 icon grid — Claude-generated names, emoji icons, article counts
+- Click a theme: selected card goes dark, all others dim to 30% opacity, downward arrow indicator
+- Below grid: bold divider line, then theme detail section
+
+### Theme detail sections (in order)
+1. Eyebrow + title + meta (article count, sources, most recent date)
+2. Short brief / Full intelligence brief buttons (amber primary)
+3. AI Overview — cream panel with amber left border, generated from all theme articles
+4. Key Facts — 10 cards in 5x2 grid, two-tone (cream top: number+title; white bottom: body text with bold stats)
+   - JS auto-sizing: shared font size for all titles (max 2 lines), shared font size for all body text (max 3 lines)
+   - JS height equalisation: all tops same height, all bottoms same height
+5. Sub-topics — pill tags; click opens inline AI overview panel (dark header, bullet points, source badges)
+   - Article grid below filters to that sub-topic when panel is open
+6. Article grid — 2 columns, source/date/title/summary/tags/link per card, sort dropdown
+
+### Briefs
+- Short brief: 1-page PDF — executive summary (amber panel) + key developments (bullets) + implications + watch list + source badges
+- Full intelligence brief: 4-page PDF — contents table, sections per sub-topic with prose, pull quotes, AI-generated charts from article statistics, source article citations
+- Both pull from: feed articles (441 with summaries) + newsletters (28) + interviews (1)
+- Graphics: AI-generated charts from statistics in article text — NOT scraped images
+  - Playwright image capture tested and rejected: figures on FT/Economist are editorial photos not data charts
+  - Actual data charts are D3/JS components, not capturable as static images
+
+### Theme generation
+- Single Claude API call over all article titles + tags → 10 themes with: name, emoji, keywords, overview paragraph, 10 key facts, sub-topics
+- Cached in localStorage under key 'meridian_themes_v1'
+- Regenerate button triggers fresh generation
+- Article matching: each article matched to theme by comparing its tags against theme keywords
 
 ## Build History
 ### 29 March 2026 (Session 21)
