@@ -248,18 +248,29 @@ This requires THREE things to be true at the same time:
   ```
 - Claude reads results via read_console_messages tool (Claude in Chrome)
 
+### What MCP provides
+Two MCP servers run automatically in the background — you never start them manually:
+1. **Filesystem MCP** — configured in Claude Desktop, gives Claude read/write access to ~/meridian-server/
+   Configured at: /opt/homebrew/bin/npx @modelcontextprotocol/server-filesystem /Users/alexdakers/meridian-server
+2. **Claude in Chrome MCP** — the Chrome extension itself is an MCP server, gives Claude access to browser tabs
+   Visible as the orange-outlined tab group labelled "✅ Claude (MCP)" in your Chrome tab strip
+
 ### Starting a new autonomous session
-1. Open Claude.ai in Chrome (same browser where extension is installed)
-2. Start a new chat — paste NOTES.md contents
-3. Ensure http://localhost:8080/meridian.html is open in a Chrome tab
-4. The extension auto-connects to the new conversation
-5. Claude can immediately use javascript_tool to run shell commands
+1. Open claude.ai in Chrome and start a new chat
+2. Run: cat ~/meridian-server/NOTES.md | pbcopy — then paste into the chat
+3. Click the Claude in Chrome extension icon in the Chrome toolbar
+   (red/orange asterisk icon, right of the address bar — see NOTES for screenshot reference)
+4. Click Connect in the popup — this links the extension to the new conversation
+5. The extension automatically opens an MCP tab group (orange-outlined tab labelled ✅ Claude (MCP))
+   Claude navigates this tab to http://localhost:8080/meridian.html
+6. Claude can now run shell commands autonomously via the shell endpoint
 
 ### If autonomous mode isn't working
-- Check extension is connected: look for extension icon in Chrome toolbar
-- Reload http://localhost:8080/meridian.html
-- Verify Mac server: curl http://localhost:4242/api/health
+- Check the ✅ Claude (MCP) tab exists in Chrome — if missing, tell Claude and it will recreate it
+- Check extension is connected: click the asterisk icon in toolbar, should show green Connected dot
+- Verify Mac server is running: curl http://localhost:4242/api/health
 - Server restart: launchctl unload ~/Library/LaunchAgents/com.alexdakers.meridian.plist && launchctl load ~/Library/LaunchAgents/com.alexdakers.meridian.plist
+- Do NOT close the ✅ Claude (MCP) tab — it's infrastructure, not a regular browser tab
 
 ### Deploy pattern (Claude uses this)
 ```js
