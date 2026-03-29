@@ -256,14 +256,18 @@ Two MCP servers run automatically in the background — you never start them man
    Visible as the orange-outlined tab group labelled "✅ Claude (MCP)" in your Chrome tab strip
 
 ### Starting a new autonomous session
-1. Open claude.ai in Chrome and start a new chat
-2. Run: cat ~/meridian-server/NOTES.md | pbcopy — then paste into the chat
-3. Click the Claude in Chrome extension icon in the Chrome toolbar
+1. Run in Terminal: `cat ~/meridian-server/NOTES.md | pbcopy`
+2. Open claude.ai in Chrome and start a new chat
+3. Paste NOTES.md contents into the chat
+4. **Click the Claude in Chrome extension icon in the Chrome toolbar**
    (red/orange asterisk icon, right of the address bar)
-4. Click Connect in the popup — this links the extension to the new conversation
-5. The extension automatically opens an MCP tab group (orange-outlined tab labelled ✅ Claude (MCP))
-   Claude navigates this tab to http://localhost:8080/meridian.html
-6. Claude can now run shell commands, edit files, deploy code, and verify results autonomously
+5. **Click Connect in the popup** — this links the extension to this conversation
+   ⚠️ This step is required every new chat — without it Claude cannot run shell commands or deploy code
+6. The extension opens an MCP tab group (orange-outlined tabs labelled ✅ Claude (MCP))
+7. Claude runs the session start health check automatically and confirms it is ready
+
+**Claude should prompt the user at session start:**
+> "Please click Connect on the Claude in Chrome extension (red/orange asterisk icon in your Chrome toolbar) if you haven't already — I need it to deploy code and run commands autonomously."
 
 ### If autonomous mode isn't working
 - Check the ✅ Claude (MCP) tab exists in Chrome — if missing, tell Claude and it will recreate it
@@ -538,3 +542,8 @@ The live app runs at https://meridianreader.com/meridian.html
 
 Please review the notes and confirm what we should work on today.
 ---
+
+**Note for Claude reading this:** At the start of every session you must:
+1. Remind the user to click Connect on the Claude in Chrome extension if not already done
+2. Run the session start health check once the shell endpoint is reachable
+3. Report the health check results before asking what to work on
