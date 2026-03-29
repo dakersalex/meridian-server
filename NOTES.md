@@ -1,5 +1,5 @@
 # Meridian — Technical Notes
-Last updated: 29 March 2026 (Session 20 — complete)
+Last updated: 29 March 2026 (Session 21 — complete)
 
 ## Overview
 Personal news aggregator. Flask API + SQLite backend now running on Hetzner VPS (always-on).
@@ -259,11 +259,11 @@ Two MCP servers run automatically in the background — you never start them man
 1. Open claude.ai in Chrome and start a new chat
 2. Run: cat ~/meridian-server/NOTES.md | pbcopy — then paste into the chat
 3. Click the Claude in Chrome extension icon in the Chrome toolbar
-   (red/orange asterisk icon, right of the address bar — see NOTES for screenshot reference)
+   (red/orange asterisk icon, right of the address bar)
 4. Click Connect in the popup — this links the extension to the new conversation
 5. The extension automatically opens an MCP tab group (orange-outlined tab labelled ✅ Claude (MCP))
    Claude navigates this tab to http://localhost:8080/meridian.html
-6. Claude can now run shell commands autonomously via the shell endpoint
+6. Claude can now run shell commands, edit files, deploy code, and verify results autonomously
 
 ### If autonomous mode isn't working
 - Check the ✅ Claude (MCP) tab exists in Chrome — if missing, tell Claude and it will recreate it
@@ -271,6 +271,31 @@ Two MCP servers run automatically in the background — you never start them man
 - Verify Mac server is running: curl http://localhost:4242/api/health
 - Server restart: launchctl unload ~/Library/LaunchAgents/com.alexdakers.meridian.plist && launchctl load ~/Library/LaunchAgents/com.alexdakers.meridian.plist
 - Do NOT close the ✅ Claude (MCP) tab — it's infrastructure, not a regular browser tab
+
+### Autonomous working principles (important for new sessions)
+Claude operates fully autonomously and never asks the user to check, refresh, or verify anything.
+
+**Verification loop (used for all fixes):**
+1. Query the API directly with `{cache: 'no-store'}` to check current state
+2. Query the DOM on the meridianreader.com MCP tab via `javascript_tool`
+3. Apply the fix (edit file via Filesystem MCP, deploy via shell endpoint)
+4. Re-verify by querying API/DOM again
+5. Take a screenshot of the meridianreader.com MCP tab to visually confirm
+6. Report the confirmed result to the user — never say “please check” or “please refresh”
+
+**Clearing stale UI cache (after deploys):**
+```js
+// Run on meridianreader.com MCP tab
+navigator.serviceWorker.getRegistrations().then(regs => regs.forEach(r => r.unregister()));
+localStorage.clear(); sessionStorage.clear();
+```
+Then navigate the tab to `https://meridianreader.com/meridian.html` and screenshot to confirm.
+
+**When a user reports a visual bug:**
+- Never ask them to refresh or check
+- Verify it appears in the DOM on the MCP tab
+- Check the API to confirm if it’s a data issue vs cache issue
+- Fix the root cause, clear cache if needed, screenshot to verify, report back
 
 ### Deploy pattern (Claude uses this)
 ```js
@@ -297,6 +322,14 @@ window.shell('cd ~/meridian-server && ./deploy.sh "description"')
 
 
 ## Build History
+### 29 March 2026 (Session 21)
+- Added tally bar below nav tabs: My saves / AI picks / Total (hidden on mobile)
+- Expanded activity bar from 2 sources (FT, Economist) to 5 (FT, Economist, FA, Bloomberg, FP)
+- Both bars populated by updateActivityBar() which runs on load and every 5 minutes
+- Browser localStorage caching requires `localStorage.clear() + SW unregister + reload` to pick up new HTML — now done autonomously via javascript_tool on the meridianreader.com MCP tab
+- Confirmed autonomous workflow: verify by querying DOM/API → fix → screenshot confirm, no user input needed
+- Enrichment progress: 246 title_only Economist bookmarks being enriched in background (~10s/article)
+
 ### 29 March 2026 (Session 20)
 - Fixed junk URL filter bug: was calling is_junk(url, url) so title prefix checks never ran
 - Raised article feed limit from 200 to 500 to prevent bookmarks being cut off
