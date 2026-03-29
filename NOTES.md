@@ -1,5 +1,5 @@
 # Meridian — Technical Notes
-Last updated: 29 March 2026 (Session 18 — complete)
+Last updated: 29 March 2026 (Session 19 — complete)
 
 ## Overview
 Personal news aggregator. Flask API + SQLite backend now running on Hetzner VPS (always-on).
@@ -296,6 +296,18 @@ window.shell('cd ~/meridian-server && ./deploy.sh "description"')
 
 
 ## Build History
+### 29 March 2026 (Session 19)
+- Economist scraper: switched to two-step pull (bookmarks = auto_saved=0, homepage agent picks = auto_saved=1 scored >=8)
+- Fixed Economist bookmark title extraction: <a> is inside <h3> so anchor text IS the title
+- Added section label blocklist (Finance & economics, Schumpeter etc.) to prevent column names being saved as titles
+- Added URL junk filter (/podcasts/, /newsletters/, /films/ etc.)
+- Accidentally deleted all Economist articles (auto_saved=0) assuming they were homepage scrapes
+- Wrote recover_economist_bookmarks.py to re-scrape full bookmarks page with Load More
+- Recovered 246 real bookmark articles (+ 4 agent picks) and pushed all 250 to VPS
+- Score window widened 24h -> 48h in score_and_autosave_new_articles to prevent articles falling through gap
+- Mac Flask restart: kill PID + launchctl load (pkill pattern didn't match)
+- Cleaned wipe_vps_economist.py helper script (scp to VPS and run)
+
 ### 29 March 2026 (Session 18)
 - Economist junk filter: added prefix blocklist for newsletter digests (War Room, Blighty, US in Brief, Espresso etc.)
 - Push logic fixed: wake_and_sync.sh now only pushes FA (all) + FT/Economist auto_saved=1 to VPS
