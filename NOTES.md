@@ -303,6 +303,51 @@ window.shell('cd ~/meridian-server && ./deploy.sh "description"')
   .then(d => window.shell('ssh root@204.168.179.158 "cd /opt/meridian-server && git fetch origin && git reset --hard origin/main && systemctl restart meridian && echo Done"'));
 ```
 
+### VPS Python pattern (ALWAYS use this — never inline -c strings)
+Never use `ssh root@... "python3 -c '...'"` for anything non-trivial — nested quote escaping always fails.
+Instead: write script via Filesystem MCP, scp it, run it:
+```js
+// 1. Write script to Mac
+// (use filesystem:write_file)
+// 2. SCP and run
+window.shell('scp ~/meridian-server/tmp_script.py root@204.168.179.158:/tmp/ && ssh root@204.168.179.158 "python3 /tmp/tmp_script.py"')
+  .then(d => console.log('OUT:', d.stdout));
+```
+For simple one-liners, use sqlite3 CLI on Mac instead of SSH.
+
+### Session start checklist (Claude runs this automatically)
+At the start of every session, Claude should:
+1. Call `tabs_context_mcp` to get current tab IDs
+2. Navigate the secondary MCP tab to `https://meridianreader.com/meridian.html` (for DOM verification)
+3. Run the health check via shell endpoint:
+```js
+window.shell(`
+  echo '=== Flask ===' && curl -s http://localhost:4242/api/health &&
+  echo '=== DB ===' && sqlite3 ~/meridian-server/meridian.db "SELECT source, COUNT(*), SUM(status='title_only') as pending FROM articles GROUP BY source" &&
+  echo '=== Enrichment ===' && curl -s http://localhost:4242/api/enrich-title-only/status &&
+  echo '=== Last log ===' && tail -3 ~/meridian-server/logs/server.log
+`).then(d => console.log('HEALTH:', d.stdout));
+```
+This gives immediate awareness of: Flask status, DB counts, pending enrichments, last sync.
+
+### Dangerous operations checklist (ALWAYS follow before bulk deletes)
+Before any DELETE, UPDATE affecting multiple rows, or destructive operation:
+1. Run a SELECT first — preview exactly what will be affected with LIMIT 5
+2. State explicitly in the response: what is being deleted, why, and what it will NOT delete
+3. Only then execute the destructive operation
+4. Verify row count after: `SELECT changes()` or re-query to confirm
+
+Lesson from Session 19: deleted all auto_saved=0 Economist articles assuming they were junk —
+they were actually all user bookmarks. A preview SELECT would have caught this immediately.
+
+### Tab setup for autonomous sessions
+Two MCP tabs are needed for full autonomy:
+- **Tab A** (localhost:8080/meridian.html) — shell bridge for running commands
+- **Tab B** (meridianreader.com/meridian.html) — live site for DOM inspection and visual verification
+
+TabIds change every session. Always call `tabs_context_mcp` first to get current IDs,
+then navigate Tab B to the live site if it isn't already there.
+
 ## Mobile PWA (Session 14-15)
 - Media query: @media (max-width: 1400px) and (pointer: coarse)
 - Fixed header stack: masthead (top:0), server-bar (top:55px), main-nav (top:93px)
