@@ -475,27 +475,67 @@ class EconomistScraper:
                 bookmark_urls = set()
                 soup = BeautifulSoup(page.content(), "html.parser")
                 found_existing = False
+
+                # Known Economist section labels — these appear as link text but are NOT article titles
+                SECTION_LABELS = {
+                    'Finance & economics', 'Middle East & Africa', 'Science & technology',
+                    'Business', 'United States', 'Europe', 'Charlemagne', 'Schumpeter',
+                    'Buttonwood', 'Free exchange', 'Free Exchange', 'Lexington', 'Leaders',
+                    'Briefing', 'By Invitation', 'Bagehot', 'The Telegram', 'Well informed',
+                    'Graphic detail', 'Christmas Specials', 'International', 'Special report',
+                    'The Americas', 'Asia', 'Britain', 'China', 'Culture', 'Obituary',
+                    'Schools brief', 'Technology Quarterly', 'The world this week',
+                    'The World Ahead', 'Letters', 'Index',
+                }
+
+                def extract_bookmark_title(a_tag, url):
+                    """Extract article title from an Economist bookmark card.
+                    The <a> tag often contains only a section label or image.
+                    The real headline is typically in a sibling or nearby element."""
+                    # Strategy 1: look for h3/h2 that is a sibling of <a> or nearby
+                    # Walk up to find the article card container, then find headline within it
+                    container = a_tag
+                    for _ in range(6):
+                        if container is None: break
+                        # Look for headline siblings at this level
+                        for sel in ['h3', 'h2', '[class*="headline"]', '[class*="flytitle"]',
+                                    '[data-test-id*="headline"]', 'p[class*="subheadline"]']:
+                            found = container.select(sel)
+                            for el in found:
+                                t = el.get_text(strip=True)
+                                if t and len(t) > 15 and t not in SECTION_LABELS:
+                                    return t
+                        container = container.parent
+                    # Strategy 2: anchor text itself if it's a real title
+                    anchor_text = a_tag.get_text(strip=True)
+                    if anchor_text and len(anchor_text) > 20 and anchor_text not in SECTION_LABELS:
+                        return anchor_text
+                    # Strategy 3: extract from URL slug
+                    slug = url.rstrip('/').split('/')[-1].replace('-', ' ')
+                    if len(slug) > 20:
+                        return slug.title()
+                    return ""
+
                 for a in soup.select("a[href*='/20']"):
                     href = a.get("href", "")
                     if not re.search(r'/\d{4}/\d{2}/\d{2}/', href): continue
                     url = ("https://www.economist.com" + href if href.startswith("/") else href).split("?")[0]
-                    if is_junk(url, a.get_text(strip=True)): continue
+                    if is_junk(url, url): continue  # URL-based junk filter
                     art_id = make_id(self.name, url)
+                    if art_id in bookmark_urls: continue
                     if article_exists(art_id):
                         log.info("Economist: hit existing bookmark, stopping")
                         found_existing = True; break
-                    bookmark_urls.add(url)
-                    # Find title
-                    title = ""
-                    parent = a.parent
-                    for _ in range(4):
-                        if parent is None: break
-                        heading = parent.select_one("h3, h2, [class*='headline'], [class*='title']")
-                        if heading:
-                            title = heading.get_text(strip=True); break
-                        parent = parent.parent
-                    if not title: title = a.get_text(strip=True)
-                    if not title or len(title) < 10: continue
+                    bookmark_urls.add(art_id)
+
+                    title = extract_bookmark_title(a, url)
+                    if not title or len(title) < 10:
+                        log.info(f"Economist: skipping (no title found) {url[-50:]}")
+                        continue
+                    if title in SECTION_LABELS:
+                        log.info(f"Economist: skipping section label '{title}'")
+                        continue
+
                     art = {"id": art_id, "source": self.name, "url": url, "title": title,
                            "body": "", "summary": "", "topic": "", "tags": "[]",
                            "saved_at": now_ts(), "fetched_at": now_ts(),
