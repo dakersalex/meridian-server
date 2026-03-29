@@ -30,7 +30,7 @@ Claude can write code, deploy it to the VPS, check logs, and fix bugs — all wi
 ## How They Chain Together
 
 ```
-Claude
+Claude (Desktop app OR claude.ai in Chrome — both work identically)
   │
   ├─── Filesystem MCP ──────────────────▶ Read/write files on Mac
   │
@@ -53,17 +53,18 @@ Claude
 
 ## Claude Desktop vs Claude.ai in Chrome
 
-| Capability | Claude.ai in Chrome | Claude Desktop |
+Both work identically for autonomous operation. The Chrome extension connects to whichever Claude interface is active — Desktop app or browser tab — it makes no difference.
+
+| Capability | Claude Desktop | Claude.ai in Chrome |
 |---|---|---|
 | Read & edit files (Filesystem MCP) | ✅ | ✅ |
-| Run shell commands | ✅ | ❌ |
-| Deploy to VPS autonomously | ✅ | ❌ |
-| SSH to VPS | ✅ | ❌ |
-| Check server logs | ✅ | ❌ |
-| Setup needed per session | One click (Connect) | Nothing |
+| Run shell commands | ✅ | ✅ |
+| Deploy to VPS autonomously | ✅ | ✅ |
+| SSH to VPS | ✅ | ✅ |
+| Check logs | ✅ | ✅ |
+| Setup friction | One click (Connect) | One click (Connect) |
 
-**Use Claude.ai in Chrome** when you want Claude to work autonomously.
-**Use Claude Desktop** for lighter sessions — reading code, planning, asking questions — where you'll run Terminal commands yourself.
+Use whichever interface you prefer to type in. The capability is identical.
 
 ---
 
@@ -76,7 +77,7 @@ cat ~/meridian-server/NOTES.md | pbcopy
 ```
 
 ### Step 2 — Open a new chat
-Go to **claude.ai** in Chrome (not Claude Desktop). Start a new chat. Paste the notes.
+Either Claude Desktop or claude.ai in Chrome — your choice. Start a new chat and paste the notes.
 
 ### Step 3 — Connect the extension
 Look at the Chrome toolbar (top right, next to the address bar). Find the **red/orange asterisk icon** — that's the Claude in Chrome extension.
@@ -87,10 +88,10 @@ Chrome toolbar:  [M] [✳] [🧩] [A]
                Click this icon
 ```
 
-Click it. A small popup appears. Click **Connect**.
+Click it. A small popup appears. Click **Connect**. This links the extension to whatever Claude conversation is currently active — Desktop or browser, whichever you're using.
 
 ### Step 4 — Done
-The extension automatically creates the **✅ Claude (MCP)** tab group. Claude navigates it to `localhost:8080/meridian.html` and can immediately run shell commands, deploy, and check logs — all autonomously.
+The extension automatically creates the **✅ Claude (MCP)** tab group in Chrome. Claude navigates it to `localhost:8080/meridian.html` and can immediately run shell commands, deploy, and check logs — all autonomously.
 
 ---
 
