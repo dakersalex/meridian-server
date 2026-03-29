@@ -2948,15 +2948,19 @@ function switchMode(mode) {
 
 function renderKeyThemes() {
   const body = document.getElementById('kt-body');
-  const cached = localStorage.getItem('meridian_themes_v1');
-  if (cached && !ktThemes) {
-    try { ktThemes = JSON.parse(cached); } catch(e) { ktThemes = null; }
+  // Load from cache if not already in memory
+  if (!ktThemes) {
+    const cached = localStorage.getItem('meridian_themes_v1');
+    if (cached) {
+      try { ktThemes = JSON.parse(cached); } catch(e) { ktThemes = null; }
+    }
   }
   if (!ktThemes) {
+    // Show generate button — never auto-generate
     body.innerHTML = `
       <div class="kt-generate-state">
         <div class="kt-generate-title">Intelligence Themes</div>
-        <div class="kt-generate-sub">Claude will analyse your ${articles.length} articles and identify the 10 dominant themes across your reading.</div>
+        <div class="kt-generate-sub">Claude will analyse your ${articles.length} articles and identify the 10 dominant themes across your reading. Takes about 20 seconds.</div>
         <button class="kt-generate-btn" onclick="generateThemes(false)">&#10022; Generate Themes</button>
       </div>`;
     return;
@@ -3186,7 +3190,7 @@ ARTICLES:
 ${artContext}`;
 
   try {
-    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+    const resp = await fetch(SERVER + '/api/claude', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -3267,7 +3271,7 @@ ARTICLES:
 ${artContext}`;
 
   try {
-    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+    const resp = await fetch(SERVER + '/api/claude', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
