@@ -1,5 +1,5 @@
 # Meridian — Technical Notes
-Last updated: 29 March 2026 (Session 19 — complete)
+Last updated: 29 March 2026 (Session 20 — complete)
 
 ## Overview
 Personal news aggregator. Flask API + SQLite backend now running on Hetzner VPS (always-on).
@@ -291,11 +291,19 @@ window.shell('cd ~/meridian-server && ./deploy.sh "description"')
 
 ## Next Steps
 1. PWA icons — proper 192×192 and 512×512 instead of placeholders
-2. Newsletter auto-sync — newsletter_sync.py is gitignored (has credentials), so VPS can’t auto-sync. Newsletters only update when Mac runs it manually or via launchd. Consider a credential-safe approach.
-3. Monitor auto-tagging over next few days — scoring bands working well (Iran/markets/geopolitics getting 8-9)
+2. Newsletter auto-sync — newsletter_sync.py is gitignored (has credentials), so VPS can’t auto-sync.
+3. Economist bookmarks enrichment — 246 title_only articles pending full text fetch (runs automatically at next sync)
+4. Watch tomorrow’s 05:40 sync — first run of new Economist bookmarks scraper in normal operation
 
 
 ## Build History
+### 29 March 2026 (Session 20)
+- Fixed junk URL filter bug: was calling is_junk(url, url) so title prefix checks never ran
+- Raised article feed limit from 200 to 500 to prevent bookmarks being cut off
+- Persistent Cuba article traced to browser localStorage cache (not DB) — fixed by clearing localStorage via JS autonomously
+- Lesson: verify issues by querying DOM/API directly rather than asking user to check
+- Added autonomous verification pattern: check DOM → check API → fix → screenshot confirm
+
 ### 29 March 2026 (Session 19)
 - Economist scraper: switched to two-step pull (bookmarks = auto_saved=0, homepage agent picks = auto_saved=1 scored >=8)
 - Fixed Economist bookmark title extraction: <a> is inside <h3> so anchor text IS the title
