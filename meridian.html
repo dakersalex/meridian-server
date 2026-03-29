@@ -128,6 +128,9 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
   .main-layout { margin-top: 160px; }
   body::before { height: 160px; }
 
+  /* ── Tally bar: hide on mobile ── */
+  #tally-bar { display: none !important; }
+
   /* ── Read-only mode ── */
   #select-all-btn, #delete-selected-btn { display: none !important; }
   .article-card button[title="Delete"], .featured-card button[title="Delete"] { display: none !important; }
@@ -418,11 +421,23 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
     <option value="ai">AI picks</option>
   </select>
 </div>
-<div class="activity-bar" id="activity-bar" style="display:flex;align-items:center;gap:16px;padding:7px 20px;background:var(--paper-2);border-bottom:1px solid var(--rule);font-size:11px;">
+<div id="tally-bar" style="display:flex;align-items:center;gap:10px;padding:5px 20px;background:var(--paper-2);border-bottom:1px solid var(--rule);font-size:11px;color:var(--ink-3)">
+  <span style="font-weight:500;color:var(--ink-2)">My saves:</span>
+  <span id="tally-saves" style="font-weight:600;color:var(--ink)">–</span>
+  <span style="color:var(--rule)">·</span>
+  <span style="font-weight:500;color:var(--ink-2)">AI picks:</span>
+  <span id="tally-ai" style="font-weight:600;color:var(--accent)">–</span>
+  <span style="color:var(--rule)">·</span>
+  <span style="font-weight:500;color:var(--ink-2)">Total:</span>
+  <span id="tally-total" style="font-weight:600;color:var(--ink)">–</span>
+</div>
+<div class="activity-bar" id="activity-bar" style="display:flex;align-items:center;gap:12px;padding:7px 20px;background:var(--paper-2);border-bottom:1px solid var(--rule);font-size:11px;flex-wrap:wrap">
   <span class="activity-label">Last 24h:</span>
-  <span class="activity-source"><span style="color:var(--ft-color,#0d4a8a);font-weight:500">FT</span> <span class="activity-new" id="act-ft">+0</span></span>
+  <span class="activity-source"><span style="color:#0d4a8a;font-weight:500">FT</span> <span class="activity-new" id="act-ft">+0</span></span>
   <span class="activity-source"><span style="color:#8b1a1a;font-weight:500">Economist</span> <span class="activity-new" id="act-eco">+0</span></span>
-
+  <span class="activity-source"><span style="color:#1e4d8c;font-weight:500">FA</span> <span class="activity-new" id="act-fa">+0</span></span>
+  <span class="activity-source"><span style="color:#555;font-weight:500">Bloomberg</span> <span class="activity-new" id="act-bbg">+0</span></span>
+  <span class="activity-source"><span style="color:#2d6b45;font-weight:500">FP</span> <span class="activity-new" id="act-fp">+0</span></span>
   <span class="activity-warning" id="act-warning" style="display:none">⚠ FT sync found 0 articles</span>
   <span class="activity-sync-time" id="act-sync-time"></span>
   <div style="margin-left:auto;display:flex;gap:4px">
@@ -2331,31 +2346,40 @@ async function updateActivityBar() {
     ]);
     const artD = await artR.json();
     const sync = await syncR.json();
-    const articles = artD.articles || [];
+    const allArts = artD.articles || [];
     const cutoff = Date.now() - 24*60*60*1000;
 
-    const counts = {
-      'Financial Times': 0,
-      'The Economist': 0,
+    // ── Tally bar: my saves vs AI picks ──
+    const mySaves = allArts.filter(a => !a.auto_saved && a.status !== 'agent').length;
+    const aiPicks = allArts.filter(a => a.auto_saved || a.status === 'agent').length;
+    const talSaves = document.getElementById('tally-saves');
+    const talAI    = document.getElementById('tally-ai');
+    const talTotal = document.getElementById('tally-total');
+    if (talSaves) talSaves.textContent = mySaves.toLocaleString();
+    if (talAI)    talAI.textContent    = aiPicks.toLocaleString();
+    if (talTotal) talTotal.textContent = allArts.length.toLocaleString();
 
-    };
-    articles.forEach(a => {
-      if (counts[a.source] !== undefined && new Date(a.saved_at).getTime() > cutoff) {
-        counts[a.source]++;
+    // ── Activity bar: last 24h by source ──
+    const recent = {};
+    allArts.forEach(a => {
+      if (a.saved_at > cutoff) {
+        recent[a.source] = (recent[a.source] || 0) + 1;
       }
     });
 
-    const ftEl  = document.getElementById('act-ft');
-    const ecoEl = document.getElementById('act-eco');
-
-    function setCount(el, n) {
+    function setCount(id, n) {
+      const el = document.getElementById(id);
+      if (!el) return;
       el.textContent = n === 0 ? '0 new' : '+' + n;
       el.className = 'activity-new' + (n === 0 ? ' none' : '');
     }
-    setCount(ftEl,  counts['Financial Times']);
-    setCount(ecoEl, counts['The Economist']);
+    setCount('act-ft',  recent['Financial Times'] || 0);
+    setCount('act-eco', recent['The Economist']   || 0);
+    setCount('act-fa',  recent['Foreign Affairs'] || 0);
+    setCount('act-bbg', recent['Bloomberg']       || 0);
+    setCount('act-fp',  recent['Foreign Policy']  || 0);
 
-    // Warn only if FT sync ran but found 0 cards — likely a login/cookie failure
+    // Warn only if FT sync ran but found 0 cards
     const ftWarn = document.getElementById('act-warning');
     if (sync.ft && sync.ft.articles_found === 0 && sync.ft.last_run && sync.ft.last_error) {
       ftWarn.style.display = '';
@@ -2371,7 +2395,7 @@ async function updateActivityBar() {
       .pop();
     if (times) {
       const d = new Date(times);
-      document.getElementById('act-sync-time').textContent = 
+      document.getElementById('act-sync-time').textContent =
         'Last sync: ' + d.toLocaleTimeString('en-GB', {hour:'2-digit', minute:'2-digit'});
     }
   } catch(e) {
