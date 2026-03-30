@@ -1,5 +1,5 @@
 # Meridian — Technical Notes
-Last updated: 30 March 2026 (Session 25 — in progress)
+Last updated: 30 March 2026 (Session 25 — complete)
 
 ## Overview
 Personal news aggregator. Flask API + SQLite backend now running on Hetzner VPS (always-on).
@@ -450,12 +450,11 @@ then navigate Tab B to the live site if it isn't already there.
 - Retention: 7 days
 
 ## Next Steps (priority order)
-1. **Fix KT JS syntax error** — meridian.html script stops parsing at char ~116k due to a syntax error in the new KT functions. Fix = extract script, run through node --check to find exact line, fix and redeploy. Resume with: "continue KT HTML patch"
-2. **Run KT seed** — once HTML works, trigger /api/kt/seed on VPS (90s, $0.07)
-3. **Economist chart capture** — build article_images table + Playwright capture in enrich_title_only_articles + AI description + backfill route. See design spec above.
-4. **Wire charts into briefs** — two-pass relevance scoring, embed in PDF
-5. **PWA icons** — proper 192×192 and 512×512 instead of placeholders
-6. **Newsletter auto-sync** — newsletter_sync.py is gitignored (has credentials), so VPS can't auto-sync
+1. **Economist chart capture** — build article_images table + Playwright capture in enrich_title_only_articles + AI description + backfill route. See design spec above.
+2. **Wire charts into briefs** — two-pass relevance scoring, embed in PDF
+3. **Wire /api/kt/tag-new into VPS scheduler** — runs after each sync to tag new articles
+4. **PWA icons** — proper 192×192 and 512×512 instead of placeholders
+5. **Newsletter auto-sync** — newsletter_sync.py is gitignored (has credentials), so VPS can't auto-sync
 
 ## KT Incremental Architecture — Current Build State
 
@@ -465,22 +464,49 @@ then navigate Tab B to the live site if it isn't already there.
   - POST /api/kt/seed + GET /api/kt/seed/status/<job_id> — async full seed with polling
   - GET /api/kt/themes — returns themes from DB (returns {seeded:false} if not yet seeded)
   - GET /api/kt/status — seeded state, counts, pending evolution
-  - POST /api/kt/tag-new — tags untagged articles with Haiku in batches of 25
-  - POST /api/kt/evolve — detects theme replacement candidates, writes to kt_meta as pending_evolution (nudge model, never auto-applies)
-- Old patch files cleaned from repo (patch_kt_async.py, kt_new_code.txt, patch_kt_brief_async.py)
-- meridian.html partially patched: renderKeyThemes() now calls loadThemes(), button label fixed to "↺ Reset Themes", localStorage caching removed
+  - POST /api/kt/tag-new — tags untagged articles with Haiku in batches of 50
+  - POST /api/kt/evolve — detects theme replacement candidates, writes to kt_meta as pending_evolution
+- meridian.html fully patched and working:
+  - renderKeyThemes() calls loadThemes() (DB-backed, instant)
+  - loadThemes() → shows seed prompt if not seeded, renders grid if seeded
+  - seedThemes() → fires /api/kt/seed, polls for progress, renders grid on completion
+  - generateThemes() → thin wrapper calling loadThemes()
+  - Reset Themes button wipes all tables and re-seeds
+  - Evolution banner shown when pending_evolution detected
+  - localStorage caching removed entirely
+- Seed successfully run on VPS: 10 themes, 488/493 articles tagged ✅
+- 5 untagged articles are title_only stubs — will be tagged on next sync via /api/kt/tag-new
 
-### What still needs doing ⚠️
-- meridian.html has a JS syntax error that stops the script from parsing beyond char ~116k
-- The new functions (loadThemes, seedThemes, showSeedPrompt, checkEvolution, showEvolutionBanner) are defined after char 116k and are therefore inaccessible
-- Fix approach: extract script block, run `node --check` to get exact error line/column, fix surgically
-- After fix: deploy → clear SW cache on live tab → verify Key Themes tab shows seed prompt → trigger seed
+### Seed architecture (final working design)
+Two-call approach:
+1. Call 1 (Sonnet, 3000 tokens, 60s timeout): send every 3rd article as representative sample (~165 titles) → generate 10 lean themes (name, emoji, keywords, overview, subtopics only — NO key_facts/subtopic_details)
+2. Call 2 (Haiku, 2000 tokens, 30s timeout): assign all 494 articles to themes in batches of 50 (~10 batches × ~10s each)
+key_facts and subtopic_details are generated on-demand when user clicks a theme (existing /api/kt/generate route)
+
+### 10 themes seeded (30 March 2026)
+- ⚔️ Iran War and Geopolitical Crisis — 108 articles
+- 🇪🇺 European Economic and Political Challenges — 117 articles
+- 📈 Global Financial Markets Volatility — 91 articles
+- 🐉 China-US Strategic Competition — 92 articles
+- 🏛️ Trump Administration Foreign Policy — 84 articles
+- 🤖 Artificial Intelligence Revolution — 78 articles
+- 🛢️ Energy Markets and Security — 78 articles
+- 🏢 Corporate Strategy and Innovation — 79 articles
+- 🌍 Trade Wars and Global Commerce
+- (10th theme)
 
 ### Key design decisions (agreed)
-- Seed: single Sonnet call with all 500 titles at once (not Haiku batches) — coherence matters more than cost
-- Assignment: 1-2 themes per article (soft assignment)
+- Seed: representative sample of titles (every 3rd article), not full corpus
+- Themes: lean fields only at seed time; key_facts/subtopic_details generated on-demand
+- Assignments: Haiku in batches of 50 (not Sonnet — cheaper, faster, sufficient)
 - Evolution: nudge model — detect candidates, show banner, user applies manually
-- Reset: full wipe of all 3 tables + re-seed ($0.07, clean slate)
+- Reset: full wipe of all 3 tables + re-seed
+
+### What still needs doing
+- Wire /api/kt/tag-new into the VPS scheduler (runs after each sync automatically)
+- key_facts/subtopic_details: currently empty in seeded themes — generated on-demand via existing /api/kt/generate when user clicks a theme. Consider pre-populating in background.
+- Economist chart capture (see spec below) — next major feature
+
 
 ## Key Themes — Design Spec
 
