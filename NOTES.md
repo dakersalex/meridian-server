@@ -385,9 +385,46 @@ then navigate Tab B to the live site if it isn't already there.
 - Retention: 7 days
 
 ## Next Steps
-1. Test Key Themes theme detail — click a theme card and verify the detail section (overview, key facts, sub-topics, article grid) renders correctly
-2. Test Short Brief and Full Brief generation via kt/brief route
-3. Clean up temporary patch files from repo (patch_kt_async.py, kt_new_code.txt)
+1. **Key Themes incremental architecture** — see design spec below. Build next session.
+2. Clean up temporary patch files from repo (patch_kt_async.py, kt_new_code.txt, patch_kt_brief_async.py)
+3. PWA icons — proper 192×192 and 512×512 instead of placeholders
+4. Newsletter auto-sync — newsletter_sync.py is gitignored (has credentials), so VPS can't auto-sync
+
+## Key Themes — Incremental Architecture (Next Build)
+
+### Problem with current approach
+Every Regenerate re-analyses all 493 articles from scratch — expensive, slow (~60-90s), and the themes reset rather than evolve.
+
+### Target architecture
+
+**DB additions:**
+- `article_theme_tags` table — maps article_id → theme_name (many-to-many). Set ONCE per article, never re-processed.
+- `kt_themes` table — stores the 10 current themes server-side: name, emoji, keywords, overview, key_facts, subtopics, article_count, last_updated
+- `kt_meta` table — stores: last_tagged_at (timestamp), article_count_at_last_tag
+
+**The flow:**
+1. **Initial seed** (runs once via /api/kt/seed) — sends all 493 article titles to Claude in batches of 50. Claude assigns each article to 1-2 theme names and suggests the 10 initial themes. Stored in article_theme_tags and kt_themes.
+2. **After each sync** (runs on VPS scheduler after every article push) — only articles with no theme_tags get processed. Claude is given the current 10 theme names and asked: "which themes does this article belong to? If none fit well, flag as potential_new_theme."
+3. **Theme evolution** (weekly, or when 30+ new articles have been tagged) — count articles per theme, look at potential_new_theme flags, replace the weakest existing theme if a new one has ≥15 articles. This is how themes shift gradually.
+4. **Frontend** — reads themes from /api/kt/themes (DB-backed, instant). No more localStorage generation. Regenerate button now triggers a full re-seed only if you explicitly want to reset.
+
+**Key principles:**
+- Articles are tagged once and never re-analysed for themes
+- New articles tagged in batches of 20-30 after each sync (lightweight haiku call)
+- Theme names can change gradually as topic weights shift
+- Full re-seed only on explicit user request
+- Interviews included from the start in article context
+
+**API routes needed:**
+- POST /api/kt/seed — one-time full seed of all articles
+- GET /api/kt/themes — return current 10 themes from DB
+- POST /api/kt/evolve — check if any theme should be replaced (run weekly)
+- GET /api/kt/status — seeding progress, last_tagged_at, untagged count
+
+**Frontend changes:**
+- Remove localStorage theme caching — themes come from /api/kt/themes
+- Add seeding progress UI for initial seed
+- Regenerate → renamed "Reset Themes" with warning that it wipes all tags
 2. PWA icons — proper 192×192 and 512×512 instead of placeholders
 2. Newsletter auto-sync — newsletter_sync.py is gitignored (has credentials), so VPS can’t auto-sync.
 3. **Key Themes feature** — fully designed, ready to build. See design spec below.
@@ -430,6 +467,20 @@ then navigate Tab B to the live site if it isn't already there.
 - Article matching: each article matched to theme by comparing its tags against theme keywords
 
 ## Build History
+### 30 March 2026 (Session 24)
+- Key Themes: async generation fixed (job polling pattern for kt/generate and kt/brief)
+- Key Themes: article grid raised from 20 to 100, sort fixed (proper Date comparison, pub_date fallback to saved_at)
+- Key Themes: title-matching added to getThemeArticles (catches title_only FA articles with no tags)
+- Key Themes: source article counts shown in meta (e.g. "89: Economist (43), FT (32)")
+- Key Themes: interviews now included in theme matching and generation payload
+- Key Themes: Print/Save PDF button added to brief modal
+- Key Themes: fact card title boxes fixed to consistent height (68px, bottom-aligned)
+- pub_date normalisation: 167 Mac DB rows + VPS rows fixed from ISO timestamps to YYYY-MM-DD
+- pub_date fix applied to fetch_ft_article_text, fetch_bloomberg_article_text, fetch_fa_article_text
+- Feed date display: no longer shows today's date as fallback for articles with no pub_date
+- Designed incremental Key Themes architecture (article_theme_tags, kt_themes, kt_meta tables) — build next session
+- Session start: only one Chrome window needed; extension connects automatically
+
 ### 30 March 2026 (Session 23)
 - Fixed Key Themes end-to-end: generateThemes() and generateBrief() now route through Flask (/api/kt/generate, /api/kt/brief) instead of calling Anthropic directly
 - Fixed multiple syntax errors in server.py kt_generate/kt_brief functions (literal newlines inside string literals from last session)
