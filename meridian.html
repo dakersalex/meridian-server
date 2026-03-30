@@ -3083,7 +3083,7 @@ function renderThemeDetail(idx, themeArts) {
   const filteredArts = ktActiveSubtopic
     ? themeArts.filter(a => (a.tags||[]).some(t => t.toLowerCase().includes(ktActiveSubtopic.toLowerCase())))
     : themeArts;
-  const displayArts = filteredArts.slice(0, 20);
+  const displayArts = filteredArts.slice(0, 100);
 
   const artGrid = displayArts.map(a => `
     <div class="kt-article-item" onclick="openKtArticle(${a.id})">
@@ -3167,7 +3167,7 @@ function ktSortArticles(val) {
   if (val === 'source') sorted.sort((a,b) => (a.source||'').localeCompare(b.source||''));
   const grid = document.getElementById('kt-article-grid');
   if (!grid) return;
-  const displayArts = sorted.slice(0, 20);
+  const displayArts = sorted.slice(0, 100);
   grid.innerHTML = displayArts.map(a => `
     <div class="kt-article-item" onclick="openKtArticle(${a.id})">
       <div class="kt-article-source">
