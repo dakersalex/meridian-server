@@ -2402,10 +2402,8 @@ def kt_seed():
 
             art_lines = []
             for a in arts:
+                # Titles only — keeps prompt small enough for reliable API completion
                 line = "- [ART:" + a["id"] + "] " + (a["title"] or "")
-                if a["topic"]: line += " [" + a["topic"] + "]"
-                tags = _fmt_tags(a["tags"])
-                if tags: line += " (" + tags + ")"
                 art_lines.append(line)
             for iv in interviews:
                 art_lines.append("- [IVW:" + str(iv["id"]) + "] " + (iv["title"] or "") + " [Interview]")
@@ -2440,9 +2438,9 @@ def kt_seed():
 
             resp = call_anthropic({
                 "model": "claude-sonnet-4-20250514",
-                "max_tokens": 12000,
+                "max_tokens": 10000,
                 "messages": [{"role": "user", "content": prompt}]
-            }, timeout=240, retries=1)
+            }, timeout=300, retries=2)
 
             raw = resp["content"][0]["text"].strip()
             if raw.startswith("```"):
