@@ -3094,9 +3094,9 @@ function renderThemeDetail(idx, themeArts) {
   const displayArts = filteredArts.slice(0, 100);
 
   const artGrid = displayArts.map(a => `
-    <div class="kt-article-item" onclick="openKtArticle(${a.id})">
+    <div class="kt-article-item" onclick="${a._isInterview ? 'setView(\'interviews\',document.querySelector(\'.nav-tab:nth-child(4)\'))' : 'openKtArticle(' + a.id + ')'}">
       <div class="kt-article-source">
-        <span>${a.source || ''}</span>
+        <span>${a.source || ''}${a._isInterview ? ' <span style="background:var(--accent-light);color:var(--accent);font-size:9px;padding:1px 4px;border-radius:2px;font-weight:600">INTERVIEW</span>' : ''}</span>
         ${a.pub_date ? '<span style="color:var(--ink-3);margin-left:auto">' + new Date(a.pub_date).toLocaleDateString('en-GB',{day:'numeric',month:'short'}) + '</span>' : ''}
       </div>
       <div class="kt-article-title">${a.title}</div>
@@ -3196,7 +3196,8 @@ function ktSortArticles(val) {
 function getThemeArticles(idx) {
   if (!ktThemes || idx === null) return [];
   const kws = (ktThemes[idx].keywords || []).map(k => k.toLowerCase());
-  return articles.filter(a => {
+
+  const matchedArticles = articles.filter(a => {
     const tags = (a.tags || []).map(t => t.toLowerCase());
     const topic = (a.topic || '').toLowerCase();
     const title = (a.title || '').toLowerCase();
@@ -3206,6 +3207,26 @@ function getThemeArticles(idx) {
       title.includes(k)
     );
   });
+
+  // Include matching interviews as pseudo-articles
+  const matchedInterviews = (interviews || []).filter(iv => {
+    const text = ((iv.title || '') + ' ' + (iv.summary || '') + ' ' + (iv.transcript || '')).toLowerCase();
+    return kws.some(k => text.includes(k));
+  }).map(iv => ({
+    id: 'iv_' + iv.id,
+    source: iv.source || 'Interview',
+    title: iv.title,
+    summary: iv.summary || '',
+    pub_date: iv.published_date || '',
+    saved_at: iv.added_date,
+    tags: [],
+    topic: 'Interview',
+    status: 'full_text',
+    url: iv.url || '',
+    _isInterview: true
+  }));
+
+  return [...matchedArticles, ...matchedInterviews];
 }
 
 async function generateThemes(forceRegenerate) {
@@ -3245,11 +3266,18 @@ ${artContext}`;
     const lightArticles = articles.map(a => ({
       title: a.title, topic: a.topic, tags: a.tags, status: a.status
     }));
+    // Add interviews as pseudo-articles
+    const interviewItems = (interviews || []).filter(iv => iv.title).map(iv => ({
+      title: iv.title + ' [Interview]',
+      topic: 'Interview',
+      tags: [iv.source || 'Interview'],
+      status: 'full_text'
+    }));
     // Start async job
     const startResp = await fetch(SERVER + '/api/kt/generate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ articles: lightArticles })
+      body: JSON.stringify({ articles: [...lightArticles, ...interviewItems] })
     });
     const startData = await startResp.json();
     if (startData.error) throw new Error(startData.error);
