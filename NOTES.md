@@ -256,13 +256,15 @@ Two MCP servers run automatically in the background — you never start them man
    Visible as the orange-outlined tab group labelled "✅ Claude (MCP)" in your Chrome tab strip
 
 ### Starting a new autonomous session
-1. Run in Terminal: `cat ~/meridian-server/NOTES.md | pbcopy`
-2. Open claude.ai in Chrome and start a new chat
-3. Paste NOTES.md contents into the chat
-4. The Claude in Chrome extension (v1.0.64+) connects automatically — no manual Connect click needed
-5. The extension opens an MCP tab group (orange-outlined tabs labelled ✅ Claude (MCP))
-6. Claude runs the session start health check automatically and confirms it is ready
+1. Open claude.ai in Chrome and start a new chat
+2. Paste this as your opening message:
+   > You are helping me build Meridian, my personal news aggregator. Please read my technical notes from the Filesystem MCP at /Users/alexdakers/meridian-server/NOTES.md and review them. Then run the session start health check.
+3. The Claude in Chrome extension (v1.0.64+) connects automatically — no manual Connect click needed
+4. The extension opens an MCP tab group (orange-outlined tabs labelled ✅ Claude (MCP))
+5. Claude reads NOTES.md via Filesystem MCP, runs health check, and confirms ready
 
+**No Terminal needed** — Claude reads NOTES.md directly via Filesystem MCP.
+**Note:** raw.githubusercontent.com is blocked in Claude's network allow-list, so fetching from GitHub URL does not work.
 **Important:** Keep only ONE Chrome window open per session. Two windows = two MCP tab groups = confusion about which tab Claude is controlling.
 
 ### If autonomous mode isn't working
