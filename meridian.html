@@ -2982,25 +2982,11 @@ function switchMode(mode) {
 }
 
 function renderKeyThemes() {
-  const body = document.getElementById('kt-body');
-  // Load from cache if not already in memory
-  if (!ktThemes) {
-    const cached = /* KT localStorage removed: /* KT localStorage removed: localStorage.getItem('meridian_themes_v1') */ */;
-    if (cached) {
-      try { ktThemes = JSON.parse(cached); } catch(e) { ktThemes = null; }
-    }
-  }
-  if (!ktThemes) {
-    // Show generate button — never auto-generate
-    body.innerHTML = `
-      <div class="kt-generate-state">
-        <div class="kt-generate-title">Intelligence Themes</div>
-        <div class="kt-generate-sub">Claude will analyse your ${articles.length} articles and identify the 10 dominant themes across your reading. Takes about 20 seconds.</div>
-        <button class="kt-generate-btn" onclick="generateThemes(false)">&#10022; Generate Themes</button>
-      </div>`;
-    return;
-  }
-  renderThemeGrid();
+  // Themes now come from DB via loadThemes() — no localStorage
+  loadThemes(false);
+}
+
+function renderThemeGrid  renderThemeGrid();
 }
 
 function renderThemeGrid() {
@@ -3038,7 +3024,7 @@ function renderThemeGrid() {
         <div class="kt-header-title">Intelligence Themes</div>
         <div class="kt-header-sub">${articles.length} articles across ${ktThemes.length} themes</div>
       </div>
-      <button class="kt-regenerate-btn" onclick="generateThemes(true)">↻ ↺ Reset Themes Themes Themes</button>
+      <button class="kt-regenerate-btn" onclick="generateThemes(true)">↺ Reset Themes</button>
     </div>
     <div class="kt-grid">${gridHTML}</div>
     ${detailHTML}`;
@@ -3229,86 +3215,111 @@ function getThemeArticles(idx) {
   return [...matchedArticles, ...matchedInterviews];
 }
 
-async function generateThemes(force↺ Reset Themes) {
-  if (forceRegenerate) {
-    ktThemes = null;
-    ktSelectedIdx = null;
-    /* KT localStorage removed: /* KT localStorage removed: localStorage.removeItem('meridian_themes_v1') */ */;
+async function generateThemes(forceReseed = false) {
+  await loadThemes(forceReseed);
+}
+
+async function loadThemes(forceReseed = false) {
+  if (forceReseed) {
+    if (!confirm('Reset Themes will wipe all article-theme assignments and re-analyse your entire library from scratch.\n\nThis takes 60-90 seconds and costs ~$0.07.\n\nContinue?')) return;
+    await seedThemes();
+    return;
   }
-  const body = document.getElementById('kt-body');
-  body.innerHTML = `<div class="kt-loading-state"><div class="spinner"></div> Analysing ${articles.length} articles… this takes about 20 seconds.</div>`;
-
-  // Build article context — titles + tags, up to 400 articles
-  const artContext = articles
-    .filter(a => a.title && a.status !== 'title_only')
-    .slice(0, 400)
-    .map(a => `- ${a.title}${a.topic ? ' [' + a.topic + ']' : ''}${(a.tags||[]).length ? ' (' + a.tags.join(', ') + ')' : ''}`)
-    .join('\n');
-
-  const prompt = `You are an intelligence analyst. Below are ${articles.length} article titles with topics and tags from a personal news aggregator focused on geopolitics, finance, and international affairs.
-
-Analyse these and identify exactly 10 dominant intelligence themes. For each theme produce:
-- name: Short punchy theme name (3-6 words)
-- emoji: One relevant emoji
-- keywords: Array of 8-12 keywords for matching articles
-- overview: 2-3 sentence analytical overview paragraph
-- key_facts: Array of 10 objects with { title: string (5-10 words), body: string (1-2 sentences with bold statistics where possible) }
-- subtopics: Array of 5-7 sub-topic strings
-- subtopic_details: Object mapping subtopic name to array of 4-6 bullet point strings
-
-Return ONLY valid JSON array of 10 theme objects. No markdown, no preamble.
-
-ARTICLES:
-${artContext}`;
-
+  const kt = document.getElementById('kt-body');
   try {
-    // Only send lightweight fields — not full body text
-    const lightArticles = articles.map(a => ({
-      title: a.title, topic: a.topic, tags: a.tags, status: a.status
-    }));
-    // Add interviews as pseudo-articles
-    const interviewItems = (interviews || []).filter(iv => iv.title).map(iv => ({
-      title: iv.title + ' [Interview]',
-      topic: 'Interview',
-      tags: [iv.source || 'Interview'],
-      status: 'full_text'
-    }));
-    // Start async job
-    const startResp = await fetch(SERVER + '/api/kt/generate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ articles: [...lightArticles, ...interviewItems] })
-    });
-    const startData = await startResp.json();
-    if (startData.error) throw new Error(startData.error);
-    const jobId = startData.job_id;
-    // Poll for result every 3 seconds (up to 3 minutes)
-    const themes = await new Promise((resolve, reject) => {
-      let attempts = 0;
-      const poll = setInterval(async () => {
-        attempts++;
-        if (attempts > 60) { clearInterval(poll); reject(new Error('Generation timed out')); return; }
-        try {
-          const r = await fetch(SERVER + '/api/kt/generate/status/' + jobId, {cache:'no-store'});
-          const d = await r.json();
-          if (d.status === 'done') { clearInterval(poll); resolve(d.themes); }
-          else if (d.status === 'error') { clearInterval(poll); reject(new Error(d.error || 'Generation failed')); }
-        } catch(e) { clearInterval(poll); reject(e); }
-      }, 3000);
-    });
-    ktThemes = themes;
-    /* KT localStorage removed: /* KT localStorage removed: localStorage.setItem('meridian_themes_v1' */ */, JSON.stringify(ktThemes));
-    ktSelectedIdx = null;
-    renderThemeGrid();
+    const resp = await fetch(SERVER + '/api/kt/themes', {cache: 'no-store'});
+    const data = await resp.json();
+    if (data.seeded && data.themes && data.themes.length > 0) {
+      ktThemes = data.themes;
+      ktSelectedIdx = null;
+      renderThemeGrid(ktThemes);
+      checkEvolution();
+      return;
+    }
+    // Not seeded yet — show seed prompt
+    showSeedPrompt(kt);
   } catch(e) {
-    body.innerHTML = `<div class="kt-generate-state">
-      <div class="kt-generate-title">Generation failed</div>
-      <div class="kt-generate-sub" style="color:var(--red)">${e.message}</div>
-      <button class="kt-generate-btn" onclick="generateThemes(true)">↻ Try again</button>
-    </div>`;
+    if (kt) kt.innerHTML = '<div class="kt-generate-state"><div class="kt-generate-title">Could not reach server</div><div class="kt-generate-sub" style="color:var(--red)">' + e.message + '</div></div>';
   }
 }
 
+function showSeedPrompt(container) {
+  if (!container) return;
+  const n = (allArticles || articles || []).length;
+  container.innerHTML = `
+    <div class="kt-generate-state">
+      <div style="font-size:48px;margin-bottom:8px;">🧠</div>
+      <div class="kt-generate-title">Key Themes not yet generated</div>
+      <div class="kt-generate-sub">Meridian will analyse your ${n} articles and identify 10 dominant intelligence themes.<br>Runs once — themes update incrementally after each sync.</div>
+      <button class="kt-generate-btn" onclick="seedThemes()">✦ Generate Themes</button>
+    </div>`;
+}
+
+async function seedThemes() {
+  const kt = document.getElementById('kt-body');
+  if (kt) kt.innerHTML = `
+    <div class="kt-generate-state">
+      <div style="font-size:36px;margin-bottom:8px;">⏳</div>
+      <div class="kt-generate-title" id="seed-progress-msg">Starting seed…</div>
+      <div class="kt-generate-sub">Analysing ${(allArticles || articles || []).length} articles with Claude Sonnet…</div>
+      <div style="width:300px;height:4px;background:#e8e0d4;border-radius:2px;overflow:hidden;margin-top:12px;">
+        <div id="seed-progress-bar" style="height:100%;width:8%;background:rgb(196,120,58);border-radius:2px;transition:width 2s;"></div>
+      </div>
+    </div>`;
+
+  let jobId;
+  try {
+    const r = await fetch(SERVER + '/api/kt/seed', {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'});
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.error || 'Seed failed to start');
+    jobId = j.job_id;
+  } catch(e) {
+    if (kt) kt.innerHTML = '<div class="kt-generate-state"><div class="kt-generate-title">Seed failed</div><div class="kt-generate-sub" style="color:var(--red)">' + e.message + '</div><button class="kt-generate-btn" onclick="seedThemes()">↻ Try again</button></div>';
+    return;
+  }
+
+  let width = 8;
+  const poll = setInterval(async () => {
+    try {
+      const r = await fetch(SERVER + '/api/kt/seed/status/' + jobId, {cache:'no-store'});
+      const j = await r.json();
+      const msg = document.getElementById('seed-progress-msg');
+      const bar = document.getElementById('seed-progress-bar');
+      if (msg) msg.textContent = j.progress || 'Working…';
+      width = Math.min(width + 7, 92);
+      if (bar) bar.style.width = width + '%';
+      if (j.status === 'done') {
+        clearInterval(poll);
+        if (bar) bar.style.width = '100%';
+        if (msg) msg.textContent = 'Complete! Loading themes…';
+        setTimeout(() => loadThemes(false), 800);
+      } else if (j.status === 'error') {
+        clearInterval(poll);
+        const kt2 = document.getElementById('kt-body');
+        if (kt2) kt2.innerHTML = '<div class="kt-generate-state"><div class="kt-generate-title">Seed error</div><div class="kt-generate-sub" style="color:var(--red)">' + (j.error || 'Unknown error') + '</div><button class="kt-generate-btn" onclick="seedThemes()">↻ Try again</button></div>';
+      }
+    } catch(e) { /* retry */ }
+  }, 3000);
+}
+
+async function checkEvolution() {
+  try {
+    const r = await fetch(SERVER + '/api/kt/status', {cache:'no-store'});
+    const j = await r.json();
+    if (j.pending_evolution) showEvolutionBanner(j.pending_evolution);
+  } catch(e) {}
+}
+
+function showEvolutionBanner(ev) {
+  if (document.getElementById('kt-evolution-banner')) return;
+  const banner = document.createElement('div');
+  banner.id = 'kt-evolution-banner';
+  banner.style.cssText = 'background:#fff8ee;border:1px solid rgb(196,120,58);border-radius:6px;padding:10px 16px;margin:0 0 16px 0;font-size:13px;display:flex;align-items:center;gap:12px;';
+  banner.innerHTML = '<span style="font-size:16px;">💡</span><span style="flex:1;color:var(--ink);">Theme update available: replace <strong>' + ev.replace + '</strong> (' + ev.replace_count + ' articles) with <strong>' + ev.with + '</strong> (' + ev.with_count + ' articles)</span><button onclick="if(confirm(\'Apply theme update? This runs a full re-seed (~60s).\'))seedThemes();" style="background:rgb(196,120,58);color:#fff;border:none;padding:5px 12px;border-radius:4px;font-size:12px;cursor:pointer;">Apply</button><button onclick="document.getElementById(\'kt-evolution-banner\').remove()" style="background:none;border:none;color:#999;font-size:16px;cursor:pointer;">✕</button>';
+  const kt = document.getElementById('kt-body');
+  if (kt && kt.firstChild) kt.insertBefore(banner, kt.firstChild);
+  else if (kt) kt.prepend(banner);
+}
 async function generateBrief(themeIdx, type) {
   const theme = ktThemes[themeIdx];
   const themeArts = getThemeArticles(themeIdx);
