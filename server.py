@@ -2204,55 +2204,70 @@ def sync_newsletters_route():
     return jsonify({"ok": True, "started": True})
 
 
+_kt_jobs = {}
+
 @app.route("/api/kt/generate", methods=["POST"])
 def kt_generate():
-    """Generate Key Themes from article titles+tags via Claude."""
+    """Start async Key Themes generation — returns job_id immediately."""
+    import uuid
     data = request.json or {}
     articles = data.get("articles", [])
     if not articles:
         return jsonify({"error": "no articles"}), 400
+    job_id = str(uuid.uuid4())[:8]
+    _kt_jobs[job_id] = {"status": "running", "themes": None, "error": None}
 
-    art_context = "\n".join(
-        f"- {a.get('title','')}"
-        + (f" [{a.get('topic','')}]" if a.get('topic') else "")
-        + (f" ({', '.join(a.get('tags',[]))})" if a.get('tags') else "")
-        for a in articles[:400]
-        if a.get('title') and a.get('status') != 'title_only'
-    )
+    def _run():
+        try:
+            def _tags(a):
+                t = a.get("tags", [])
+                if isinstance(t, str):
+                    try: t = json.loads(t)
+                    except: return ""
+                return ", ".join(t) if t else ""
 
-    prompt = f"""You are an intelligence analyst. Below are article titles with topics and tags from a personal news aggregator focused on geopolitics, finance, and international affairs.
+            ctx = "\n".join(
+                "- " + a.get("title", "")
+                + (" [" + a.get("topic", "") + "]" if a.get("topic") else "")
+                + (" (" + _tags(a) + ")" if _tags(a) else "")
+                for a in articles[:400]
+                if a.get("title") and a.get("status") != "title_only"
+            )
+            prompt = (
+                "You are an intelligence analyst. Analyse these article titles and identify exactly 10 "
+                "dominant intelligence themes. For each produce a JSON object with: "
+                "name (3-6 words), emoji, keywords (8-12 item array), overview (2-3 sentences), "
+                "key_facts (array of 10 objects each with title and body), subtopics (5-7 strings), "
+                "subtopic_details (object mapping subtopic name to array of 4-6 bullet strings). "
+                "Return ONLY a valid JSON array of 10 objects. No markdown, no preamble.\n\n"
+                "ARTICLES:\n" + ctx
+            )
+            resp = call_anthropic({
+                "model": "claude-sonnet-4-20250514",
+                "max_tokens": 8000,
+                "messages": [{"role": "user", "content": prompt}]
+            }, timeout=180, retries=1)
+            raw = resp["content"][0]["text"].strip()
+            if raw.startswith("```"):
+                raw = raw.split("\n", 1)[1] if "\n" in raw else raw
+                raw = raw.rsplit("```", 1)[0]
+            themes = json.loads(raw)
+            _kt_jobs[job_id] = {"status": "done", "themes": themes, "error": None}
+            log.info(f"kt_generate job {job_id}: done ({len(themes)} themes)")
+        except Exception as e:
+            log.error(f"kt_generate job {job_id} error: {e}")
+            _kt_jobs[job_id] = {"status": "error", "themes": None, "error": str(e)}
 
-Analyse these and identify exactly 10 dominant intelligence themes. For each theme produce:
-- name: Short punchy theme name (3-6 words)
-- emoji: One relevant emoji
-- keywords: Array of 8-12 keywords for matching articles
-- overview: 2-3 sentence analytical overview paragraph
-- key_facts: Array of 10 objects with {{ title: string (5-10 words), body: string (1-2 sentences with bold statistics where possible) }}
-- subtopics: Array of 5-7 sub-topic strings
-- subtopic_details: Object mapping subtopic name to array of 4-6 bullet point strings
+    threading.Thread(target=_run, daemon=True).start()
+    return jsonify({"ok": True, "job_id": job_id})
 
-Return ONLY valid JSON array of 10 theme objects. No markdown, no preamble.
-
-ARTICLES:
-{art_context}"""
-
-    try:
-        resp = call_anthropic({
-            "model": "claude-sonnet-4-20250514",
-            "max_tokens": 8000,
-            "messages": [{"role": "user", "content": prompt}]
-        }, timeout=150, retries=1)
-        raw = resp["content"][0]["text"].strip()
-        # strip markdown fences if present
-        if raw.startswith("```"):
-            raw = raw.split("\n", 1)[1] if "\n" in raw else raw
-            raw = raw.rsplit("```", 1)[0]
-        themes = json.loads(raw)
-        return jsonify({"ok": True, "themes": themes})
-    except Exception as e:
-        log.error(f"kt_generate error: {e}")
-        return jsonify({"error": str(e)}), 500
-
+@app.route("/api/kt/generate/status/<job_id>", methods=["GET"])
+def kt_generate_status(job_id):
+    """Poll for async kt/generate job result."""
+    job = _kt_jobs.get(job_id)
+    if not job:
+        return jsonify({"error": "unknown job"}), 404
+    return jsonify(job)
 
 @app.route("/api/kt/brief", methods=["POST"])
 def kt_brief():

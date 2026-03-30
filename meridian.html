@@ -3198,14 +3198,30 @@ ${artContext}`;
     const lightArticles = articles.map(a => ({
       title: a.title, topic: a.topic, tags: a.tags, status: a.status
     }));
-    const resp = await fetch(SERVER + '/api/kt/generate', {
+    // Start async job
+    const startResp = await fetch(SERVER + '/api/kt/generate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ articles: lightArticles })
     });
-    const data = await resp.json();
-    if (data.error) throw new Error(data.error);
-    ktThemes = data.themes;
+    const startData = await startResp.json();
+    if (startData.error) throw new Error(startData.error);
+    const jobId = startData.job_id;
+    // Poll for result every 3 seconds (up to 3 minutes)
+    const themes = await new Promise((resolve, reject) => {
+      let attempts = 0;
+      const poll = setInterval(async () => {
+        attempts++;
+        if (attempts > 60) { clearInterval(poll); reject(new Error('Generation timed out')); return; }
+        try {
+          const r = await fetch(SERVER + '/api/kt/generate/status/' + jobId, {cache:'no-store'});
+          const d = await r.json();
+          if (d.status === 'done') { clearInterval(poll); resolve(d.themes); }
+          else if (d.status === 'error') { clearInterval(poll); reject(new Error(d.error || 'Generation failed')); }
+        } catch(e) { clearInterval(poll); reject(e); }
+      }, 3000);
+    });
+    ktThemes = themes;
     localStorage.setItem('meridian_themes_v1', JSON.stringify(ktThemes));
     ktSelectedIdx = null;
     renderThemeGrid();
