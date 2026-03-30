@@ -1,5 +1,5 @@
 # Meridian — Technical Notes
-Last updated: 29 March 2026 (Session 22 — complete)
+Last updated: 30 March 2026 (Session 25 — in progress)
 
 ## Overview
 Personal news aggregator. Flask API + SQLite backend now running on Hetzner VPS (always-on).
@@ -67,13 +67,13 @@ Repo: https://github.com/dakersalex/meridian-server (public)
 Token stored in Mac keychain (credential.helper osxkeychain)
 Sensitive files excluded: credentials.json, cookies.json, meridian.db, newsletter_sync.py, venv/, *.wav, *.mp4, vps_last_log.txt
 
-## Database (28 March 2026)
-Total: ~299 articles
-- Financial Times: 122
-- The Economist: 86
-- Foreign Affairs: 42
-- Bloomberg: 39
-- Other (CNN, Atlantic Council, Foreign Policy, CFR): ~10
+## Database (30 March 2026)
+Total: ~503 articles (Mac), ~493 articles (VPS)
+- Financial Times: 150
+- The Economist: 254
+- Foreign Affairs: 44
+- Bloomberg: 38
+- Other (CNN, Atlantic Council, Foreign Policy, CFR, Al Jazeera etc.): ~17
 
 ## Syncing
 Note: Playwright scrapers still run on Mac via launchd (browser profiles not yet on VPS)
@@ -223,6 +223,68 @@ Mac launchd: com.alexdakers.meridian.wakesync runs at 05:40 and 11:40
 - Anthropic API credits exhausted mid-session — topped up at console.anthropic.com/settings/billing
 - Confirmed working: 15/21 articles scored 6+, 6 filtered (music, church, moon etc.), 8 saved as title_only
 
+## Economist Chart & Map Capture — Design Spec (Session 25)
+
+### Discovery
+- Economist charts and maps are static PNG images served from their CDN (content-assets/images/*.png)
+- NOT D3/JS components — they render reliably and are screenshottable via Playwright element.screenshot()
+- Each chart/map is wrapped in a <figure class="css-3mn275 e1197rjj0"> element
+- Caption is in <figcaption class="css-1dkrsla e15o9k8g2"> containing exactly "Chart: The Economist" or "Map: The Economist"
+- Confirmed working: Playwright element screenshot of figure captures chart + caption cleanly
+- Test article: "How Iran is making a mint from Donald Trump's war" — 4 figures captured successfully
+  - Figure 1: Iran contraband bar chart (oil tankers, Strait of Hormuz) — 60,468 bytes
+  - Figure 2: Kharg Island map + satellite imagery — 241,508 bytes
+  - Figure 3: Chart (oil exports) — 60,468 bytes
+  - Figure 4: Chart — 60,468 bytes
+
+### Capture approach
+During enrich_title_only_articles(), after fetching full text for Economist articles:
+1. Find all <figure> elements whose <figcaption> contains "Chart:" or "Map:"
+2. Scroll each into view (lazy-load trigger — page must be scrolled fully first)
+3. Use Playwright element.screenshot() to capture figure + caption as PNG
+4. Generate a one-line AI description of what the chart shows (Claude Haiku, cheap)
+5. Store in article_images table
+
+### DB schema (to be added to init_db)
+```sql
+CREATE TABLE IF NOT EXISTS article_images (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    article_id TEXT NOT NULL,
+    caption TEXT NOT NULL,          -- "Chart: The Economist" or "Map: The Economist"
+    description TEXT DEFAULT '',    -- AI one-liner: "Bar chart showing Iran-linked oil tankers..."
+    image_data BLOB NOT NULL,       -- PNG bytes
+    width INTEGER DEFAULT 0,
+    height INTEGER DEFAULT 0,
+    captured_at INTEGER NOT NULL,
+    FOREIGN KEY (article_id) REFERENCES articles(id)
+)
+```
+
+### Brief image selection logic (IMPORTANT — agreed design)
+- Charts are only included in a brief if their description has meaningful term overlap with the brief text
+- This is a two-pass process:
+  1. First pass: generate the brief text as normal
+  2. Second pass: score each candidate chart description against the brief text
+     - Include chart if key terms in description appear in brief (e.g. "Hormuz", "tankers", "Iranian oil")
+     - Exclude chart if no overlap with brief content, regardless of theme
+- Cap at 3-4 images per brief section, 6-8 per full brief
+- Prioritise most recently published and highest relevance score
+- A chart from one article CAN appear in a brief driven by a different article if subject matter overlaps
+- Charts that are not mentioned/relevant to the brief's key points are EXCLUDED entirely
+
+### Backfill plan
+After chart capture is built, run a one-time backfill across all 254 Economist articles via Playwright:
+- Use economist_profile/ persistent session (already logged in)
+- Process articles in batches to avoid Cloudflare rate limits
+- Expected: ~30-60 minute job, ~500-1000 chart/map images captured
+- Route: POST /api/images/backfill (async job, poll for status)
+
+### Build order
+1. Fix KT JS syntax error (current blocker) ← NEXT
+2. Run KT seed (90 seconds, $0.07)
+3. Build chart capture (new article_images table, Playwright capture in enrich_title_only_articles, AI description, backfill route)
+4. Wire charts into briefs (two-pass relevance scoring, embed in PDF)
+
 ## Autonomous Mode (Claude in Chrome + shell endpoint)
 
 ### How it works
@@ -283,7 +345,7 @@ Claude operates fully autonomously and never asks the user to check, refresh, or
 3. Apply the fix (edit file via Filesystem MCP, deploy via shell endpoint)
 4. Re-verify by querying API/DOM again
 5. Take a screenshot of the meridianreader.com MCP tab to visually confirm
-6. Report the confirmed result to the user — never say “please check” or “please refresh”
+6. Report the confirmed result to the user — never say "please check" or "please refresh"
 
 **Clearing stale UI cache (after deploys):**
 ```js
@@ -296,7 +358,7 @@ Then navigate the tab to `https://meridianreader.com/meridian.html` and screensh
 **When a user reports a visual bug:**
 - Never ask them to refresh or check
 - Verify it appears in the DOM on the MCP tab
-- Check the API to confirm if it’s a data issue vs cache issue
+- Check the API to confirm if it's a data issue vs cache issue
 - Fix the root cause, clear cache if needed, screenshot to verify, report back
 
 ### Deploy pattern (Claude uses this)
@@ -327,10 +389,11 @@ window.shell(`
   echo '=== Flask ===' && curl -s http://localhost:4242/api/health &&
   echo '=== DB ===' && sqlite3 ~/meridian-server/meridian.db "SELECT source, COUNT(*), SUM(status='title_only') as pending FROM articles GROUP BY source" &&
   echo '=== Enrichment ===' && curl -s http://localhost:4242/api/enrich-title-only/status &&
+  echo '=== KT ===' && curl -s http://localhost:4242/api/kt/status &&
   echo '=== Last log ===' && tail -3 ~/meridian-server/logs/server.log
 `).then(d => console.log('HEALTH:', d.stdout));
 ```
-This gives immediate awareness of: Flask status, DB counts, pending enrichments, last sync.
+This gives immediate awareness of: Flask status, DB counts, pending enrichments, KT seed state, last sync.
 
 ### Dangerous operations checklist (ALWAYS follow before bulk deletes)
 Before any DELETE, UPDATE affecting multiple rows, or destructive operation:
@@ -366,7 +429,7 @@ then navigate Tab B to the live site if it isn't already there.
 ### What is backed up
 - **GitHub** (`github.com/dakersalex/meridian-server`) — all code, NOTES.md, scripts. Every session is a git commit so any prior version is recoverable via `git checkout <hash>`
 - **VPS DB** (`/opt/meridian-server/db_backups/`) — daily backup of Mac `meridian.db` at 23:00, 7 days retained
-- **VPS DB itself** — has all articles ever pushed from Mac (~468 articles)
+- **VPS DB itself** — has all articles ever pushed from Mac (~493 articles)
 
 ### What is NOT on GitHub (by design — sensitive)
 - `meridian.db` — article database (backed up to VPS nightly)
@@ -386,78 +449,38 @@ then navigate Tab B to the live site if it isn't already there.
 - Destination: `root@204.168.179.158:/opt/meridian-server/db_backups/meridian_mac_YYYY-MM-DD.db`
 - Retention: 7 days
 
-## Next Steps
-1. **KT HTML patch** — `continue KT HTML patch` in next session. See current state below.
-2. Clean up temporary patch files from repo (patch_kt_async.py, kt_new_code.txt, patch_kt_brief_async.py)
-3. PWA icons — proper 192×192 and 512×512 instead of placeholders
-4. Newsletter auto-sync — newsletter_sync.py is gitignored (has credentials), so VPS can't auto-sync
+## Next Steps (priority order)
+1. **Fix KT JS syntax error** — meridian.html script stops parsing at char ~116k due to a syntax error in the new KT functions. Fix = extract script, run through node --check to find exact line, fix and redeploy. Resume with: "continue KT HTML patch"
+2. **Run KT seed** — once HTML works, trigger /api/kt/seed on VPS (90s, $0.07)
+3. **Economist chart capture** — build article_images table + Playwright capture in enrich_title_only_articles + AI description + backfill route. See design spec above.
+4. **Wire charts into briefs** — two-pass relevance scoring, embed in PDF
+5. **PWA icons** — proper 192×192 and 512×512 instead of placeholders
+6. **Newsletter auto-sync** — newsletter_sync.py is gitignored (has credentials), so VPS can't auto-sync
 
-## KT Incremental Architecture — Current Build State (Session 25)
+## KT Incremental Architecture — Current Build State
 
 ### What is complete ✅
-- server.py: all 3 DB tables created in init_db():
-  - `kt_themes` — stores 10 current themes (name, emoji, keywords, overview, key_facts, subtopics, article_count, last_updated)
-  - `article_theme_tags` — maps article_id → theme_name (set once, never re-processed)
-  - `kt_meta` — stores last_tagged_at, article_count_at_last_tag
-- server.py routes all working and tested locally:
-  - POST /api/kt/seed — seeds all untagged articles in batches of 50, generates initial 10 themes
-  - GET /api/kt/themes — returns current themes from DB
-  - GET /api/kt/status — returns seeding progress, untagged count, last_tagged_at
-  - POST /api/kt/tag-new — tags only articles added since last_tagged_at (runs after each sync)
-  - POST /api/kt/evolve — weekly evolution: replaces weakest theme if a new one has 15+ articles
-- Flask running locally on Mac with all routes confirmed working
+- server.py: 3 new DB tables in init_db(): article_theme_tags, kt_themes, kt_meta
+- server.py routes all deployed to VPS and working:
+  - POST /api/kt/seed + GET /api/kt/seed/status/<job_id> — async full seed with polling
+  - GET /api/kt/themes — returns themes from DB (returns {seeded:false} if not yet seeded)
+  - GET /api/kt/status — seeded state, counts, pending evolution
+  - POST /api/kt/tag-new — tags untagged articles with Haiku in batches of 25
+  - POST /api/kt/evolve — detects theme replacement candidates, writes to kt_meta as pending_evolution (nudge model, never auto-applies)
+- Old patch files cleaned from repo (patch_kt_async.py, kt_new_code.txt, patch_kt_brief_async.py)
+- meridian.html partially patched: renderKeyThemes() now calls loadThemes(), button label fixed to "↺ Reset Themes", localStorage caching removed
 
 ### What still needs doing ⚠️
-- meridian.html: generateThemes() function is CORRUPTED — has bad parameter `forceRgenerate` (typo). Must fix.
-- meridian.html: full replacement of generateThemes() + Regenerate button with new loadThemes() + seedThemes() was NOT applied
-- The new JS flow should be:
-  1. `loadThemes()` — fetches from /api/kt/themes (instant, DB-backed). Called on switchMode('keythemes').
-  2. `seedThemes()` — calls /api/kt/seed with polling (only needed first time or on Reset)
-  3. Regenerate button → renamed to two buttons: "↻ Update" (calls /api/kt/tag-new) and "⟳ Reset" (calls /api/kt/seed)
-  4. Remove all localStorage theme caching — themes live in DB now
-- After HTML is fixed: deploy to VPS, run /api/kt/seed (takes ~5 min for 493 articles in batches of 50), verify end-to-end
+- meridian.html has a JS syntax error that stops the script from parsing beyond char ~116k
+- The new functions (loadThemes, seedThemes, showSeedPrompt, checkEvolution, showEvolutionBanner) are defined after char 116k and are therefore inaccessible
+- Fix approach: extract script block, run `node --check` to get exact error line/column, fix surgically
+- After fix: deploy → clear SW cache on live tab → verify Key Themes tab shows seed prompt → trigger seed
 
-### Resume instruction
-Start next session with: **"continue KT HTML patch"**
-
-## Key Themes — Incremental Architecture (Next Build)
-
-### Problem with current approach
-Every Regenerate re-analyses all 493 articles from scratch — expensive, slow (~60-90s), and the themes reset rather than evolve.
-
-### Target architecture
-
-**DB additions:**
-- `article_theme_tags` table — maps article_id → theme_name (many-to-many). Set ONCE per article, never re-processed.
-- `kt_themes` table — stores the 10 current themes server-side: name, emoji, keywords, overview, key_facts, subtopics, article_count, last_updated
-- `kt_meta` table — stores: last_tagged_at (timestamp), article_count_at_last_tag
-
-**The flow:**
-1. **Initial seed** (runs once via /api/kt/seed) — sends all 493 article titles to Claude in batches of 50. Claude assigns each article to 1-2 theme names and suggests the 10 initial themes. Stored in article_theme_tags and kt_themes.
-2. **After each sync** (runs on VPS scheduler after every article push) — only articles with no theme_tags get processed. Claude is given the current 10 theme names and asked: "which themes does this article belong to? If none fit well, flag as potential_new_theme."
-3. **Theme evolution** (weekly, or when 30+ new articles have been tagged) — count articles per theme, look at potential_new_theme flags, replace the weakest existing theme if a new one has ≥15 articles. This is how themes shift gradually.
-4. **Frontend** — reads themes from /api/kt/themes (DB-backed, instant). No more localStorage generation. Regenerate button now triggers a full re-seed only if you explicitly want to reset.
-
-**Key principles:**
-- Articles are tagged once and never re-analysed for themes
-- New articles tagged in batches of 20-30 after each sync (lightweight haiku call)
-- Theme names can change gradually as topic weights shift
-- Full re-seed only on explicit user request
-- Interviews included from the start in article context
-
-**API routes needed:**
-- POST /api/kt/seed — one-time full seed of all articles
-- GET /api/kt/themes — return current 10 themes from DB
-- POST /api/kt/evolve — check if any theme should be replaced (run weekly)
-- GET /api/kt/status — seeding progress, last_tagged_at, untagged count
-
-**Frontend changes:**
-- Remove localStorage theme caching — themes come from /api/kt/themes
-- Add seeding progress UI for initial seed
-- Regenerate → renamed "Reset Themes" with warning that it wipes all tags
-2. PWA icons — proper 192×192 and 512×512 instead of placeholders
-2. Newsletter auto-sync — newsletter_sync.py is gitignored (has credentials), so VPS can’t auto-sync.
-3. **Key Themes feature** — fully designed, ready to build. See design spec below.
+### Key design decisions (agreed)
+- Seed: single Sonnet call with all 500 titles at once (not Haiku batches) — coherence matters more than cost
+- Assignment: 1-2 themes per article (soft assignment)
+- Evolution: nudge model — detect candidates, show banner, user applies manually
+- Reset: full wipe of all 3 tables + re-seed ($0.07, clean slate)
 
 ## Key Themes — Design Spec
 
@@ -476,226 +499,89 @@ Every Regenerate re-analyses all 493 articles from scratch — expensive, slow (
 2. Short brief / Full intelligence brief buttons (amber primary)
 3. AI Overview — cream panel with amber left border, generated from all theme articles
 4. Key Facts — 10 cards in 5x2 grid, two-tone (cream top: number+title; white bottom: body text with bold stats)
-   - JS auto-sizing: shared font size for all titles (max 2 lines), shared font size for all body text (max 3 lines)
-   - JS height equalisation: all tops same height, all bottoms same height
 5. Sub-topics — pill tags; click opens inline AI overview panel (dark header, bullet points, source badges)
-   - Article grid below filters to that sub-topic when panel is open
 6. Article grid — 2 columns, source/date/title/summary/tags/link per card, sort dropdown
 
 ### Briefs
 - Short brief: 1-page PDF — executive summary (amber panel) + key developments (bullets) + implications + watch list + source badges
-- Full intelligence brief: 4-page PDF — contents table, sections per sub-topic with prose, pull quotes, AI-generated charts from article statistics, source article citations
-- Both pull from: feed articles (441 with summaries) + newsletters (28) + interviews (1)
-- Graphics: AI-generated charts from statistics in article text — NOT scraped images
-  - Playwright image capture tested and rejected: figures on FT/Economist are editorial photos not data charts
-  - Actual data charts are D3/JS components, not capturable as static images
-
-### Theme generation
-- Single Claude API call over all article titles + tags → 10 themes with: name, emoji, keywords, overview paragraph, 10 key facts, sub-topics
-- Cached in localStorage under key 'meridian_themes_v1'
-- Regenerate button triggers fresh generation
-- Article matching: each article matched to theme by comparing its tags against theme keywords
+- Full intelligence brief: 4-page PDF — contents table, sections per sub-topic with prose, pull quotes, charts, source citations
+- Both pull from: feed articles + newsletters + interviews
+- Chart selection: two-pass process — generate brief text first, then score each candidate chart description against brief text, include only charts with meaningful term overlap
 
 ## Build History
-### 31 March 2026 (Session 25)
-- Built KT incremental architecture in server.py: kt_themes, article_theme_tags, kt_meta tables
-- Added routes: /api/kt/seed, /api/kt/themes, /api/kt/status, /api/kt/tag-new, /api/kt/evolve
-- All routes tested and working locally on Mac Flask
-- meridian.html NOT fully patched — generateThemes() has typo (forceRgenerate), loadThemes() replacement not applied
-- INCOMPLETE: resume next session with "continue KT HTML patch"
+### 30 March 2026 (Session 25)
+- Built KT incremental architecture end-to-end in server.py (tables + 6 routes), deployed to VPS ✅
+- meridian.html: renderKeyThemes() patched to call loadThemes(), generateThemes() replaced with DB-backed version, button fixed, localStorage removed
+- meridian.html: JS syntax error preventing script from loading beyond char ~116k — NOT YET FIXED
+- Investigated Economist chart/map capture — FULLY FEASIBLE:
+  - Charts are static PNGs in <figure> elements with <figcaption> "Chart: The Economist" / "Map: The Economist"
+  - Playwright element.screenshot() captures them cleanly (confirmed on Iran article, 4 figures)
+  - Image src URLs available directly from CDN (content-assets/images/*.png)
+  - Designed article_images DB table and two-pass brief relevance selection logic
+- Cleaned up temp files and old patch files from repo
 
 ### 30 March 2026 (Session 24)
 - Key Themes: async generation fixed (job polling pattern for kt/generate and kt/brief)
-- Key Themes: article grid raised from 20 to 100, sort fixed (proper Date comparison, pub_date fallback to saved_at)
-- Key Themes: title-matching added to getThemeArticles (catches title_only FA articles with no tags)
-- Key Themes: source article counts shown in meta (e.g. "89: Economist (43), FT (32)")
-- Key Themes: interviews now included in theme matching and generation payload
-- Key Themes: Print/Save PDF button added to brief modal
+- Key Themes: article grid raised from 20 to 100, sort fixed
+- Key Themes: title-matching, interviews included, PDF print button added
 - Key Themes: fact card title boxes fixed to consistent height (68px, bottom-aligned)
-- pub_date normalisation: 167 Mac DB rows + VPS rows fixed from ISO timestamps to YYYY-MM-DD
-- pub_date fix applied to fetch_ft_article_text, fetch_bloomberg_article_text, fetch_fa_article_text
-- Feed date display: no longer shows today's date as fallback for articles with no pub_date
-- Designed incremental Key Themes architecture (article_theme_tags, kt_themes, kt_meta tables) — build next session
-- Session start: only one Chrome window needed; extension connects automatically
+- pub_date normalisation: 167 Mac DB rows fixed
+- Designed incremental Key Themes architecture
 
 ### 30 March 2026 (Session 23)
-- Fixed Key Themes end-to-end: generateThemes() and generateBrief() now route through Flask (/api/kt/generate, /api/kt/brief) instead of calling Anthropic directly
-- Fixed multiple syntax errors in server.py kt_generate/kt_brief functions (literal newlines inside string literals from last session)
-- Root cause of timeout: JS was sending full article objects (megabytes) — fixed to send only lightweight fields (title, topic, tags, status)
-- Root cause of remaining timeout: Anthropic API call with 483 articles + max_tokens:8000 takes 60-120s — fixed with async job pattern
-- kt_generate now returns job_id immediately; JS polls /api/kt/generate/status/<job_id> every 3 seconds
-- Key Themes confirmed working: 10 themes generated from 483 articles ✅
-- Lesson: any Anthropic API call >30s must use async job pattern on VPS (fire thread, return job_id, poll for result)
-- Session start: Claude in Chrome extension v1.0.64 connects automatically — no manual Connect click needed
-- Two Chrome windows caused MCP confusion — keep only one Chrome window open per session
-- Filesystem MCP crashes when reading large files (3000+ line HTML) — use shell endpoint for large file ops
+- Fixed Key Themes end-to-end: generateThemes() and generateBrief() route through Flask
+- Async job pattern confirmed working for long Anthropic API calls
+- Key Themes confirmed working: 10 themes from 483 articles ✅
 
 ### 29 March 2026 (Session 22)
 - Designed and built Key Themes feature end-to-end
-- Folder tab switcher: News Feed (orange, raised) / Key Themes (recessed behind) with continuous dark ink divider line
-- Switcher inserted between masthead and server bar — CSS uses border-bottom on #folder-switcher, active tab uses matching border-bottom colour to erase the line beneath it
-- Key Themes JS: switchMode(), renderKeyThemes(), renderThemeGrid(), selectTheme(), renderThemeDetail(), renderSubtopicDetail(), toggleSubtopic(), generateThemes(), generateBrief(), generateBrief()
-- Theme grid: 5x2, emoji+name+article count, click selects/dims others, downward arrow indicator
-- Theme detail: eyebrow, title, meta, Short Brief / Full Brief buttons, AI Overview panel, Key Facts 5x2 grid, sub-topics pills with dark inline panel, article grid with sort
-- Brief modal: amber exec summary panel, markdown-to-HTML rendering
-- Themes cached in localStorage('meridian_themes_v1'), Regenerate button clears it
-- Article drill-down: clicking article in Key Themes switches back to News Feed and opens it
-- Added /api/kt/generate and /api/kt/brief to server.py — both use call_anthropic() server-side
-- INCOMPLETE: JS still calls api.anthropic.com directly — Flask routing patch did not apply due to Filesystem MCP instability and extension blocking shell output. Fix next session.
-- Tooling issues this session: Filesystem MCP went down twice; Chrome extension blocked shell output containing certain keywords (folder, fetch etc)
+- Folder tab switcher, theme grid, theme detail, brief modal
+- Added /api/kt/generate and /api/kt/brief to server.py
 
 ### 29 March 2026 (Session 21)
-- Added tally bar below nav tabs: My saves / AI picks / Total (hidden on mobile)
-- Expanded activity bar from 2 sources (FT, Economist) to 5 (FT, Economist, FA, Bloomberg, FP)
-- Both bars populated by updateActivityBar() which runs on load and every 5 minutes
-- Browser localStorage caching requires `localStorage.clear() + SW unregister + reload` to pick up new HTML — now done autonomously via javascript_tool on the meridianreader.com MCP tab
-- Confirmed autonomous workflow: verify by querying DOM/API → fix → screenshot confirm, no user input needed
-- Enrichment progress: 246 title_only Economist bookmarks being enriched in background (~10s/article)
+- Added tally bar and expanded activity bar to 5 sources
+- Confirmed autonomous workflow
 
 ### 29 March 2026 (Session 20)
-- Fixed junk URL filter bug: was calling is_junk(url, url) so title prefix checks never ran
-- Raised article feed limit from 200 to 500 to prevent bookmarks being cut off
-- Persistent Cuba article traced to browser localStorage cache (not DB) — fixed by clearing localStorage via JS autonomously
-- Lesson: verify issues by querying DOM/API directly rather than asking user to check
-- Added autonomous verification pattern: check DOM → check API → fix → screenshot confirm
+- Fixed junk URL filter bug
+- Raised article feed limit to 500
+- Added autonomous verification pattern
 
 ### 29 March 2026 (Session 19)
-- Economist scraper: switched to two-step pull (bookmarks = auto_saved=0, homepage agent picks = auto_saved=1 scored >=8)
-- Fixed Economist bookmark title extraction: <a> is inside <h3> so anchor text IS the title
-- Added section label blocklist (Finance & economics, Schumpeter etc.) to prevent column names being saved as titles
-- Added URL junk filter (/podcasts/, /newsletters/, /films/ etc.)
-- Accidentally deleted all Economist articles (auto_saved=0) assuming they were homepage scrapes
-- Wrote recover_economist_bookmarks.py to re-scrape full bookmarks page with Load More
-- Recovered 246 real bookmark articles (+ 4 agent picks) and pushed all 250 to VPS
-- Score window widened 24h -> 48h in score_and_autosave_new_articles to prevent articles falling through gap
-- Mac Flask restart: kill PID + launchctl load (pkill pattern didn't match)
-- Cleaned wipe_vps_economist.py helper script (scp to VPS and run)
+- Economist scraper: two-step pull (bookmarks + homepage agent picks)
+- Recovered 246 Economist bookmark articles after accidental deletion
 
 ### 29 March 2026 (Session 18)
-- Economist junk filter: added prefix blocklist for newsletter digests (War Room, Blighty, US in Brief, Espresso etc.)
-- Push logic fixed: wake_and_sync.sh now only pushes FA (all) + FT/Economist auto_saved=1 to VPS
-- Cleaned up 5 junk Economist newsletter articles already on VPS
-- Documented autonomous mode setup in NOTES.md (Claude in Chrome + shell endpoint + Meridian tab)
+- Economist junk filter improved
+- Push logic fixed for wake_and_sync.sh
+- Documented autonomous mode setup
 
 ### 28 March 2026 (Session 17)
-- Root cause: Mac-scraped articles go to Mac DB only; VPS has separate DB and never saw them
-- Fix: added POST /api/push-articles endpoint — receives batch of articles, upserts them, triggers scoring
-- Fix: wake_and_sync.sh now pushes articles saved in last 3h to VPS after every sync
-- Manual backfill: pushed 22 articles (FT/Economist/FA last 24h) to VPS immediately
-- VPS now has Economist articles up to 27 Mar; will have 28 Mar after next Mac sync at 17:40 CEST
-- Auto-scoring ran on push: 9/20 + 2/11 articles auto-saved with ✔ Auto badge
-- Good scores: Autonomous swarms (8), Growing divide America/Israel (9), Christine Lagarde (8), Stocks slump (9)
+- Fixed Mac→VPS sync: push-articles endpoint + wake_and_sync.sh
 
 ### 28 March 2026 (Session 16)
-- Newsletters fixed: added /newsletters location block to nginx on VPS (was 404 — only /api/ was proxied)
-- Auto-tagged FT/Economist articles fixed: added score_and_autosave_new_articles() function
-  - Scores recently-added FT/Economist articles from main articles table (not just suggested_articles)
-  - Runs automatically after every Mac Sync All via _enrich_after_sync()
-  - Uses claude-haiku in batches of 20, marks best articles (score ≥8) as auto_saved=1
-  - New route: POST /api/agent/score-new?hours=N for manual backfill
-  - Backfill run: 23/45 FT/Economist articles from last 7 days auto-saved
-- Economist filter: confirmed working — 85/86 articles in frontend with correct dates
+- Newsletters fixed on VPS (nginx config)
+- score_and_autosave_new_articles() added
 
 ### 28 March 2026 (Session 15)
-- Shell endpoint added to server.py: POST /api/dev/shell (localhost only) — Claude can deploy autonomously
-- Mobile PWA gap fixed: clean rewrite of mobile CSS, removed all conflicting rules
-- Pull-to-refresh removed entirely (was causing layout gap)
-- Mobile filter bar added below nav tabs: Source / Time period / Curation
-- iPhone masthead fix: tagline+date hidden, flex-wrap:nowrap
-- Debug overlay removed
-- feed-header-outer: filters moved outside feed-area in HTML to avoid layout-flow gap
+- Shell endpoint added (autonomous deployment unlocked)
+- Mobile PWA gap fixed
 
 ### 28 March 2026 (Session 14)
-- Mobile PWA overhaul: fixed header using `position: fixed` (not sticky — Safari iPad bug)
-- `pointer: coarse` media query targets touch devices regardless of screen size/orientation
-- Activity bar hidden on mobile; compact 🔄 Sync button added to server bar instead
-- + Add Article button hidden on mobile (reading-focused use case)
-- Pull-to-refresh gesture implemented (touchstart/move/end, 60px threshold)
-- Service worker updated: always network-first for meridian.html (never serve stale)
-- Service worker cache bumped to v4
-- Economist pub_date fixes: 24 articles corrected using URL regex `/YYYY/MM/DD/`
-- AI enrichment fixed: no longer overwrites URL-extracted pub_dates
-- enrich_title_only_articles() fixed: now uses headless=False for Economist (was headless=True → 0/19 enriched)
-- Breakpoint: `@media (max-width: 1400px) and (pointer: coarse)` — catches iPhone + iPad all orientations
-- Mobile typography improvements: larger titles, better line-height, safe-area padding
-- Modals slide up from bottom on mobile (iOS sheet style)
+- Mobile PWA overhaul
+- Economist pub_date fixes
+- enrich_title_only_articles() fixed for headless=False
 
 ### 28 March 2026 (Session 13)
-- Economist scraper completely overhauled: switched from bookmarks to homepage scraping
-- headless=False added to bypass Cloudflare challenge page
-- economist_profile/ persistent session (no daily login needed)
-- Claude title scoring added BEFORE fetching any articles: collect titles → score → only open articles scoring 6+
-- Explicit scoring bands in prompt (8-10 geopolitics/finance, 5-7 business/tech, 0-4 lifestyle/health/science)
-- Removed early-exit on first existing article: now checks ALL homepage articles for new ones
-- Articles saved as title_only (not fetched inline), enriched by enrich_title_only_articles() on next Mac sync
-- call_anthropic() fixed: ensure_ascii=False + encode('utf-8') — fixes 400 errors from curly apostrophes
-- Cleaned up ~32 bad Economist articles from DB (section labels, title_only with no body)
-- Anthropic API credits exhausted mid-session — Mac API key depleted, VPS unaffected
-- Confirmed working end-to-end: 15/21 homepage articles scored 6+, 6 filtered out, 8 saved
-- mlog helper confirmed working: mlog <command> writes output to vps_last_log.txt for Claude to read
+- Economist scraper completely overhauled
 
-### 28 March 2026 (Session 12)
-- Auto badge (✦ Auto orange pill) on agent-saved articles — implemented and live
-- Curation filter (All / My saves / AI suggested) in Feed — implemented and live
-- Delete feedback toast for AI-saved articles — implemented and live
-- Suggested refresh + agent added to VPS scheduler (runs every 6h automatically, Mac not required)
-- sync_now.py and meridian_sync.py now call enrich_title_only_articles() after sync
-- Activity bar cleaned up: removed individual FT/Economist/FA/Newsletters/Reload buttons
-- Suggested tab: ↻ Refresh renamed to 🔍 Find Articles, Run Agent button removed
-- VPS credentials.json updated with correct Anthropic API key (was expired/truncated)
-- Suggested URL dedup fixed: normalise_url() strips query params before dedup check
-- Missing pub_date on suggested cards now shows today's date as fallback
-- vps_last_log.txt added to .gitignore
-- Terminal bracket paste mode fixed: printf '\e[?2004l'
-- Diagnosed VPS log reading pattern: ssh root@... "journalctl -u meridian --since '10 minutes ago'" > ~/meridian-server/vps_last_log.txt
+### 28 March 2026 (Sessions 12-8)
+- Auto badge, curation filter, agent feedback
+- VPS scheduler, Bloomberg clip button
+- iPad PWA, autonomous reading agent
 
-### 27 March 2026 (Session 11)
-- Investigated auto_saved badge issue: confirmed auto_saved=0 in all frontend article objects, status=agent=1 (1 article). Root cause: auto_saved not mapped in loadFromServer()
-- Bloomberg clip button deployed and verified
-- Three features (auto badge, curation filter, delete feedback) diagnosed and fully specced
-
-### 27 March 2026 (Session 10)
-- Auto NOTES.md update: handled directly by Claude via filesystem MCP at session end
-- Bloomberg clip button: '📎 Clip Bloomberg (N)' appears in activity bar when Bloomberg title-only articles exist
-- updateClipBloombergBtn() hooked into renderAll() so visibility updates automatically
-
-### 27 March 2026 (Session 9)
-- Filesystem MCP confirmed working in Claude Desktop — direct file read/write, no more heredoc patches
-- Code review: identified 11 issues across server.py
-- Credentials caching: load_creds() now checks mtime, avoids 20+ disk reads per scrape
-- call_anthropic() shared helper: single place for all Anthropic API calls with 429 retry
-- enrich_article_with_ai() refactored to use call_anthropic()
-- FT Suggested scoring bug fixed: agentic loop fallback now scores and returns Playwright articles
-- syncSource() fixed: replaced 20s fixed wait with proper polling
-- Server status panel: now shows 'meridianreader.com · connected'
-- deploy.sh created: single command git add/commit/push + SSH pull + systemctl restart
-- Economist scraper fixed: login detection, locator() fix, better title extraction
-- Bulk status fix: 19 articles incorrectly stuck as title_only — patched to full_text
-
-### 27 March 2026 (Session 8)
-- Claude Code installed
-- iPad PWA: manifest.json + sw.js created
-- ↻ Refresh button added to header
-- ✦ Preview button on Suggested cards
-- Autonomous reading agent: run_agent(), agent_log, agent_feedback tables
-- Playwright VPS migration attempted — VPS IP blocked by FT/FA/Economist, scrapers remain on Mac
-- Filesystem MCP server configured in Claude Desktop
-
-### 26 March 2026 (Session 7)
-- Purchased meridianreader.com, DNS, SSL via Certbot
-- Meridian now live at https://meridianreader.com/meridian.html
-
-### 26 March 2026 (Session 6)
-- GitHub repo created, Hetzner VPS provisioned
-- Flask migrated to VPS as systemd service, nginx installed
-
-### 26 March 2026 (Sessions 1-5)
-- Interviews & Briefings tab, Suggested Articles, Title-only enrichment
-- Newsletter pipeline (iCloud IMAP), Bloomberg removed
-
-### 24-25 March 2026
-- FT sync overhauled, Economist selector fixed, Foreign Affairs scraper added
-- Per-source sync buttons, Sync All, AI Analysis panel
+### 26-27 March 2026 (Sessions 1-7)
+- meridianreader.com live, VPS, GitHub, all core features built
 
 ## GitHub Visibility
 - Repo is currently PUBLIC: github.com/dakersalex/meridian-server
@@ -705,18 +591,11 @@ Every Regenerate re-analyses all 493 articles from scratch — expensive, slow (
 Copy and paste this at the start of each Claude session:
 
 ---
-You are helping me build and maintain Meridian, my personal news aggregator.
-Here are my technical notes with full context:
-
-[PASTE NOTES.md HERE]
-
-The codebase is on GitHub at github.com/dakersalex/meridian-server (public).
-The live app runs at https://meridianreader.com/meridian.html
-
-Please review the notes and confirm what we should work on today.
+You are helping me build Meridian, my personal news aggregator. Please read my technical notes from the Filesystem MCP at /Users/alexdakers/meridian-server/NOTES.md and review them. Then run the session start health check.
 ---
 
 **Note for Claude reading this:** At the start of every session you must:
-1. Remind the user to click Connect on the Claude in Chrome extension if not already done
-2. Run the session start health check once the shell endpoint is reachable
-3. Report the health check results before asking what to work on
+1. Read NOTES.md via Filesystem MCP (path above) — do NOT try to fetch from GitHub URL (blocked)
+2. Run the session start health check via shell endpoint once Flask is confirmed up
+3. Report health check results before asking what to work on
+4. The health check should now include /api/kt/status to show KT seed state
