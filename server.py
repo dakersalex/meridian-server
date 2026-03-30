@@ -2419,20 +2419,19 @@ def kt_seed():
             theme_prompt = (
                 "You are an intelligence analyst. Analyse these article titles and identify exactly 10 "
                 "dominant intelligence themes.\n\n"
-                "For each theme produce a JSON object with:\n"
+                "For each theme produce a JSON object with ONLY these fields:\n"
                 "- name (3-6 words)\n"
                 "- emoji (single emoji)\n"
                 "- keywords (array of 8-12 keywords)\n"
                 "- overview (2-3 sentences)\n"
-                "- key_facts (array of 10 objects: {title, body} — use **bold** for stats in body)\n"
-                "- subtopics (array of 5-7 strings)\n"
-                "- subtopic_details (object: subtopic -> array of 4-6 bullet strings)\n\n"
+                "- subtopics (array of 5-7 strings)\n\n"
+                "Do NOT include key_facts or subtopic_details — these are generated later on demand.\n\n"
                 "Return ONLY a valid JSON array of 10 theme objects. No markdown, no preamble.\n\n"
                 "ARTICLES:\n" + ctx
             )
             resp1 = call_anthropic({
                 "model": "claude-sonnet-4-20250514",
-                "max_tokens": 8000,
+                "max_tokens": 4000,
                 "messages": [{"role": "user", "content": theme_prompt}]
             }, timeout=180, retries=2)
             raw1 = resp1["content"][0]["text"].strip()
