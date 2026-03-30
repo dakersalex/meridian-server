@@ -2269,82 +2269,83 @@ def kt_generate_status(job_id):
         return jsonify({"error": "unknown job"}), 404
     return jsonify(job)
 
+_kt_brief_jobs = {}
+
 @app.route("/api/kt/brief", methods=["POST"])
 def kt_brief():
-    """Generate a short or full intelligence brief for a Key Theme."""
+    """Start async brief generation. Returns job_id immediately."""
+    import uuid
     data = request.json or {}
     theme = data.get("theme", {})
     articles = data.get("articles", [])
-    brief_type = data.get("type", "short")  # 'short' or 'full'
+    brief_type = data.get("type", "short")
+    if not theme:
+        return jsonify({"error": "no theme"}), 400
 
-    art_context = "\n\n---\n\n".join(
-        f"SOURCE: {a.get('source','')}\nTITLE: {a.get('title','')}\nSUMMARY: {a.get('summary','')}"
-        for a in articles
-        if a.get('summary')
-    )
+    job_id = str(uuid.uuid4())[:8]
+    _kt_brief_jobs[job_id] = {"status": "running", "brief": None, "error": None}
 
-    name = theme.get("name", "")
-    emoji = theme.get("emoji", "")
-    subtopics = theme.get("subtopics", [])
+    def _run():
+        try:
+            art_context = "\n\n---\n\n".join(
+                "SOURCE: " + a.get("source", "") + "\nTITLE: " + a.get("title", "") + "\nSUMMARY: " + a.get("summary", "")
+                for a in articles
+                if a.get("summary")
+            )
+            name = theme.get("name", "")
+            emoji = theme.get("emoji", "")
+            subtopics = theme.get("subtopics", [])
 
-    if brief_type == "short":
-        prompt = f"""You are a senior intelligence analyst. Write a concise intelligence brief on the theme "{name}" based on the articles below.
+            if brief_type == "short":
+                prompt = (
+                    "You are a senior intelligence analyst. Write a concise intelligence brief on the theme \"" + name + "\" based on the articles below.\n\n"
+                    "Structure:\n## Executive Summary\n[2-3 sentences overview]\n\n"
+                    "## Key Developments\n[5-7 bullet points]\n\n"
+                    "## Strategic Implications\n[2-3 paragraphs]\n\n"
+                    "## Watch List\n[3-5 things to watch]\n\n"
+                    "ARTICLES:\n" + art_context
+                )
+                max_tokens = 1500
+            else:
+                subtopic_sections = "\n\n".join(
+                    "## " + st + "\n[2-3 paragraphs of analytical prose]"
+                    for st in subtopics
+                )
+                prompt = (
+                    "You are a senior intelligence analyst. Write a comprehensive intelligence brief on \"" + name + "\".\n\n"
+                    "Structure:\n## " + emoji + " " + name + " — Intelligence Brief\n\n"
+                    "## Executive Summary\n[3-4 sentences]\n\n"
+                    + subtopic_sections + "\n\n"
+                    "## Cross-cutting Themes\n[overarching patterns]\n\n"
+                    "## Strategic Implications\n[forward-looking analysis]\n\n"
+                    "## Source Notes\n[brief note on sources]\n\n"
+                    "ARTICLES:\n" + art_context
+                )
+                max_tokens = 4000
 
-Structure:
-## Executive Summary
-[2-3 sentences overview]
+            resp = call_anthropic({
+                "model": "claude-sonnet-4-20250514",
+                "max_tokens": max_tokens,
+                "messages": [{"role": "user", "content": prompt}]
+            }, timeout=180, retries=1)
+            text = resp["content"][0]["text"]
+            _kt_brief_jobs[job_id] = {"status": "done", "brief": text, "error": None}
+            log.info(f"kt_brief job {job_id}: done")
+        except Exception as e:
+            log.error(f"kt_brief job {job_id} error: {e}")
+            _kt_brief_jobs[job_id] = {"status": "error", "brief": None, "error": str(e)}
 
-## Key Developments
-[5-7 bullet points with the most important recent developments]
+    threading.Thread(target=_run, daemon=True).start()
+    return jsonify({"ok": True, "job_id": job_id})
 
-## Strategic Implications
-[2-3 paragraphs on what this means geopolitically and economically]
+@app.route("/api/kt/brief/status/<job_id>", methods=["GET"])
+def kt_brief_status(job_id):
+    """Poll for async kt/brief job result."""
+    job = _kt_brief_jobs.get(job_id)
+    if not job:
+        return jsonify({"error": "unknown job"}), 404
+    return jsonify(job)
 
-## Watch List
-[3-5 things to watch in coming weeks]
-
-ARTICLES:
-{art_context}"""
-        max_tokens = 1500
-    else:
-        subtopic_sections = "\n\n".join(
-            f"## {st}\n[2-3 paragraphs of analytical prose on this sub-topic]"
-            for st in subtopics
-        )
-        prompt = f"""You are a senior intelligence analyst. Write a comprehensive full intelligence brief on the theme "{name}".
-
-Structure:
-## {emoji} {name} — Intelligence Brief
-
-## Executive Summary
-[3-4 sentences]
-
-{subtopic_sections}
-
-## Cross-cutting Themes
-[Analysis of overarching patterns]
-
-## Strategic Implications
-[Forward-looking analysis]
-
-## Source Notes
-[Brief note on sources used]
-
-ARTICLES:
-{art_context}"""
-        max_tokens = 4000
-
-    try:
-        resp = call_anthropic({
-            "model": "claude-sonnet-4-20250514",
-            "max_tokens": max_tokens,
-            "messages": [{"role": "user", "content": prompt}]
-        }, timeout=120, retries=2)
-        text = resp["content"][0]["text"]
-        return jsonify({"ok": True, "brief": text})
-    except Exception as e:
-        log.error(f"kt_brief error: {e}")
-        return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
     init_db()

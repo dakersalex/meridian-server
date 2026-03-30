@@ -3290,14 +3290,28 @@ ARTICLES:
 ${artContext}`;
 
   try {
-    const resp = await fetch(SERVER + '/api/kt/brief', {
+    const startResp = await fetch(SERVER + '/api/kt/brief', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ theme, articles: themeArts, type })
     });
-    const data = await resp.json();
-    if (data.error) throw new Error(data.error);
-    const text = data.brief;
+    const startData = await startResp.json();
+    if (startData.error) throw new Error(startData.error);
+    const jobId = startData.job_id;
+    // Poll for result every 3 seconds (up to 3 minutes)
+    const text = await new Promise((resolve, reject) => {
+      let attempts = 0;
+      const poll = setInterval(async () => {
+        attempts++;
+        if (attempts > 60) { clearInterval(poll); reject(new Error('Brief timed out')); return; }
+        try {
+          const r = await fetch(SERVER + '/api/kt/brief/status/' + jobId, {cache:'no-store'});
+          const d = await r.json();
+          if (d.status === 'done') { clearInterval(poll); resolve(d.brief); }
+          else if (d.status === 'error') { clearInterval(poll); reject(new Error(d.error || 'Brief failed')); }
+        } catch(e) { clearInterval(poll); reject(e); }
+      }, 3000);
+    });
 
     // Simple markdown to HTML
     let html = text
