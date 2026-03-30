@@ -636,12 +636,17 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
   background: var(--paper-2);
   padding: 10px 12px;
   border-bottom: 1px solid var(--rule);
+  min-height: 62px;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
 }
 .kt-fact-num {
   font-size: 11px;
   font-weight: 600;
   color: var(--accent);
   margin-bottom: 2px;
+  flex-shrink: 0;
 }
 .kt-fact-title {
   font-size: 12px;
@@ -655,6 +660,10 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
   font-size: 11px;
   line-height: 1.55;
   color: var(--ink-2);
+}
+.kt-fact-bottom strong, .kt-fact-bottom b {
+  color: var(--ink);
+  font-weight: 600;
 }
 
 /* Sub-topics */
@@ -3040,7 +3049,7 @@ function renderThemeDetail(idx, themeArts) {
         <div class="kt-fact-num">${String(i+1).padStart(2,'0')}</div>
         <div class="kt-fact-title">${f.title || f}</div>
       </div>
-      <div class="kt-fact-bottom">${f.body || ''}</div>
+      <div class="kt-fact-bottom">${(f.body || '').replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')}</div>
     </div>`).join('');
 
   const subtopics = theme.subtopics || [];
