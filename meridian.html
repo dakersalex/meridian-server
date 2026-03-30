@@ -396,6 +396,7 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
   height: 34px;
   z-index: 3;
   position: relative;
+  border-bottom: 2.5px solid var(--accent);
   box-shadow: -2px -3px 5px rgba(0,0,0,0.18), 2px -3px 5px rgba(0,0,0,0.10);
 }
 .folder-tab-themes {
@@ -405,6 +406,7 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
   z-index: 1;
   position: relative;
   margin-left: 2px;
+  border-bottom: none;
   box-shadow: 1px -2px 3px rgba(0,0,0,0.08);
 }
 .folder-tab-themes.active {
@@ -412,6 +414,7 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
   color: var(--paper);
   height: 34px;
   z-index: 3;
+  border-bottom: 2.5px solid var(--accent);
   box-shadow: -2px -3px 5px rgba(0,0,0,0.18), 2px -3px 5px rgba(0,0,0,0.10);
 }
 .folder-tab-newsfeed.inactive {
@@ -419,6 +422,7 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
   color: var(--ink-3);
   height: 28px;
   z-index: 1;
+  border-bottom: none;
   box-shadow: 1px -2px 3px rgba(0,0,0,0.08);
 }
 .folder-spacer { flex: 1; }
@@ -3190,19 +3194,14 @@ ARTICLES:
 ${artContext}`;
 
   try {
-    const resp = await fetch(SERVER + '/api/claude', {
+    const resp = await fetch(SERVER + '/api/kt/generate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 8000,
-        messages: [{ role: 'user', content: prompt }]
-      })
+      body: JSON.stringify({ articles })
     });
     const data = await resp.json();
-    const raw = data.content[0].text.trim();
-    const cleaned = raw.replace(/^```json\n?/, '').replace(/^```\n?/, '').replace(/\n?```$/, '').trim();
-    ktThemes = JSON.parse(cleaned);
+    if (data.error) throw new Error(data.error);
+    ktThemes = data.themes;
     localStorage.setItem('meridian_themes_v1', JSON.stringify(ktThemes));
     ktSelectedIdx = null;
     renderThemeGrid();
@@ -3271,17 +3270,14 @@ ARTICLES:
 ${artContext}`;
 
   try {
-    const resp = await fetch(SERVER + '/api/claude', {
+    const resp = await fetch(SERVER + '/api/kt/brief', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: isShort ? 1500 : 4000,
-        messages: [{ role: 'user', content: prompt }]
-      })
+      body: JSON.stringify({ theme, articles: themeArts, type })
     });
     const data = await resp.json();
-    const text = data.content[0].text;
+    if (data.error) throw new Error(data.error);
+    const text = data.brief;
 
     // Simple markdown to HTML
     let html = text

@@ -2203,6 +2203,134 @@ def sync_newsletters_route():
     ).start()
     return jsonify({"ok": True, "started": True})
 
+
+@app.route("/api/kt/generate", methods=["POST"])
+def kt_generate():
+    """Generate Key Themes from article titles+tags via Claude."""
+    data = request.json or {}
+    articles = data.get("articles", [])
+    if not articles:
+        return jsonify({"error": "no articles"}), 400
+
+    art_context = "\n".join(
+        f"- {a.get('title','')}"
+        + (f" [{a.get('topic','')}]" if a.get('topic') else "")
+        + (f" ({', '.join(a.get('tags',[]))})" if a.get('tags') else "")
+        for a in articles[:400]
+        if a.get('title') and a.get('status') != 'title_only'
+    )
+
+    prompt = f"""You are an intelligence analyst. Below are article titles with topics and tags from a personal news aggregator focused on geopolitics, finance, and international affairs.
+
+Analyse these and identify exactly 10 dominant intelligence themes. For each theme produce:
+- name: Short punchy theme name (3-6 words)
+- emoji: One relevant emoji
+- keywords: Array of 8-12 keywords for matching articles
+- overview: 2-3 sentence analytical overview paragraph
+- key_facts: Array of 10 objects with {{ title: string (5-10 words), body: string (1-2 sentences with bold statistics where possible) }}
+- subtopics: Array of 5-7 sub-topic strings
+- subtopic_details: Object mapping subtopic name to array of 4-6 bullet point strings
+
+Return ONLY valid JSON array of 10 theme objects. No markdown, no preamble.
+
+ARTICLES:
+{art_context}"""
+
+    try:
+        resp = call_anthropic({
+            "model": "claude-sonnet-4-20250514",
+            "max_tokens": 8000,
+            "messages": [{"role": "user", "content": prompt}]
+        }, timeout=120, retries=2)
+        raw = resp["content"][0]["text"].strip()
+        # strip markdown fences if present
+        if raw.startswith("```"):
+            raw = raw.split("\n", 1)[1] if "\n" in raw else raw
+            raw = raw.rsplit("```", 1)[0]
+        themes = json.loads(raw)
+        return jsonify({"ok": True, "themes": themes})
+    except Exception as e:
+        log.error(f"kt_generate error: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/kt/brief", methods=["POST"])
+def kt_brief():
+    """Generate a short or full intelligence brief for a Key Theme."""
+    data = request.json or {}
+    theme = data.get("theme", {})
+    articles = data.get("articles", [])
+    brief_type = data.get("type", "short")  # 'short' or 'full'
+
+    art_context = "\n\n---\n\n".join(
+        f"SOURCE: {a.get('source','')}\nTITLE: {a.get('title','')}\nSUMMARY: {a.get('summary','')}"
+        for a in articles
+        if a.get('summary')
+    )
+
+    name = theme.get("name", "")
+    emoji = theme.get("emoji", "")
+    subtopics = theme.get("subtopics", [])
+
+    if brief_type == "short":
+        prompt = f"""You are a senior intelligence analyst. Write a concise intelligence brief on the theme "{name}" based on the articles below.
+
+Structure:
+## Executive Summary
+[2-3 sentences overview]
+
+## Key Developments
+[5-7 bullet points with the most important recent developments]
+
+## Strategic Implications
+[2-3 paragraphs on what this means geopolitically and economically]
+
+## Watch List
+[3-5 things to watch in coming weeks]
+
+ARTICLES:
+{art_context}"""
+        max_tokens = 1500
+    else:
+        subtopic_sections = "\n\n".join(
+            f"## {st}\n[2-3 paragraphs of analytical prose on this sub-topic]"
+            for st in subtopics
+        )
+        prompt = f"""You are a senior intelligence analyst. Write a comprehensive full intelligence brief on the theme "{name}".
+
+Structure:
+## {emoji} {name} — Intelligence Brief
+
+## Executive Summary
+[3-4 sentences]
+
+{subtopic_sections}
+
+## Cross-cutting Themes
+[Analysis of overarching patterns]
+
+## Strategic Implications
+[Forward-looking analysis]
+
+## Source Notes
+[Brief note on sources used]
+
+ARTICLES:
+{art_context}"""
+        max_tokens = 4000
+
+    try:
+        resp = call_anthropic({
+            "model": "claude-sonnet-4-20250514",
+            "max_tokens": max_tokens,
+            "messages": [{"role": "user", "content": prompt}]
+        }, timeout=120, retries=2)
+        text = resp["content"][0]["text"]
+        return jsonify({"ok": True, "brief": text})
+    except Exception as e:
+        log.error(f"kt_brief error: {e}")
+        return jsonify({"error": str(e)}), 500
+
 if __name__ == "__main__":
     init_db()
     interval = float(os.environ.get("SYNC_INTERVAL_HOURS","6"))
