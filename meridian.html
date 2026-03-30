@@ -2985,7 +2985,7 @@ function renderKeyThemes() {
   const body = document.getElementById('kt-body');
   // Load from cache if not already in memory
   if (!ktThemes) {
-    const cached = localStorage.getItem('meridian_themes_v1');
+    const cached = /* KT localStorage removed: /* KT localStorage removed: localStorage.getItem('meridian_themes_v1') */ */;
     if (cached) {
       try { ktThemes = JSON.parse(cached); } catch(e) { ktThemes = null; }
     }
@@ -3038,7 +3038,7 @@ function renderThemeGrid() {
         <div class="kt-header-title">Intelligence Themes</div>
         <div class="kt-header-sub">${articles.length} articles across ${ktThemes.length} themes</div>
       </div>
-      <button class="kt-regenerate-btn" onclick="generateThemes(true)">↻ Regenerate</button>
+      <button class="kt-regenerate-btn" onclick="generateThemes(true)">↻ ↺ Reset Themes Themes Themes</button>
     </div>
     <div class="kt-grid">${gridHTML}</div>
     ${detailHTML}`;
@@ -3229,11 +3229,11 @@ function getThemeArticles(idx) {
   return [...matchedArticles, ...matchedInterviews];
 }
 
-async function generateThemes(forceRegenerate) {
+async function generateThemes(force↺ Reset Themes) {
   if (forceRegenerate) {
     ktThemes = null;
     ktSelectedIdx = null;
-    localStorage.removeItem('meridian_themes_v1');
+    /* KT localStorage removed: /* KT localStorage removed: localStorage.removeItem('meridian_themes_v1') */ */;
   }
   const body = document.getElementById('kt-body');
   body.innerHTML = `<div class="kt-loading-state"><div class="spinner"></div> Analysing ${articles.length} articles… this takes about 20 seconds.</div>`;
@@ -3297,7 +3297,7 @@ ${artContext}`;
       }, 3000);
     });
     ktThemes = themes;
-    localStorage.setItem('meridian_themes_v1', JSON.stringify(ktThemes));
+    /* KT localStorage removed: /* KT localStorage removed: localStorage.setItem('meridian_themes_v1' */ */, JSON.stringify(ktThemes));
     ktSelectedIdx = null;
     renderThemeGrid();
   } catch(e) {

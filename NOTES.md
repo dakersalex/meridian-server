@@ -387,10 +387,38 @@ then navigate Tab B to the live site if it isn't already there.
 - Retention: 7 days
 
 ## Next Steps
-1. **Key Themes incremental architecture** — see design spec below. Build next session.
+1. **KT HTML patch** — `continue KT HTML patch` in next session. See current state below.
 2. Clean up temporary patch files from repo (patch_kt_async.py, kt_new_code.txt, patch_kt_brief_async.py)
 3. PWA icons — proper 192×192 and 512×512 instead of placeholders
 4. Newsletter auto-sync — newsletter_sync.py is gitignored (has credentials), so VPS can't auto-sync
+
+## KT Incremental Architecture — Current Build State (Session 25)
+
+### What is complete ✅
+- server.py: all 3 DB tables created in init_db():
+  - `kt_themes` — stores 10 current themes (name, emoji, keywords, overview, key_facts, subtopics, article_count, last_updated)
+  - `article_theme_tags` — maps article_id → theme_name (set once, never re-processed)
+  - `kt_meta` — stores last_tagged_at, article_count_at_last_tag
+- server.py routes all working and tested locally:
+  - POST /api/kt/seed — seeds all untagged articles in batches of 50, generates initial 10 themes
+  - GET /api/kt/themes — returns current themes from DB
+  - GET /api/kt/status — returns seeding progress, untagged count, last_tagged_at
+  - POST /api/kt/tag-new — tags only articles added since last_tagged_at (runs after each sync)
+  - POST /api/kt/evolve — weekly evolution: replaces weakest theme if a new one has 15+ articles
+- Flask running locally on Mac with all routes confirmed working
+
+### What still needs doing ⚠️
+- meridian.html: generateThemes() function is CORRUPTED — has bad parameter `forceRgenerate` (typo). Must fix.
+- meridian.html: full replacement of generateThemes() + Regenerate button with new loadThemes() + seedThemes() was NOT applied
+- The new JS flow should be:
+  1. `loadThemes()` — fetches from /api/kt/themes (instant, DB-backed). Called on switchMode('keythemes').
+  2. `seedThemes()` — calls /api/kt/seed with polling (only needed first time or on Reset)
+  3. Regenerate button → renamed to two buttons: "↻ Update" (calls /api/kt/tag-new) and "⟳ Reset" (calls /api/kt/seed)
+  4. Remove all localStorage theme caching — themes live in DB now
+- After HTML is fixed: deploy to VPS, run /api/kt/seed (takes ~5 min for 493 articles in batches of 50), verify end-to-end
+
+### Resume instruction
+Start next session with: **"continue KT HTML patch"**
 
 ## Key Themes — Incremental Architecture (Next Build)
 
@@ -469,6 +497,13 @@ Every Regenerate re-analyses all 493 articles from scratch — expensive, slow (
 - Article matching: each article matched to theme by comparing its tags against theme keywords
 
 ## Build History
+### 31 March 2026 (Session 25)
+- Built KT incremental architecture in server.py: kt_themes, article_theme_tags, kt_meta tables
+- Added routes: /api/kt/seed, /api/kt/themes, /api/kt/status, /api/kt/tag-new, /api/kt/evolve
+- All routes tested and working locally on Mac Flask
+- meridian.html NOT fully patched — generateThemes() has typo (forceRgenerate), loadThemes() replacement not applied
+- INCOMPLETE: resume next session with "continue KT HTML patch"
+
 ### 30 March 2026 (Session 24)
 - Key Themes: async generation fixed (job polling pattern for kt/generate and kt/brief)
 - Key Themes: article grid raised from 20 to 100, sort fixed (proper Date comparison, pub_date fallback to saved_at)
