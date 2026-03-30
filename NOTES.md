@@ -259,15 +259,11 @@ Two MCP servers run automatically in the background — you never start them man
 1. Run in Terminal: `cat ~/meridian-server/NOTES.md | pbcopy`
 2. Open claude.ai in Chrome and start a new chat
 3. Paste NOTES.md contents into the chat
-4. **Click the Claude in Chrome extension icon in the Chrome toolbar**
-   (red/orange asterisk icon, right of the address bar)
-5. **Click Connect in the popup** — this links the extension to this conversation
-   ⚠️ This step is required every new chat — without it Claude cannot run shell commands or deploy code
-6. The extension opens an MCP tab group (orange-outlined tabs labelled ✅ Claude (MCP))
-7. Claude runs the session start health check automatically and confirms it is ready
+4. The Claude in Chrome extension (v1.0.64+) connects automatically — no manual Connect click needed
+5. The extension opens an MCP tab group (orange-outlined tabs labelled ✅ Claude (MCP))
+6. Claude runs the session start health check automatically and confirms it is ready
 
-**Claude should prompt the user at session start:**
-> "Please click Connect on the Claude in Chrome extension (red/orange asterisk icon in your Chrome toolbar) if you haven't already — I need it to deploy code and run commands autonomously."
+**Important:** Keep only ONE Chrome window open per session. Two windows = two MCP tab groups = confusion about which tab Claude is controlling.
 
 ### If autonomous mode isn't working
 - Check the ✅ Claude (MCP) tab exists in Chrome — if missing, tell Claude and it will recreate it
@@ -389,7 +385,9 @@ then navigate Tab B to the live site if it isn't already there.
 - Retention: 7 days
 
 ## Next Steps
-1. **Key Themes JS routing fix** — generateThemes() and generateBrief() still call api.anthropic.com directly. Replace with SERVER + /api/kt/generate and SERVER + /api/kt/brief. Flask routes already in server.py. Do this FIRST.
+1. Test Key Themes theme detail — click a theme card and verify the detail section (overview, key facts, sub-topics, article grid) renders correctly
+2. Test Short Brief and Full Brief generation via kt/brief route
+3. Clean up temporary patch files from repo (patch_kt_async.py, kt_new_code.txt)
 2. PWA icons — proper 192×192 and 512×512 instead of placeholders
 2. Newsletter auto-sync — newsletter_sync.py is gitignored (has credentials), so VPS can’t auto-sync.
 3. **Key Themes feature** — fully designed, ready to build. See design spec below.
@@ -432,6 +430,18 @@ then navigate Tab B to the live site if it isn't already there.
 - Article matching: each article matched to theme by comparing its tags against theme keywords
 
 ## Build History
+### 30 March 2026 (Session 23)
+- Fixed Key Themes end-to-end: generateThemes() and generateBrief() now route through Flask (/api/kt/generate, /api/kt/brief) instead of calling Anthropic directly
+- Fixed multiple syntax errors in server.py kt_generate/kt_brief functions (literal newlines inside string literals from last session)
+- Root cause of timeout: JS was sending full article objects (megabytes) — fixed to send only lightweight fields (title, topic, tags, status)
+- Root cause of remaining timeout: Anthropic API call with 483 articles + max_tokens:8000 takes 60-120s — fixed with async job pattern
+- kt_generate now returns job_id immediately; JS polls /api/kt/generate/status/<job_id> every 3 seconds
+- Key Themes confirmed working: 10 themes generated from 483 articles ✅
+- Lesson: any Anthropic API call >30s must use async job pattern on VPS (fire thread, return job_id, poll for result)
+- Session start: Claude in Chrome extension v1.0.64 connects automatically — no manual Connect click needed
+- Two Chrome windows caused MCP confusion — keep only one Chrome window open per session
+- Filesystem MCP crashes when reading large files (3000+ line HTML) — use shell endpoint for large file ops
+
 ### 29 March 2026 (Session 22)
 - Designed and built Key Themes feature end-to-end
 - Folder tab switcher: News Feed (orange, raised) / Key Themes (recessed behind) with continuous dark ink divider line
