@@ -293,11 +293,14 @@ def fetch_fa_article_text(page, url):
             soup.select("main p")
         )
         text = " ".join(p.get_text(strip=True) for p in paragraphs if len(p.get_text(strip=True)) > 40)
-        # pub_date from meta tag
+        # pub_date from meta tag — normalise to YYYY-MM-DD for consistent JS parsing
         pub_date = ""
         meta = soup.select_one("meta[property='article:published_time'], meta[name='pubdate']")
         if meta and meta.get("content"):
-            pub_date = meta["content"]
+            raw = meta["content"]
+            # Extract just the date part from ISO strings like 2026-03-05T00:00:00-05:00
+            m = re.match(r'(\d{4}-\d{2}-\d{2})', raw)
+            pub_date = m.group(1) if m else raw
         return text, pub_date
     except Exception as e:
         log.warning(f"FA fetch text error for {url}: {e}")
