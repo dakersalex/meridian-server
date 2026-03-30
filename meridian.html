@@ -3194,10 +3194,14 @@ ARTICLES:
 ${artContext}`;
 
   try {
+    // Only send lightweight fields — not full body text
+    const lightArticles = articles.map(a => ({
+      title: a.title, topic: a.topic, tags: a.tags, status: a.status
+    }));
     const resp = await fetch(SERVER + '/api/kt/generate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ articles })
+      body: JSON.stringify({ articles: lightArticles })
     });
     const data = await resp.json();
     if (data.error) throw new Error(data.error);
