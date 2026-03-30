@@ -2414,42 +2414,59 @@ def kt_seed():
 
             ctx = "\n".join(art_lines[:500])
 
-            prompt = (
-                "You are an intelligence analyst. Analyse these article titles and:\n"
-                "1. Identify exactly 10 dominant intelligence themes from the corpus.\n"
-                "2. Assign each article to 1-2 of those themes (use exact theme names).\n\n"
-                'Respond ONLY with a valid JSON object (no markdown):\n'
-                '{\n'
-                '  "themes": [\n'
-                '    {"name": "3-6 word name", "emoji": "emoji",\n'
-                '     "keywords": ["kw1",...8-12],\n'
-                '     "overview": "2-3 sentences",\n'
-                '     "key_facts": [{"title": "short", "body": "fact with **bold** stats"}, ...10 items],\n'
-                '     "subtopics": ["sub1",...5-7],\n'
-                '     "subtopic_details": {"sub1": ["bullet",...4-6], ...}},\n'
-                '    ...10 themes total\n'
-                '  ],\n'
-                '  "assignments": [\n'
-                '    {"id": "ART:abc123", "themes": ["Theme Name One"]},\n'
-                '    ...one entry per article\n'
-                '  ]\n'
-                '}\n\nARTICLES:\n' + ctx
+            # ── Call 1: Generate 10 themes (no assignments) ───────────────────
+            _kt_seed_jobs[job_id]["progress"] = f"Generating 10 themes from {total} articles..."
+            theme_prompt = (
+                "You are an intelligence analyst. Analyse these article titles and identify exactly 10 "
+                "dominant intelligence themes.\n\n"
+                "For each theme produce a JSON object with:\n"
+                "- name (3-6 words)\n"
+                "- emoji (single emoji)\n"
+                "- keywords (array of 8-12 keywords)\n"
+                "- overview (2-3 sentences)\n"
+                "- key_facts (array of 10 objects: {title, body} — use **bold** for stats in body)\n"
+                "- subtopics (array of 5-7 strings)\n"
+                "- subtopic_details (object: subtopic -> array of 4-6 bullet strings)\n\n"
+                "Return ONLY a valid JSON array of 10 theme objects. No markdown, no preamble.\n\n"
+                "ARTICLES:\n" + ctx
             )
-
-            resp = call_anthropic({
+            resp1 = call_anthropic({
                 "model": "claude-sonnet-4-20250514",
-                "max_tokens": 10000,
-                "messages": [{"role": "user", "content": prompt}]
-            }, timeout=300, retries=2)
+                "max_tokens": 8000,
+                "messages": [{"role": "user", "content": theme_prompt}]
+            }, timeout=180, retries=2)
+            raw1 = resp1["content"][0]["text"].strip()
+            if raw1.startswith("```"):
+                raw1 = raw1.split("\n", 1)[1] if "\n" in raw1 else raw1
+                raw1 = raw1.rsplit("```", 1)[0]
+            themes = json.loads(raw1)
+            theme_names = [t["name"] for t in themes]
+            log.info(f"kt/seed call 1 done: {len(themes)} themes")
 
-            raw = resp["content"][0]["text"].strip()
-            if raw.startswith("```"):
-                raw = raw.split("\n", 1)[1] if "\n" in raw else raw
-                raw = raw.rsplit("```", 1)[0]
-            result = json.loads(raw)
-
-            themes = result.get("themes", [])
-            assignments = result.get("assignments", [])
+            # ── Call 2: Assign articles to themes ─────────────────────────────
+            _kt_seed_jobs[job_id]["progress"] = f"Assigning {total} articles to themes..."
+            assign_prompt = (
+                "You are an intelligence analyst. Assign each article to 1-2 of these 10 themes.\n"
+                "Themes: " + json.dumps(theme_names) + "\n\n"
+                "Rules:\n"
+                "- Use EXACT theme names from the list above\n"
+                "- Assign 1-2 themes per article, whichever fits best\n"
+                "- Every article must be assigned\n\n"
+                "Return ONLY a JSON array (one entry per article, same order):\n"
+                '[{"id":"ART:abc123","themes":["Theme Name"]}]\n\n'
+                "ARTICLES:\n" + ctx
+            )
+            resp2 = call_anthropic({
+                "model": "claude-sonnet-4-20250514",
+                "max_tokens": 8000,
+                "messages": [{"role": "user", "content": assign_prompt}]
+            }, timeout=180, retries=2)
+            raw2 = resp2["content"][0]["text"].strip()
+            if raw2.startswith("```"):
+                raw2 = raw2.split("\n", 1)[1] if "\n" in raw2 else raw2
+                raw2 = raw2.rsplit("```", 1)[0]
+            assignments = json.loads(raw2)
+            log.info(f"kt/seed call 2 done: {len(assignments)} assignments")
             _kt_seed_jobs[job_id]["progress"] = f"Saving {len(themes)} themes and {len(assignments)} assignments..."
 
             ts = now_ts()
