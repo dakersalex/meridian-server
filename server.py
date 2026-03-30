@@ -2443,30 +2443,37 @@ def kt_seed():
             theme_names = [t["name"] for t in themes]
             log.info(f"kt/seed call 1 done: {len(themes)} themes")
 
-            # ── Call 2: Assign articles to themes ─────────────────────────────
-            _kt_seed_jobs[job_id]["progress"] = f"Assigning {total} articles to themes..."
-            assign_prompt = (
-                "You are an intelligence analyst. Assign each article to 1-2 of these 10 themes.\n"
-                "Themes: " + json.dumps(theme_names) + "\n\n"
-                "Rules:\n"
-                "- Use EXACT theme names from the list above\n"
-                "- Assign 1-2 themes per article, whichever fits best\n"
-                "- Every article must be assigned\n\n"
-                "Return ONLY a JSON array (one entry per article, same order):\n"
-                '[{"id":"ART:abc123","themes":["Theme Name"]}]\n\n'
-                "ARTICLES:\n" + ctx
-            )
-            resp2 = call_anthropic({
-                "model": "claude-sonnet-4-20250514",
-                "max_tokens": 8000,
-                "messages": [{"role": "user", "content": assign_prompt}]
-            }, timeout=180, retries=2)
-            raw2 = resp2["content"][0]["text"].strip()
-            if raw2.startswith("```"):
-                raw2 = raw2.split("\n", 1)[1] if "\n" in raw2 else raw2
-                raw2 = raw2.rsplit("```", 1)[0]
-            assignments = json.loads(raw2)
-            log.info(f"kt/seed call 2 done: {len(assignments)} assignments")
+            # ── Call 2: Assign articles to themes in batches of 100 ──────────
+            assignments = []
+            batch_size = 100
+            batches = [art_lines[i:i+batch_size] for i in range(0, len(art_lines), batch_size)]
+            for bi, batch in enumerate(batches):
+                _kt_seed_jobs[job_id]["progress"] = f"Assigning articles to themes (batch {bi+1}/{len(batches)})..."
+                batch_ctx = "\n".join(batch)
+                assign_prompt = (
+                    "You are an intelligence analyst. Assign each article to 1-2 of these 10 themes.\n"
+                    "Themes: " + json.dumps(theme_names) + "\n\n"
+                    "Rules:\n"
+                    "- Use EXACT theme names from the list above\n"
+                    "- Assign 1-2 themes per article, whichever fits best\n"
+                    "- Every article must be assigned\n\n"
+                    "Return ONLY a JSON array (one entry per article, same order as input):\n"
+                    '[{"id":"ART:abc123","themes":["Theme Name"]}]\n\n'
+                    "ARTICLES:\n" + batch_ctx
+                )
+                resp2 = call_anthropic({
+                    "model": "claude-haiku-4-5-20251001",
+                    "max_tokens": 3000,
+                    "messages": [{"role": "user", "content": assign_prompt}]
+                }, timeout=45, retries=2)
+                raw2 = resp2["content"][0]["text"].strip()
+                if raw2.startswith("```"):
+                    raw2 = raw2.split("\n", 1)[1] if "\n" in raw2 else raw2
+                    raw2 = raw2.rsplit("```", 1)[0]
+                batch_assignments = json.loads(raw2)
+                assignments.extend(batch_assignments)
+                log.info(f"kt/seed batch {bi+1}/{len(batches)}: {len(batch_assignments)} assignments")
+            log.info(f"kt/seed call 2 done: {len(assignments)} total assignments")
             _kt_seed_jobs[job_id]["progress"] = f"Saving {len(themes)} themes and {len(assignments)} assignments..."
 
             ts = now_ts()
