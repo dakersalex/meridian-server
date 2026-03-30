@@ -2241,7 +2241,7 @@ ARTICLES:
             "model": "claude-sonnet-4-20250514",
             "max_tokens": 8000,
             "messages": [{"role": "user", "content": prompt}]
-        }, timeout=120, retries=2)
+        }, timeout=150, retries=1)
         raw = resp["content"][0]["text"].strip()
         # strip markdown fences if present
         if raw.startswith("```"):
