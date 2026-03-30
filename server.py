@@ -238,7 +238,9 @@ def fetch_ft_article_text(page, url):
         pub_date = ""
         time_el = soup.select_one("time[datetime], time[data-o-component]")
         if time_el and time_el.get("datetime"):
-            pub_date = time_el["datetime"]
+            raw = time_el["datetime"]
+            m = re.match(r'(\d{4}-\d{2}-\d{2})', raw)
+            pub_date = m.group(1) if m else raw
         if not pub_date:
             # fallback: look for "Published" text near a date
             for el in soup.select("div[class*='date'], span[class*='date'], div[class*='timestamp']"):
@@ -273,7 +275,9 @@ def fetch_bloomberg_article_text(page, url):
         pub_date = ""
         meta = soup.select_one("meta[property='article:published_time'], time[datetime]")
         if meta:
-            pub_date = meta.get("content") or meta.get("datetime") or ""
+            raw = meta.get("content") or meta.get("datetime") or ""
+            m = re.match(r'(\d{4}-\d{2}-\d{2})', raw)
+            pub_date = m.group(1) if m else raw
         return text, pub_date
     except Exception as e:
         log.warning(f"Bloomberg fetch text error for {url}: {e}")
