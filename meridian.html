@@ -1249,7 +1249,7 @@ function toast(msg,d=3500){const el=document.getElementById('toast');el.textCont
 function daysAgo(ts){return(Date.now()-ts)/(1000*60*60*24);}
 function recencyBadge(ts){const d=daysAgo(ts);if(d<=7)return'<span class="recency-badge badge-new">New</span>';if(d<=30)return'<span class="recency-badge badge-recent">Recent</span>';return'';}
 function formatDate(ts){return new Date(ts).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'});}
-function formatPubDate(a){if(a.pub_date&&a.pub_date!=='null'&&a.pub_date!==''){const d=new Date(a.pub_date);if(!isNaN(d))return d.toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'});return a.pub_date;}if(a.saved_at)return formatDate(a.saved_at);return formatDate(Date.now());}
+function formatPubDate(a){if(a.pub_date&&a.pub_date!=='null'&&a.pub_date!==''){const d=new Date(a.pub_date);if(!isNaN(d))return d.toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'});return a.pub_date;}if(a.saved_at){const d=new Date(a.saved_at);if(!isNaN(d)&&d.getFullYear()>2000)return d.toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'});}return '';}
 
 async function checkServer(){
   try{const r=await fetch(SERVER+'/api/health',{signal:AbortSignal.timeout(3000)});if(r.ok){serverOnline=true;document.getElementById('status-dot').className='status-dot connected';document.getElementById('status-text').textContent='meridianreader.com · connected';return true;}}catch(e){}
