@@ -3242,7 +3242,7 @@ async function loadThemes(forceReseed = false) {
 
 function showSeedPrompt(container) {
   if (!container) return;
-  const n = (allArticles || articles || []).length;
+  const n = (articles || []).length;
   container.innerHTML = `
     <div class="kt-generate-state">
       <div style="font-size:48px;margin-bottom:8px;">🧠</div>
@@ -3258,7 +3258,7 @@ async function seedThemes() {
     <div class="kt-generate-state">
       <div style="font-size:36px;margin-bottom:8px;">⏳</div>
       <div class="kt-generate-title" id="seed-progress-msg">Starting seed…</div>
-      <div class="kt-generate-sub">Analysing ${(allArticles || articles || []).length} articles with Claude Sonnet…</div>
+      <div class="kt-generate-sub">Analysing ${(articles || []).length} articles with Claude Sonnet…</div>
       <div style="width:300px;height:4px;background:#e8e0d4;border-radius:2px;overflow:hidden;margin-top:12px;">
         <div id="seed-progress-bar" style="height:100%;width:8%;background:rgb(196,120,58);border-radius:2px;transition:width 2s;"></div>
       </div>
