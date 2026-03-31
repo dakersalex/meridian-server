@@ -394,7 +394,8 @@ def capture_economist_charts(page, article_id):
                 if caption_el.count() == 0:
                     continue
                 caption_text = caption_el.inner_text(timeout=2000).strip()
-                if not ("Chart:" in caption_text or "Map:" in caption_text):
+                caption_lower = caption_text.lower()
+                if not ("chart:" in caption_lower or "map:" in caption_lower):
                     continue
 
                 # Scroll figure into view to ensure it's rendered
