@@ -1,5 +1,5 @@
 # Meridian — Technical Notes
-Last updated: 30 March 2026 (Session 25 — complete)
+Last updated: 31 March 2026 (Session 26 — complete)
 
 ## Overview
 Personal news aggregator. Flask API + SQLite backend now running on Hetzner VPS (always-on).
@@ -67,13 +67,13 @@ Repo: https://github.com/dakersalex/meridian-server (public)
 Token stored in Mac keychain (credential.helper osxkeychain)
 Sensitive files excluded: credentials.json, cookies.json, meridian.db, newsletter_sync.py, venv/, *.wav, *.mp4, vps_last_log.txt
 
-## Database (30 March 2026)
-Total: ~503 articles (Mac), ~493 articles (VPS)
+## Database (31 March 2026)
+Total: ~500 articles (Mac), ~493 articles (VPS)
 - Financial Times: 150
 - The Economist: 254
 - Foreign Affairs: 44
 - Bloomberg: 38
-- Other (CNN, Atlantic Council, Foreign Policy, CFR, Al Jazeera etc.): ~17
+- Other (CNN, Atlantic Council, Foreign Policy, CFR, Al Jazeera etc.): ~14
 
 ## Syncing
 Note: Playwright scrapers still run on Mac via launchd (browser profiles not yet on VPS)
@@ -220,39 +220,35 @@ Mac launchd: com.alexdakers.meridian.wakesync runs at 05:40 and 11:40
 - Cap: 8 articles max after scoring
 - Articles saved as title_only, full text fetched by enrich_title_only_articles() on next Mac sync
 - call_anthropic() fix: json.dumps(payload, ensure_ascii=False).encode('utf-8') — fixes 400 errors from curly apostrophes in titles
-- Anthropic API credits exhausted mid-session — topped up at console.anthropic.com/settings/billing
 - Confirmed working: 15/21 articles scored 6+, 6 filtered (music, church, moon etc.), 8 saved as title_only
 
-## Economist Chart & Map Capture — Design Spec (Session 25)
+## Economist Chart & Map Capture (Session 26 — BUILT ✅)
 
-### Discovery
-- Economist charts and maps are static PNG images served from their CDN (content-assets/images/*.png)
-- NOT D3/JS components — they render reliably and are screenshottable via Playwright element.screenshot()
-- Each chart/map is wrapped in a <figure class="css-3mn275 e1197rjj0"> element
-- Caption is in <figcaption class="css-1dkrsla e15o9k8g2"> containing exactly "Chart: The Economist" or "Map: The Economist"
-- Confirmed working: Playwright element screenshot of figure captures chart + caption cleanly
-- Test article: "How Iran is making a mint from Donald Trump's war" — 4 figures captured successfully
-  - Figure 1: Iran contraband bar chart (oil tankers, Strait of Hormuz) — 60,468 bytes
-  - Figure 2: Kharg Island map + satellite imagery — 241,508 bytes
-  - Figure 3: Chart (oil exports) — 60,468 bytes
-  - Figure 4: Chart — 60,468 bytes
+### What was built
+- `article_images` DB table added to init_db()
+- `capture_economist_charts(page, article_id)` helper function in server.py
+- Hooked into `enrich_title_only_articles()` Economist block — runs after each article is fetched while page is still open
+- Three new Flask routes:
+  - GET /api/articles/<aid>/images — returns images as base64 JSON
+  - POST /api/images/backfill — async job, captures charts from all existing Economist articles
+  - GET /api/images/backfill/status — poll progress
+- All deployed to VPS and Mac (commit c5603391)
 
-### Capture approach
-During enrich_title_only_articles(), after fetching full text for Economist articles:
-1. Find all <figure> elements whose <figcaption> contains "Chart:" or "Map:"
-2. Scroll each into view (lazy-load trigger — page must be scrolled fully first)
-3. Use Playwright element.screenshot() to capture figure + caption as PNG
-4. Generate a one-line AI description of what the chart shows (Claude Haiku, cheap)
-5. Store in article_images table
+### How capture_economist_charts() works
+1. Scrolls page fully to trigger lazy-loading
+2. Finds all `<figure>` elements whose `<figcaption>` contains "Chart:" or "Map:"
+3. Scrolls each figure into view, screenshots as PNG via element.screenshot()
+4. Calls Claude Haiku vision API for one-line description (max 25 words)
+5. Saves to article_images (idempotent — skips if article already has images)
 
-### DB schema (to be added to init_db)
+### article_images DB schema
 ```sql
 CREATE TABLE IF NOT EXISTS article_images (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     article_id TEXT NOT NULL,
-    caption TEXT NOT NULL,          -- "Chart: The Economist" or "Map: The Economist"
-    description TEXT DEFAULT '',    -- AI one-liner: "Bar chart showing Iran-linked oil tankers..."
-    image_data BLOB NOT NULL,       -- PNG bytes
+    caption TEXT NOT NULL,
+    description TEXT DEFAULT '',
+    image_data BLOB NOT NULL,
     width INTEGER DEFAULT 0,
     height INTEGER DEFAULT 0,
     captured_at INTEGER NOT NULL,
@@ -260,30 +256,29 @@ CREATE TABLE IF NOT EXISTS article_images (
 )
 ```
 
-### Brief image selection logic (IMPORTANT — agreed design)
-- Charts are only included in a brief if their description has meaningful term overlap with the brief text
-- This is a two-pass process:
-  1. First pass: generate the brief text as normal
-  2. Second pass: score each candidate chart description against the brief text
-     - Include chart if key terms in description appear in brief (e.g. "Hormuz", "tankers", "Iranian oil")
-     - Exclude chart if no overlap with brief content, regardless of theme
+### Session 26 end state
+- Code patched, syntax-verified, committed, deployed to VPS ✅
+- Mac Flask was in a bad state at session end (launchd auto-restarted but shell endpoint unresponsive)
+- NOTES.md updated on disk but git push did not complete — Session 27 must push first
+- article_images table will be created on next clean Flask start (init_db runs on startup)
+- Backfill NOT yet run — first task of Session 27 after health check passes
+
+### Backfill commands (run at start of Session 27)
+```bash
+# Verify route is live
+curl -s http://localhost:4242/api/images/backfill/status
+# Fire backfill (async, ~30-60 min for 254 articles)
+curl -s -X POST http://localhost:4242/api/images/backfill
+# Poll progress
+curl -s http://localhost:4242/api/images/backfill/status
+```
+
+### Brief image selection logic (IMPORTANT — agreed design, not yet built)
+- Charts only included in a brief if description has meaningful term overlap with brief text
+- Two-pass process: generate brief text first, then score each chart description against it
 - Cap at 3-4 images per brief section, 6-8 per full brief
-- Prioritise most recently published and highest relevance score
-- A chart from one article CAN appear in a brief driven by a different article if subject matter overlaps
-- Charts that are not mentioned/relevant to the brief's key points are EXCLUDED entirely
-
-### Backfill plan
-After chart capture is built, run a one-time backfill across all 254 Economist articles via Playwright:
-- Use economist_profile/ persistent session (already logged in)
-- Process articles in batches to avoid Cloudflare rate limits
-- Expected: ~30-60 minute job, ~500-1000 chart/map images captured
-- Route: POST /api/images/backfill (async job, poll for status)
-
-### Build order
-1. Fix KT JS syntax error (current blocker) ← NEXT
-2. Run KT seed (90 seconds, $0.07)
-3. Build chart capture (new article_images table, Playwright capture in enrich_title_only_articles, AI description, backfill route)
-4. Wire charts into briefs (two-pass relevance scoring, embed in PDF)
+- A chart from one article CAN appear in a brief driven by a different article if subject overlaps
+- Charts with no overlap with brief key points are EXCLUDED entirely
 
 ## Autonomous Mode (Claude in Chrome + shell endpoint)
 
@@ -317,23 +312,44 @@ Two MCP servers run automatically in the background — you never start them man
 2. **Claude in Chrome MCP** — the Chrome extension itself is an MCP server, gives Claude access to browser tabs
    Visible as the orange-outlined tab group labelled "✅ Claude (MCP)" in your Chrome tab strip
 
-### Starting a new autonomous session
-1. Open claude.ai in Chrome and start a new chat
-2. Paste this as your opening message:
-   > You are helping me build Meridian, my personal news aggregator. Please read my technical notes from the Filesystem MCP at /Users/alexdakers/meridian-server/NOTES.md and review them. Then run the session start health check.
-3. The Claude in Chrome extension (v1.0.64+) connects automatically — no manual Connect click needed
-4. The extension opens an MCP tab group (orange-outlined tabs labelled ✅ Claude (MCP))
-5. Claude reads NOTES.md via Filesystem MCP, runs health check, and confirms ready
+### Pre-flight checklist before starting a new session (DO THIS FIRST)
+These three steps prevent the stale-MCP and Flask-down issues seen in Session 26/27:
 
-**No Terminal needed** — Claude reads NOTES.md directly via Filesystem MCP.
+1. **Close all old Claude MCP tab groups in Chrome**
+   - Look for tabs labelled `Claude (MCP)` or `✅ Claude (MCP)` from previous sessions
+   - Close them all — only one MCP tab group should exist at a time
+   - The new chat will create a fresh one automatically
+
+2. **Verify Flask is running**
+   - Visit http://localhost:4242/api/health in a browser tab
+   - Should return `{"ok":true,"version":"3.0.0"}`
+   - If it doesn't respond, run this once in Terminal:
+     `launchctl unload ~/Library/LaunchAgents/com.alexdakers.meridian.plist; sleep 2; launchctl load ~/Library/LaunchAgents/com.alexdakers.meridian.plist`
+
+3. **Then open the new Claude chat and paste the opener prompt**
+   - The extension connects automatically, Claude creates a fresh MCP tab group and runs the health check
+
+### IMPORTANT: Never restart Flask through the shell endpoint
+The shell endpoint is served by Flask itself. Sending a restart command through it kills Flask
+mid-response, leaving launchd to restart it in an unknown state. Instead:
+- For Mac Flask restarts: use Terminal directly, or write a script and trigger via osascript
+- Claude should NEVER run `launchctl unload` via the shell endpoint
+
+### Starting a new autonomous session
+1. Complete pre-flight checklist above
+2. Open claude.ai in Chrome and start a new chat
+3. Paste the opener prompt (see Session Starter Prompt section below)
+4. Claude reads NOTES.md, runs health check, reports state, proceeds autonomously
+
+**No Terminal needed for anything except Flask restart if it's down.**
 **Note:** raw.githubusercontent.com is blocked in Claude's network allow-list, so fetching from GitHub URL does not work.
 **Important:** Keep only ONE Chrome window open per session. Two windows = two MCP tab groups = confusion about which tab Claude is controlling.
 
 ### If autonomous mode isn't working
 - Check the ✅ Claude (MCP) tab exists in Chrome — if missing, tell Claude and it will recreate it
 - Check extension is connected: click the asterisk icon in toolbar, should show green Connected dot
-- Verify Mac server is running: curl http://localhost:4242/api/health
-- Server restart: launchctl unload ~/Library/LaunchAgents/com.alexdakers.meridian.plist && launchctl load ~/Library/LaunchAgents/com.alexdakers.meridian.plist
+- Verify Mac server is running: http://localhost:4242/api/health in browser
+- If Flask is down: Terminal → `launchctl unload ~/Library/LaunchAgents/com.alexdakers.meridian.plist; sleep 2; launchctl load ~/Library/LaunchAgents/com.alexdakers.meridian.plist`
 - Do NOT close the ✅ Claude (MCP) tab — it's infrastructure, not a regular browser tab
 
 ### Autonomous working principles (important for new sessions)
@@ -371,8 +387,7 @@ window.shell('cd ~/meridian-server && ./deploy.sh "description"')
 Never use `ssh root@... "python3 -c '...'"` for anything non-trivial — nested quote escaping always fails.
 Instead: write script via Filesystem MCP, scp it, run it:
 ```js
-// 1. Write script to Mac
-// (use filesystem:write_file)
+// 1. Write script to Mac (use filesystem:write_file)
 // 2. SCP and run
 window.shell('scp ~/meridian-server/tmp_script.py root@204.168.179.158:/tmp/ && ssh root@204.168.179.158 "python3 /tmp/tmp_script.py"')
   .then(d => console.log('OUT:', d.stdout));
@@ -390,10 +405,11 @@ window.shell(`
   echo '=== DB ===' && sqlite3 ~/meridian-server/meridian.db "SELECT source, COUNT(*), SUM(status='title_only') as pending FROM articles GROUP BY source" &&
   echo '=== Enrichment ===' && curl -s http://localhost:4242/api/enrich-title-only/status &&
   echo '=== KT ===' && curl -s http://localhost:4242/api/kt/status &&
+  echo '=== Images ===' && curl -s http://localhost:4242/api/images/backfill/status &&
   echo '=== Last log ===' && tail -3 ~/meridian-server/logs/server.log
 `).then(d => console.log('HEALTH:', d.stdout));
 ```
-This gives immediate awareness of: Flask status, DB counts, pending enrichments, KT seed state, last sync.
+This gives immediate awareness of: Flask status, DB counts, pending enrichments, KT seed state, image backfill state, last sync.
 
 ### Dangerous operations checklist (ALWAYS follow before bulk deletes)
 Before any DELETE, UPDATE affecting multiple rows, or destructive operation:
@@ -450,11 +466,13 @@ then navigate Tab B to the live site if it isn't already there.
 - Retention: 7 days
 
 ## Next Steps (priority order)
-1. **Economist chart capture** — build article_images table + Playwright capture in enrich_title_only_articles + AI description + backfill route. See design spec above.
-2. **Wire charts into briefs** — two-pass relevance scoring, embed in PDF
-3. **Wire /api/kt/tag-new into VPS scheduler** — runs after each sync to tag new articles
-4. **PWA icons** — proper 192×192 and 512×512 instead of placeholders
-5. **Newsletter auto-sync** — newsletter_sync.py is gitignored (has credentials), so VPS can't auto-sync
+1. **Push NOTES.md to GitHub** — git push did not complete at end of Session 26, do this first in Session 27
+2. **Verify Flask is running new code** — check /api/images/backfill/status responds (proves new server.py loaded)
+3. **Run chart backfill** — fire POST /api/images/backfill, monitor via GET /api/images/backfill/status (~30-60 min, ~500-1000 images from 254 Economist articles)
+4. **Wire charts into briefs** — two-pass relevance scoring, embed in PDF (design spec documented above)
+5. **Wire /api/kt/tag-new into VPS scheduler** — runs after each sync to tag new articles
+6. **PWA icons** — proper 192×192 and 512×512 instead of placeholders
+7. **Newsletter auto-sync** — newsletter_sync.py is gitignored (has credentials), so VPS can't auto-sync
 
 ## KT Incremental Architecture — Current Build State
 
@@ -477,12 +495,6 @@ then navigate Tab B to the live site if it isn't already there.
 - Seed successfully run on VPS: 10 themes, 488/493 articles tagged ✅
 - 5 untagged articles are title_only stubs — will be tagged on next sync via /api/kt/tag-new
 
-### Seed architecture (final working design)
-Two-call approach:
-1. Call 1 (Sonnet, 3000 tokens, 60s timeout): send every 3rd article as representative sample (~165 titles) → generate 10 lean themes (name, emoji, keywords, overview, subtopics only — NO key_facts/subtopic_details)
-2. Call 2 (Haiku, 2000 tokens, 30s timeout): assign all 494 articles to themes in batches of 50 (~10 batches × ~10s each)
-key_facts and subtopic_details are generated on-demand when user clicks a theme (existing /api/kt/generate route)
-
 ### 10 themes seeded (30 March 2026)
 - ⚔️ Iran War and Geopolitical Crisis — 108 articles
 - 🇪🇺 European Economic and Political Challenges — 117 articles
@@ -501,12 +513,6 @@ key_facts and subtopic_details are generated on-demand when user clicks a theme 
 - Assignments: Haiku in batches of 50 (not Sonnet — cheaper, faster, sufficient)
 - Evolution: nudge model — detect candidates, show banner, user applies manually
 - Reset: full wipe of all 3 tables + re-seed
-
-### What still needs doing
-- Wire /api/kt/tag-new into the VPS scheduler (runs after each sync automatically)
-- key_facts/subtopic_details: currently empty in seeded themes — generated on-demand via existing /api/kt/generate when user clicks a theme. Consider pre-populating in background.
-- Economist chart capture (see spec below) — next major feature
-
 
 ## Key Themes — Design Spec
 
@@ -532,19 +538,29 @@ key_facts and subtopic_details are generated on-demand when user clicks a theme 
 - Short brief: 1-page PDF — executive summary (amber panel) + key developments (bullets) + implications + watch list + source badges
 - Full intelligence brief: 4-page PDF — contents table, sections per sub-topic with prose, pull quotes, charts, source citations
 - Both pull from: feed articles + newsletters + interviews
-- Chart selection: two-pass process — generate brief text first, then score each candidate chart description against brief text, include only charts with meaningful term overlap
+- Chart selection: two-pass process — generate brief text first, then score each chart description against brief text, include only charts with meaningful term overlap
 
 ## Build History
+### 31 March 2026 (Session 26/27 transition)
+- Added pre-flight checklist to NOTES.md (close stale MCP tabs, verify Flask before starting new chat)
+- Documented: never restart Flask via shell endpoint (kills the process serving the command)
+- NOTES.md updated on disk; git push pending for Session 27
+
+### 31 March 2026 (Session 26)
+- Built Economist chart capture end-to-end:
+  - article_images table added to init_db()
+  - capture_economist_charts(page, article_id) helper — scrolls, finds figure[figcaption*=Chart/Map], screenshots, AI description, saves BLOB
+  - Hooked into enrich_title_only_articles() Economist block (runs while page is open, free)
+  - GET /api/articles/<aid>/images — returns images as base64
+  - POST /api/images/backfill — async job across all 254 Economist articles
+  - GET /api/images/backfill/status — poll progress
+- Deployed to VPS and Mac (commit c5603391) ✅
+- Backfill NOT yet run — first task of Session 27
+
 ### 30 March 2026 (Session 25)
 - Built KT incremental architecture end-to-end in server.py (tables + 6 routes), deployed to VPS ✅
 - meridian.html: renderKeyThemes() patched to call loadThemes(), generateThemes() replaced with DB-backed version, button fixed, localStorage removed
-- meridian.html: JS syntax error preventing script from loading beyond char ~116k — NOT YET FIXED
-- Investigated Economist chart/map capture — FULLY FEASIBLE:
-  - Charts are static PNGs in <figure> elements with <figcaption> "Chart: The Economist" / "Map: The Economist"
-  - Playwright element.screenshot() captures them cleanly (confirmed on Iran article, 4 figures)
-  - Image src URLs available directly from CDN (content-assets/images/*.png)
-  - Designed article_images DB table and two-pass brief relevance selection logic
-- Cleaned up temp files and old patch files from repo
+- Investigated Economist chart/map capture — FULLY FEASIBLE
 
 ### 30 March 2026 (Session 24)
 - Key Themes: async generation fixed (job polling pattern for kt/generate and kt/brief)
@@ -622,6 +638,6 @@ You are helping me build Meridian, my personal news aggregator. Please read my t
 
 **Note for Claude reading this:** At the start of every session you must:
 1. Read NOTES.md via Filesystem MCP (path above) — do NOT try to fetch from GitHub URL (blocked)
-2. Run the session start health check via shell endpoint once Flask is confirmed up
-3. Report health check results before asking what to work on
-4. The health check should now include /api/kt/status to show KT seed state
+2. Check Flask is up by testing the shell endpoint — if it doesn't respond, report clearly and stop; do NOT attempt to restart Flask via the shell endpoint (it kills itself)
+3. Run the health check and report results before asking what to work on
+4. First action of Session 27: git push NOTES.md, then verify /api/images/backfill/status, then fire backfill
