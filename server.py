@@ -503,13 +503,9 @@ def enrich_image_insights():
         try:
             img_b64 = _b64.b64encode(image_data).decode("utf-8")
             prompt = (
-                f"This chart appears in an Economist article titled: "{title}"
-"
-                f"The article argues: {(summary or '')[:300]}
-"
-                f"The chart shows: {description}
-
-"
+                f"This chart appears in an Economist article titled: '{title}'\n"
+                f"The article argues: {(summary or '')[:300]}\n"
+                f"The chart shows: {description}\n\n"
                 "In ONE sentence (max 30 words), explain what analytical point or argument this chart "
                 "supports in the context of that article. Be specific — name the trend, statistic, or "
                 "conclusion it evidences. No preamble."
