@@ -87,13 +87,13 @@ import sqlite3, json, urllib.request, base64
 DB = '/Users/alexdakers/meridian-server/meridian.db'
 VPS = 'https://meridianreader.com/api/push-images'
 conn = sqlite3.connect(DB)
-q = 'SELECT article_id,caption,description,insight,image_data,width,height,captured_at FROM article_images WHERE insight != "" AND insight IS NOT NULL AND image_data IS NOT NULL'
+q = 'SELECT id,article_id,caption,description,insight,image_data,width,height,captured_at FROM article_images WHERE insight != "" AND insight IS NOT NULL AND image_data IS NOT NULL'
 rows = conn.execute(q).fetchall()
 conn.close()
 if not rows:
     print('push-images: no images to push')
 else:
-    images = [{'article_id':r[0],'caption':r[1],'description':r[2],'insight':r[3],'image_data':base64.b64encode(r[4]).decode('ascii'),'width':r[5],'height':r[6],'captured_at':r[7]} for r in rows]
+    images = [{'mac_id':r[0],'article_id':r[1],'caption':r[2],'description':r[3],'insight':r[4],'image_data':base64.b64encode(r[5]).decode('ascii'),'width':r[6],'height':r[7],'captured_at':r[8]} for r in rows]
     total_upserted = 0
     for i in range(0, len(images), 20):
         batch = images[i:i+20]
