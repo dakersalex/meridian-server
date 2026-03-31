@@ -1,5 +1,5 @@
 # Meridian — Technical Notes
-Last updated: 31 March 2026 (Session 27 — complete)
+Last updated: 31 March 2026 (Session 28 — complete)
 
 ## Overview
 Personal news aggregator. Flask API + SQLite backend now running on Hetzner VPS (always-on).
@@ -69,10 +69,10 @@ Token stored in Mac keychain (credential.helper osxkeychain)
 Sensitive files excluded: credentials.json, cookies.json, meridian.db, newsletter_sync.py, venv/, *.wav, *.mp4, vps_last_log.txt
 
 ## Database (31 March 2026)
-Total: ~500 articles (Mac), ~493 articles (VPS)
-- Financial Times: 150
-- The Economist: 254
-- Foreign Affairs: 44
+Total: ~508 articles (Mac), ~508 articles (VPS)
+- Financial Times: 153
+- The Economist: 257
+- Foreign Affairs: 46
 - Bloomberg: 38
 - Other (CNN, Atlantic Council, Foreign Policy, CFR, Al Jazeera etc.): ~14
 
@@ -84,6 +84,7 @@ Foreign Affairs: Auto-syncs every 6h via launchd using Playwright + fa_profile/
 All quiet hours 1-6am.
 Sync All button fires all 3 scrapers in parallel, then runs enrich_title_only_articles().
 sync_now.py and meridian_sync.py both call enrich_title_only_articles() after sync — picks up agent-saved title_only articles.
+wake_and_sync.sh now also pushes article_images to VPS after each sync (image push block added Session 28).
 
 ## Newsletter Pipeline
 - iCloud alias: meridian.newsletters@icloud.com
@@ -230,7 +231,7 @@ Mac launchd: com.alexdakers.meridian.wakesync runs at 05:40 and 11:40
 - `capture_economist_charts(page, article_id)` helper function in server.py
 - Hooked into `enrich_title_only_articles()` Economist block — runs after each article is fetched while page is still open
 - Three new Flask routes:
-  - GET /api/articles/<aid>/images — returns images as base64 JSON
+  - GET /api/articles/<aid>/images — returns images as base64 JSON (includes insight field)
   - POST /api/images/backfill — async job, captures charts from all existing Economist articles
   - GET /api/images/backfill/status — poll progress
 - All deployed to VPS and Mac (commit c5603391)
@@ -249,13 +250,19 @@ CREATE TABLE IF NOT EXISTS article_images (
     article_id TEXT NOT NULL,
     caption TEXT NOT NULL,
     description TEXT DEFAULT '',
+    insight TEXT DEFAULT '',
     image_data BLOB NOT NULL,
     width INTEGER DEFAULT 0,
     height INTEGER DEFAULT 0,
     captured_at INTEGER NOT NULL,
+    mac_id INTEGER DEFAULT NULL,
     FOREIGN KEY (article_id) REFERENCES articles(id)
 )
 ```
+Note: `mac_id` column added in Session 28 via ALTER TABLE migration in push-images route.
+It stores the Mac autoincrement PK to enable correct dedup of multi-chart articles
+(all Economist charts share the same caption "chart: the economist", so (article_id, caption)
+is not unique — mac_id is the correct dedup key).
 
 ### Image insight enrichment (Session 27)
 - `article_images` table: `insight` column added (ALTER TABLE migration in init_db)
@@ -266,45 +273,68 @@ CREATE TABLE IF NOT EXISTS article_images (
 - Insight format: "what analytical point this chart supports in the context of its source article"
 - Brief pipeline uses both `description` (visual) and `insight` (contextual) for relevance scoring
 
-### Session 26 end state
-- Code patched, syntax-verified, committed, deployed to VPS ✅
-- Mac Flask was in a bad state at session end (launchd auto-restarted but shell endpoint unresponsive)
-- NOTES.md updated on disk but git push did not complete — Session 27 must push first
-- article_images table will be created on next clean Flask start (init_db runs on startup)
-- Backfill NOT yet run — first task of Session 27 after health check passes
-
-### Backfill commands (run at start of Session 27)
-```bash
-# Verify route is live
-curl -s http://localhost:4242/api/images/backfill/status
-# Fire backfill (async, ~30-60 min for 254 articles)
-curl -s -X POST http://localhost:4242/api/images/backfill
-# Poll progress
-curl -s http://localhost:4242/api/images/backfill/status
-```
+### Image sync to VPS (Session 28)
+- POST /api/push-images route added to server.py — receives image rows from Mac, upserts into VPS DB
+- Deduplicates on mac_id (not article_id+caption — see schema note above)
+- wake_and_sync.sh updated to push images after every article push
+- All 153 Mac images manually pushed to VPS (Session 28) — VPS now has 240 rows
+  (87 legacy single-per-article rows from partial earlier push + 153 correct full set)
+- The 87 legacy rows are harmless — they score the same and new ones cover the gaps
+- reportlab installed in VPS venv (required for PDF generation)
 
 ### Brief image selection logic (FINALISED — Session 27)
 
 #### Chart display in briefs
 - Charts appear with NO caption — the image already contains its own title, axis labels and source
 - description and insight are INTERNAL ONLY — used by the pipeline for relevance scoring, never shown to reader
-- Charts only appear in the FULL brief (4-page), not the short brief (too compressed)
+- Charts only appear in the FULL brief, not the short brief
 - Layout: inline within sections, 2 per row at half-column width
 
 #### Two-pass chart selection pipeline
 1. Generate brief section text first (Sonnet)
 2. Score each chart's insight string against the section text — keyword/semantic overlap, free, no API call
-3. Also score description as a secondary signal
-4. Keep top 3-4 charts per section, 6-8 per full brief total
+3. Also score description as a secondary signal (insight x2, description x1)
+4. Keep top 3-4 charts per section, max 8 per full brief total
 5. Prefer charts from articles already cited in that section
 6. Discard duplicates (same article, same data)
-- A chart from one article CAN appear in a section driven by a different article if insight overlaps
-- Charts with no overlap with section key points are EXCLUDED entirely
 
 #### DB fields used
-- article_images.description — what the chart shows visually (generated at capture time, 25 words)
-- article_images.insight — what analytical point it supports in context of source article (generated by enrich_image_insights, 30 words)
-- Both fields confirmed fully populated: 152/152 images enriched as of 31 March 2026
+- article_images.description — what the chart shows visually (25 words, generated at capture time)
+- article_images.insight — what analytical point it supports in context of source article (30 words)
+- Both confirmed fully populated: 153/153 images on Mac as of 31 March 2026
+
+## Intelligence Brief PDF Pipeline (Session 28 — BUILT ✅)
+
+### Overview
+- brief_pdf.py — standalone module, ReportLab Platypus, generates A4 PDF
+- Both short and full briefs now download as PDF (no modal text view)
+- Full brief includes Economist charts inline; short brief is text only
+- reportlab installed: Mac (pip3) and VPS venv
+
+### Flask routes
+- POST /api/kt/brief/pdf — start async job, returns {ok, job_id}
+- GET /api/kt/brief/pdf/status/<job_id> — poll {status, ready, size, error}
+- GET /api/kt/brief/pdf/download/<job_id> — download completed PDF
+
+### Frontend
+- generateBrief() replaced with downloadBriefPDF(themeIdx, type)
+- Both buttons (Short Brief + Full Intelligence Brief) trigger PDF download
+- Button shows spinner + "Generating…" while polling, then auto-downloads
+- Modal print path removed entirely
+
+### brief_pdf.py history
+- Originally written in Session 27 via heredoc injection — resulted in pervasive corruption
+  (literal newlines embedded inside Python string literals throughout the file)
+- Rewritten from scratch via Filesystem MCP in Session 28 — all bugs fixed:
+  1. SQL: `AND insight != ''` (was `AND insight!=`)
+  2. Bold regex: `r"<b>\1</b>"` (was stripping content with `r"<b></b>"`)
+  3. All `\n` inside strings restored from literal newlines
+- Compile-verified: python3 -m py_compile brief_pdf.py ✅
+
+### End-to-end test (Session 28)
+- Short brief (test theme, 3 articles): done in ~30s, 5KB ✅
+- Full Iran brief (60 articles, charts): done in ~70s, 960KB ✅
+  960KB vs ~50KB confirms charts are embedded
 
 ## Autonomous Mode (Claude in Chrome + shell endpoint)
 
@@ -358,7 +388,7 @@ These three steps prevent the stale-MCP and Flask-down issues seen in Session 26
 ### IMPORTANT: Never restart Flask through the shell endpoint
 The shell endpoint is served by Flask itself. Sending a restart command through it kills Flask
 mid-response, leaving launchd to restart it in an unknown state. Instead:
-- For Mac Flask restarts: use Terminal directly, or write a script and trigger via osascript
+- For Mac Flask restarts: write a script via Filesystem MCP and trigger via osascript
 - Claude should NEVER run `launchctl unload` via the shell endpoint
 
 ### Starting a new autonomous session
@@ -471,7 +501,7 @@ then navigate Tab B to the live site if it isn't already there.
 ### What is backed up
 - **GitHub** (`github.com/dakersalex/meridian-server`) — all code, NOTES.md, scripts. Every session is a git commit so any prior version is recoverable via `git checkout <hash>`
 - **VPS DB** (`/opt/meridian-server/db_backups/`) — daily backup of Mac `meridian.db` at 23:00, 7 days retained
-- **VPS DB itself** — has all articles ever pushed from Mac (~493 articles)
+- **VPS DB itself** — has all articles ever pushed from Mac (~508 articles)
 
 ### What is NOT on GitHub (by design — sensitive)
 - `meridian.db` — article database (backed up to VPS nightly)
@@ -492,134 +522,89 @@ then navigate Tab B to the live site if it isn't already there.
 - Retention: 7 days
 
 ## Next Steps (priority order)
-1. **Complete brief PDF deployment** (SESSION 28 FIRST TASK):
-   a. python3 -m py_compile ~/meridian-server/server.py && echo OK
-   b. cd ~/meridian-server && ./deploy.sh feat-brief-pdf-pipeline
-   c. pkill -f server.py; sleep 1; cd ~/meridian-server && python3 server.py &
-   d. Test: POST /api/kt/brief/pdf, poll status, download PDF
-2. **Wire PDF button into Key Themes UI** -- Full brief button:
-   POST /api/kt/brief/pdf, poll /api/kt/brief/pdf/status/<job_id>,
-   download via /api/kt/brief/pdf/download/<job_id>
-3. **PWA icons** -- proper 192x192 and 512x512
-4. **Newsletter auto-sync** -- newsletter_sync.py gitignored; VPS cannot auto-sync
+1. **PWA icons** — proper 192x192 and 512x512
+2. **Newsletter auto-sync** — newsletter_sync.py gitignored; VPS cannot auto-sync
+3. **Clean up tmp_ files** — many tmp_*.py and tmp_*.sh files committed to repo during Session 28 debugging; worth a housekeeping commit to remove them
 
-## Session 27 -- Complete build log (31 March 2026)
+## Session 28 — Complete build log (31 March 2026)
 
 ### What was built and deployed
-- Chart capture fix: figcaption case mismatch fixed (commit 44cd1852)
-  Was checking Chart: but Economist uses chart: the economist (lowercase)
-- Backfill: 153 images captured from 247 Economist articles
-- insight column: Added to article_images via ALTER TABLE in init_db
-- enrich_image_insights(): Haiku vision + article context, 30-word insight per image
-  POST /api/images/enrich-insights | GET /api/images/enrich-insights/status
-- Insight enrichment: 153/153 images done, 0 failures
-- GET /api/articles/<aid>/images now returns insight field
-- kt/tag-new added to VPS scheduler after each suggested refresh
-- enrich_image_insights added to VPS scheduler after each sync
-- Chart display design finalised: no caption shown, description+insight internal only
-  Full brief only, 2-per-row inline, keyword scoring (insight x2 desc x1), cap 8
 
-### What is NOT yet deployed (Session 28 first task)
-- brief_pdf.py: ~/meridian-server/brief_pdf.py (has syntax error from heredoc -- needs fix)
-  Functions: score_charts_for_section, build_brief_pdf, start_pdf_job, get_job
-  Uses: ReportLab Platypus, A4, section-per-subtopic, 2-per-row chart grid, source footer
-- PDF routes in server.py (patched locally, uncommitted):
-  POST /api/kt/brief/pdf | GET status/<job_id> | GET download/<job_id>
-  Imported via: import brief_pdf as _bpdf with try/except fallback
+#### brief_pdf.py — fixed and deployed (commit 046c229b)
+- Rewrote from scratch via Filesystem MCP (original had pervasive heredoc corruption)
+- Three bugs fixed: SQL `insight != ''`, bold regex `\1` backref, `\n` in re.split
+- reportlab installed on VPS venv and Mac (pip3)
+- PDF routes confirmed live: /api/kt/brief/pdf, /api/kt/brief/pdf/status/<id>, /api/kt/brief/pdf/download/<id>
 
-### Flask process management learnings
-- launchctl unload errors are harmless if Flask running via python3 directly
-- Find PID: lsof -ti :4242
-- Clean restart: pkill -f server.py; sleep 1; cd ~/meridian-server && python3 server.py &
-- Never restart via shell endpoint -- kills the process mid-response
-- Two PIDs on 4242: kill lower (older) one
+#### PDF buttons wired in UI (commit 9345040e)
+- generateBrief() replaced with downloadBriefPDF() — both short and full brief now download PDFs
+- Button shows spinner while generating, auto-downloads on completion
+- Modal print path removed entirely
 
-### DB state end of Session 27
-- Total articles: 508 (Mac), ~493 (VPS)
-- article_images: 153 images, 153 with insight populated
+#### Image sync to VPS (commits bbec5adb, a5b16b39)
+- Root cause of missing charts: images only existed on Mac DB; VPS had 0
+- Secondary bug: dedup on (article_id, caption) collapsed multi-chart articles to 1 image
+  (all Economist captions are "chart: the economist" — not unique per image)
+- Fix: POST /api/push-images route with mac_id-based dedup
+- mac_id column added to article_images via ALTER TABLE migration in the route
+- wake_and_sync.sh updated to push images on every sync going forward
+- kt_article_tags table created on VPS (was missing — added directly to VPS DB)
+- All 153 Mac images pushed to VPS: 153/153 upserted, 0 errors
 
+#### End-to-end verification
+- Iran War full brief: 60 articles, ~70s generation, 960KB PDF — charts confirmed embedded
+- Compare: previous chartless brief ~50KB; 960KB = ~19× larger = charts present ✅
+
+### DB state end of Session 28
+- Total articles: 508 (Mac), 508 (VPS)
+- article_images Mac: 153 images, 153 with insight
+- article_images VPS: 240 rows (87 legacy + 153 new with mac_id)
+- KT themes: 10 (VPS), 0 (Mac — Mac KT not seeded this session)
+- Last commit: a5b16b39
 
 ## Build History
-### 31 March 2026 (Session 26/27 transition)
-- Added pre-flight checklist to NOTES.md (close stale MCP tabs, verify Flask before starting new chat)
-- Documented: never restart Flask via shell endpoint (kills the process serving the command)
-- NOTES.md updated on disk; git push pending for Session 27
+### 31 March 2026 (Session 28)
+- brief_pdf.py rewritten and deployed — heredoc corruption fixed end-to-end
+- PDF download buttons wired for both short and full briefs
+- article_images sync Mac→VPS implemented (push-images route + wake_and_sync.sh)
+- mac_id dedup fixed for multi-chart articles
+- 153 images pushed to VPS; Iran full brief verified at 960KB with embedded charts
+
+### 31 March 2026 (Session 27)
+- Chart capture fix: figcaption case mismatch fixed (commit 44cd1852)
+- Backfill: 153 images captured from 247 Economist articles
+- insight column added to article_images
+- enrich_image_insights(): 153/153 images enriched
+- Chart display design finalised; brief pipeline design locked
 
 ### 31 March 2026 (Session 26)
-- Built Economist chart capture end-to-end:
-  - article_images table added to init_db()
-  - capture_economist_charts(page, article_id) helper — scrolls, finds figure[figcaption*=Chart/Map], screenshots, AI description, saves BLOB
-  - Hooked into enrich_title_only_articles() Economist block (runs while page is open, free)
-  - GET /api/articles/<aid>/images — returns images as base64
-  - POST /api/images/backfill — async job across all 254 Economist articles
-  - GET /api/images/backfill/status — poll progress
-- Deployed to VPS and Mac (commit c5603391) ✅
-- Backfill NOT yet run — first task of Session 27
+- Built Economist chart capture end-to-end
+- article_images table, capture_economist_charts(), backfill route
+- Deployed to VPS and Mac (commit c5603391)
 
 ### 30 March 2026 (Session 25)
 - Built KT incremental architecture end-to-end in server.py (tables + 6 routes), deployed to VPS ✅
-- meridian.html: renderKeyThemes() patched to call loadThemes(), generateThemes() replaced with DB-backed version, button fixed, localStorage removed
-- Investigated Economist chart/map capture — FULLY FEASIBLE
+- meridian.html: renderKeyThemes() patched to call loadThemes(), generateThemes() replaced with DB-backed version
 
 ### 30 March 2026 (Session 24)
-- Key Themes: async generation fixed (job polling pattern for kt/generate and kt/brief)
-- Key Themes: article grid raised from 20 to 100, sort fixed
+- Key Themes: async generation fixed, article grid raised, sort fixed
 - Key Themes: title-matching, interviews included, PDF print button added
-- Key Themes: fact card title boxes fixed to consistent height (68px, bottom-aligned)
 - pub_date normalisation: 167 Mac DB rows fixed
-- Designed incremental Key Themes architecture
 
 ### 30 March 2026 (Session 23)
-- Fixed Key Themes end-to-end: generateThemes() and generateBrief() route through Flask
-- Async job pattern confirmed working for long Anthropic API calls
-- Key Themes confirmed working: 10 themes from 483 articles ✅
+- Fixed Key Themes end-to-end: generateThemes() and generateBrief() route through Flask ✅
 
 ### 29 March 2026 (Session 22)
 - Designed and built Key Themes feature end-to-end
-- Folder tab switcher, theme grid, theme detail, brief modal
-- Added /api/kt/generate and /api/kt/brief to server.py
 
-### 29 March 2026 (Session 21)
-- Added tally bar and expanded activity bar to 5 sources
-- Confirmed autonomous workflow
+### 29 March 2026 (Sessions 18-21)
+- Activity bar, autonomous verification, Economist junk filter, push logic fixes
 
-### 29 March 2026 (Session 20)
-- Fixed junk URL filter bug
-- Raised article feed limit to 500
-- Added autonomous verification pattern
+### 28 March 2026 (Sessions 13-17)
+- Economist scraper overhaul, mobile PWA, shell endpoint, VPS sync, newsletters
 
-### 29 March 2026 (Session 19)
-- Economist scraper: two-step pull (bookmarks + homepage agent picks)
-- Recovered 246 Economist bookmark articles after accidental deletion
-
-### 29 March 2026 (Session 18)
-- Economist junk filter improved
-- Push logic fixed for wake_and_sync.sh
-- Documented autonomous mode setup
-
-### 28 March 2026 (Session 17)
-- Fixed Mac→VPS sync: push-articles endpoint + wake_and_sync.sh
-
-### 28 March 2026 (Session 16)
-- Newsletters fixed on VPS (nginx config)
-- score_and_autosave_new_articles() added
-
-### 28 March 2026 (Session 15)
-- Shell endpoint added (autonomous deployment unlocked)
-- Mobile PWA gap fixed
-
-### 28 March 2026 (Session 14)
-- Mobile PWA overhaul
-- Economist pub_date fixes
-- enrich_title_only_articles() fixed for headless=False
-
-### 28 March 2026 (Session 13)
-- Economist scraper completely overhauled
-
-### 28 March 2026 (Sessions 12-8)
-- Auto badge, curation filter, agent feedback
-- VPS scheduler, Bloomberg clip button
-- iPad PWA, autonomous reading agent
+### 28 March 2026 (Sessions 8-12)
+- Auto badge, curation filter, agent feedback, VPS scheduler, Bloomberg clip, iPad PWA, reading agent
 
 ### 26-27 March 2026 (Sessions 1-7)
 - meridianreader.com live, VPS, GitHub, all core features built
@@ -639,4 +624,3 @@ You are helping me build Meridian, my personal news aggregator. Please read my t
 1. Read NOTES.md via Filesystem MCP (path above) — do NOT try to fetch from GitHub URL (blocked)
 2. Check Flask is up by testing the shell endpoint — if it doesn't respond, report clearly and stop; do NOT attempt to restart Flask via the shell endpoint (it kills itself)
 3. Run the health check and report results before asking what to work on
-4. First action of Session 27: git push NOTES.md, then verify /api/images/backfill/status, then fire backfill
