@@ -3353,8 +3353,9 @@ async function downloadBriefPDF(themeIdx, type) {
       }, 3000);
     });
 
-    // Trigger download — window.open() is more reliable than hidden <a> for large files
-    window.open(SERVER + '/api/kt/brief/pdf/download/' + jobId, '_blank');
+    // Trigger download via location.href — avoids Chrome popup blocker
+    // Content-Disposition: attachment means the file downloads without navigating away
+    window.location.href = SERVER + '/api/kt/brief/pdf/download/' + jobId;
 
     if (btn) { btn.disabled = false; btn.innerHTML = origLabel; }
     toast('PDF downloaded');
