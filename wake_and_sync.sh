@@ -79,4 +79,34 @@ else:
         print(f"push error: {e}")
 PYEOF
 
+
+# Push article_images (Economist charts) from Mac DB to VPS
+echo "$(date): Pushing images to VPS" >> "$LOG"
+python3 - << 'IMGEOF' >> "$LOG" 2>&1
+import sqlite3, json, urllib.request, base64
+DB = '/Users/alexdakers/meridian-server/meridian.db'
+VPS = 'https://meridianreader.com/api/push-images'
+conn = sqlite3.connect(DB)
+q = 'SELECT article_id,caption,description,insight,image_data,width,height,captured_at FROM article_images WHERE insight != "" AND insight IS NOT NULL AND image_data IS NOT NULL'
+rows = conn.execute(q).fetchall()
+conn.close()
+if not rows:
+    print('push-images: no images to push')
+else:
+    images = [{'article_id':r[0],'caption':r[1],'description':r[2],'insight':r[3],'image_data':base64.b64encode(r[4]).decode('ascii'),'width':r[5],'height':r[6],'captured_at':r[7]} for r in rows]
+    total_upserted = 0
+    for i in range(0, len(images), 20):
+        batch = images[i:i+20]
+        payload = json.dumps({'images': batch}).encode()
+        req = urllib.request.Request(VPS, data=payload, headers={'Content-Type':'application/json'}, method='POST')
+        try:
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                result = json.loads(resp.read())
+                total_upserted += result.get('upserted', 0)
+        except Exception as e:
+            print(f'push-images batch error: {e}')
+            break
+    print(f'push-images: {total_upserted} upserted of {len(images)} total')
+IMGEOF
+
 echo "$(date): Wake sync complete" >> "$LOG"
