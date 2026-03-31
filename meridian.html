@@ -969,8 +969,7 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
 <div class="kt-brief-modal" id="kt-brief-modal">
   <div class="kt-brief-inner">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
-      <button class="kt-print-btn" onclick="window.print()" id="kt-print-btn" style="display:none">🖨 Print / Save PDF</button>
-      <button class="kt-brief-close" style="position:static" onclick="document.getElementById('kt-brief-modal').classList.remove('open');document.getElementById('kt-print-btn').style.display='none'">×</button>
+      <button class="kt-brief-close" style="position:static" onclick="document.getElementById('kt-brief-modal').classList.remove('open')">×</button>
     </div>
     <div id="kt-brief-modal-content"></div>
   </div>
@@ -3104,8 +3103,8 @@ function renderThemeDetail(idx, themeArts) {
         <span>Most recent: ${mostRecent}</span>
       </div>
       <div class="kt-brief-btns">
-        <button class="kt-brief-btn" onclick="generateBrief(${idx},'short')">&#9210; Short Brief</button>
-        <button class="kt-brief-btn outline" onclick="generateBrief(${idx},'full')">&#9210; Full Intelligence Brief</button>
+        <button class="kt-brief-btn" onclick="downloadBriefPDF(${idx},'short')" id="kt-brief-btn-short-${idx}">&#9210; Short Brief</button>
+        <button class="kt-brief-btn outline" onclick="downloadBriefPDF(${idx},'full')" id="kt-brief-btn-full-${idx}">&#9210; Full Intelligence Brief</button>
       </div>
       <div class="kt-overview-label">AI Overview</div>
       <div class="kt-overview-panel" id="kt-overview-${idx}">${theme.overview || '<em style="color:var(--ink-3)">Generating overview…</em>'}</div>
@@ -3317,63 +3316,20 @@ function showEvolutionBanner(ev) {
   if (kt && kt.firstChild) kt.insertBefore(banner, kt.firstChild);
   else if (kt) kt.prepend(banner);
 }
-async function generateBrief(themeIdx, type) {
+async function downloadBriefPDF(themeIdx, type) {
   const theme = ktThemes[themeIdx];
   const themeArts = getThemeArticles(themeIdx);
-  const modal = document.getElementById('kt-brief-modal');
-  const content = document.getElementById('kt-brief-modal-content');
-  modal.classList.add('open');
-  content.innerHTML = `<div class="kt-loading-state"><div class="spinner"></div> Generating ${type === 'short' ? 'short' : 'full intelligence'} brief…</div>`;
+  const btnId = type === 'short' ? `kt-brief-btn-short-${themeIdx}` : `kt-brief-btn-full-${themeIdx}`;
+  const btn = document.getElementById(btnId);
+  const origLabel = btn ? btn.innerHTML : '';
 
-  const artContext = themeArts
-    .filter(a => a.summary)
-    .slice(0, type === 'short' ? 30 : 60)
-    .map(a => `SOURCE: ${a.source}\nTITLE: ${a.title}\nSUMMARY: ${a.summary}`)
-    .join('\n\n---\n\n');
-
-  const isShort = type === 'short';
-  const prompt = isShort
-    ? `You are a senior intelligence analyst. Write a concise intelligence brief on the theme "${theme.name}" based on the articles below.
-
-Structure:
-## Executive Summary
-[2-3 sentences amber-highlighted overview]
-
-## Key Developments
-[5-7 bullet points with the most important recent developments]
-
-## Strategic Implications
-[2-3 paragraphs on what this means geopolitically and economically]
-
-## Watch List
-[3-5 things to watch in coming weeks]
-
-ARTICLES:
-${artContext}`
-    : `You are a senior intelligence analyst. Write a comprehensive full intelligence brief on the theme "${theme.name}".
-
-Structure:
-## ${theme.emoji} ${theme.name} — Intelligence Brief
-
-## Executive Summary
-[3-4 sentences]
-
-${(theme.subtopics||[]).map(st => `## ${st}\n[2-3 paragraphs of analytical prose on this sub-topic]`).join('\n\n')}
-
-## Cross-cutting Themes
-[Analysis of overarching patterns]
-
-## Strategic Implications
-[Forward-looking analysis]
-
-## Source Notes
-[Brief note on sources used]
-
-ARTICLES:
-${artContext}`;
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span> Generating…';
+  }
 
   try {
-    const startResp = await fetch(SERVER + '/api/kt/brief', {
+    const startResp = await fetch(SERVER + '/api/kt/brief/pdf', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ theme, articles: themeArts, type })
@@ -3381,47 +3337,36 @@ ${artContext}`;
     const startData = await startResp.json();
     if (startData.error) throw new Error(startData.error);
     const jobId = startData.job_id;
-    // Poll for result every 3 seconds (up to 3 minutes)
-    const text = await new Promise((resolve, reject) => {
+
+    // Poll for completion
+    await new Promise((resolve, reject) => {
       let attempts = 0;
       const poll = setInterval(async () => {
         attempts++;
-        if (attempts > 60) { clearInterval(poll); reject(new Error('Brief timed out')); return; }
+        if (attempts > 80) { clearInterval(poll); reject(new Error('PDF generation timed out')); return; }
         try {
-          const r = await fetch(SERVER + '/api/kt/brief/status/' + jobId, {cache:'no-store'});
+          const r = await fetch(SERVER + '/api/kt/brief/pdf/status/' + jobId, { cache: 'no-store' });
           const d = await r.json();
-          if (d.status === 'done') { clearInterval(poll); resolve(d.brief || ''); }
-          else if (d.status === 'error') { clearInterval(poll); reject(new Error(d.error || 'Brief failed')); }
+          if (d.status === 'done') { clearInterval(poll); resolve(); }
+          else if (d.status === 'error') { clearInterval(poll); reject(new Error(d.error || 'PDF generation failed')); }
         } catch(e) { clearInterval(poll); reject(e); }
       }, 3000);
     });
 
-    // Simple markdown to HTML
-    let html = text
-      .replace(/^## (.+)$/gm, '<h2>$1</h2>')
-      .replace(/^### (.+)$/gm, '<h3>$1</h3>')
-      .replace(/^\*\*(.+?)\*\*/gm, '<strong>$1</strong>')
-      .replace(/^- (.+)$/gm, '<li>$1</li>')
-      .replace(/(<li>.*<\/li>\n?)+/gs, m => '<ul>' + m + '</ul>')
-      .replace(/\n\n/g, '</p><p>')
-      .replace(/^(?!<[hul])(.+)/gm, '$1');
+    // Trigger download
+    const a = document.createElement('a');
+    a.href = SERVER + '/api/kt/brief/pdf/download/' + jobId;
+    a.download = `meridian_brief_${theme.name.toLowerCase().replace(/[^a-z0-9]+/g,'-')}_${type}.pdf`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
 
-    // Wrap exec summary in amber panel
-    html = html.replace(
-      /<h2>Executive Summary<\/h2>([\s\S]*?)(?=<h2>|$)/,
-      (m, body) => `<h2>Executive Summary</h2><div class="kt-brief-exec">${body.trim()}</div>`
-    );
+    if (btn) { btn.disabled = false; btn.innerHTML = origLabel; }
+    toast('PDF downloaded');
 
-    document.getElementById('kt-print-btn').style.display = 'inline-block';
-    content.innerHTML = `
-      <div style="margin-bottom:20px;padding-bottom:16px;border-bottom:1px solid var(--rule)">
-        <div style="font-size:10px;text-transform:uppercase;letter-spacing:1.5px;color:var(--accent);font-weight:500;margin-bottom:6px">${isShort ? 'Short Brief' : 'Full Intelligence Brief'}</div>
-        <div style="font-family:'Playfair Display',serif;font-size:22px;font-weight:500">${theme.emoji} ${theme.name}</div>
-        <div style="font-size:11px;color:var(--ink-3);margin-top:4px">${themeArts.length} articles · Generated ${new Date().toLocaleDateString('en-GB',{day:'numeric',month:'long',year:'numeric'})}</div>
-      </div>
-      <div class="kt-brief-content"><p>${html}</p></div>`;
   } catch(e) {
-    content.innerHTML = `<div style="color:var(--red);padding:20px">Brief generation failed: ${e.message}</div>`;
+    if (btn) { btn.disabled = false; btn.innerHTML = origLabel; }
+    toast('Brief failed: ' + e.message);
   }
 }
 
