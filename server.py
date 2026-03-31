@@ -2603,6 +2603,53 @@ def kt_brief_status(job_id):
 
 
 
+# ── Brief PDF routes (see brief_pdf.py) ──────────────────────────────────────
+try:
+    import brief_pdf as _bpdf
+    _BRIEF_PDF_OK = True
+except ImportError:
+    _BRIEF_PDF_OK = False
+    log.warning("brief_pdf module not found")
+
+@app.route("/api/kt/brief/pdf", methods=["POST"])
+def kt_brief_pdf():
+    if not _BRIEF_PDF_OK:
+        return jsonify({"error": "brief_pdf not available"}), 500
+    import uuid
+    data = request.json or {}
+    theme = data.get("theme", {})
+    articles = data.get("articles", [])
+    brief_type = data.get("type", "full")
+    if not theme:
+        return jsonify({"error": "no theme"}), 400
+    job_id = str(uuid.uuid4())[:8]
+    _bpdf.start_pdf_job(job_id, theme, articles, brief_type, str(DB_PATH), str(BASE_DIR))
+    return jsonify({"ok": True, "job_id": job_id})
+
+@app.route("/api/kt/brief/pdf/status/<job_id>", methods=["GET"])
+def kt_brief_pdf_status(job_id):
+    if not _BRIEF_PDF_OK:
+        return jsonify({"error": "brief_pdf not available"}), 500
+    job = _bpdf.get_job(job_id)
+    if not job:
+        return jsonify({"error": "unknown job"}), 404
+    return jsonify({k: v for k, v in job.items() if k != "path"})
+
+@app.route("/api/kt/brief/pdf/download/<job_id>", methods=["GET"])
+def kt_brief_pdf_download(job_id):
+    from flask import send_file
+    if not _BRIEF_PDF_OK:
+        return jsonify({"error": "brief_pdf not available"}), 500
+    job = _bpdf.get_job(job_id)
+    if not job or not job.get("ready"):
+        return jsonify({"error": "not ready"}), 404
+    path = Path(job.get("path", ""))
+    if not path.exists():
+        return jsonify({"error": "file missing"}), 404
+    return send_file(str(path), mimetype="application/pdf",
+                     as_attachment=True, download_name="meridian_brief.pdf")
+
+
 # ── Article images routes ─────────────────────────────────────────────────────
 
 @app.route("/api/articles/<aid>/images", methods=["GET"])

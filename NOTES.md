@@ -1,5 +1,5 @@
 # Meridian — Technical Notes
-Last updated: 31 March 2026 (Session 27 — in progress)
+Last updated: 31 March 2026 (Session 27 — complete)
 
 ## Overview
 Personal news aggregator. Flask API + SQLite backend now running on Hetzner VPS (always-on).
@@ -35,6 +35,7 @@ Frontend served via nginx with HTTPS. Accessible from anywhere at https://meridi
 - ~/meridian-server/cookies.json       — Publication session cookies
 - ~/meridian-server/newsletter_sync.py — iCloud IMAP newsletter poller
 - ~/meridian-server/extension/         — Chrome extension v1.3
+- ~/meridian-server/brief_pdf.py       — Intelligence brief PDF generation module
 - ~/meridian-server/logs/              — Server and sync logs
 - ~/Library/LaunchAgents/com.alexdakers.meridian.plist       — Auto-start Flask (Mac)
 - ~/Library/LaunchAgents/com.alexdakers.meridian.http.plist  — Auto-start HTTP (Mac)
@@ -491,83 +492,52 @@ then navigate Tab B to the live site if it isn't already there.
 - Retention: 7 days
 
 ## Next Steps (priority order)
-1. **Run insight enrichment** — POST /api/images/enrich-insights after backfill completes (~500 Haiku calls, ~15-20 min)
-2. **Wire charts into briefs** — two-pass relevance scoring using description + insight, embed in PDF (design spec documented above)
-3. **PWA icons** — proper 192×192 and 512×512 instead of placeholders
-4. **Newsletter auto-sync** — newsletter_sync.py is gitignored (has credentials), so VPS can't auto-sync
+1. **Complete brief PDF deployment** (SESSION 28 FIRST TASK):
+   a. python3 -m py_compile ~/meridian-server/server.py && echo OK
+   b. cd ~/meridian-server && ./deploy.sh feat-brief-pdf-pipeline
+   c. pkill -f server.py; sleep 1; cd ~/meridian-server && python3 server.py &
+   d. Test: POST /api/kt/brief/pdf, poll status, download PDF
+2. **Wire PDF button into Key Themes UI** -- Full brief button:
+   POST /api/kt/brief/pdf, poll /api/kt/brief/pdf/status/<job_id>,
+   download via /api/kt/brief/pdf/download/<job_id>
+3. **PWA icons** -- proper 192x192 and 512x512
+4. **Newsletter auto-sync** -- newsletter_sync.py gitignored; VPS cannot auto-sync
 
-## Session 27 fixes
-- Chart/map capture bug: figcaption check was case-sensitive ("Chart:" vs actual "chart: the economist") — fixed to `caption_text.lower()`
-- Backfill completed: ~150 images captured from 247 Economist articles
-- Insight enrichment: `insight` column added, enrich job built, wired into VPS scheduler
-- kt/tag-new wired into VPS scheduler (runs after each suggested refresh)
-- Flask process management: launchd unload error is harmless if Flask already running; use `lsof -ti :4242` to find PID and kill old process when restarting
+## Session 27 -- Complete build log (31 March 2026)
 
-## KT Incremental Architecture — Current Build State
+### What was built and deployed
+- Chart capture fix: figcaption case mismatch fixed (commit 44cd1852)
+  Was checking Chart: but Economist uses chart: the economist (lowercase)
+- Backfill: 153 images captured from 247 Economist articles
+- insight column: Added to article_images via ALTER TABLE in init_db
+- enrich_image_insights(): Haiku vision + article context, 30-word insight per image
+  POST /api/images/enrich-insights | GET /api/images/enrich-insights/status
+- Insight enrichment: 153/153 images done, 0 failures
+- GET /api/articles/<aid>/images now returns insight field
+- kt/tag-new added to VPS scheduler after each suggested refresh
+- enrich_image_insights added to VPS scheduler after each sync
+- Chart display design finalised: no caption shown, description+insight internal only
+  Full brief only, 2-per-row inline, keyword scoring (insight x2 desc x1), cap 8
 
-### What is complete ✅
-- server.py: 3 new DB tables in init_db(): article_theme_tags, kt_themes, kt_meta
-- server.py routes all deployed to VPS and working:
-  - POST /api/kt/seed + GET /api/kt/seed/status/<job_id> — async full seed with polling
-  - GET /api/kt/themes — returns themes from DB (returns {seeded:false} if not yet seeded)
-  - GET /api/kt/status — seeded state, counts, pending evolution
-  - POST /api/kt/tag-new — tags untagged articles with Haiku in batches of 50
-  - POST /api/kt/evolve — detects theme replacement candidates, writes to kt_meta as pending_evolution
-- meridian.html fully patched and working:
-  - renderKeyThemes() calls loadThemes() (DB-backed, instant)
-  - loadThemes() → shows seed prompt if not seeded, renders grid if seeded
-  - seedThemes() → fires /api/kt/seed, polls for progress, renders grid on completion
-  - generateThemes() → thin wrapper calling loadThemes()
-  - Reset Themes button wipes all tables and re-seeds
-  - Evolution banner shown when pending_evolution detected
-  - localStorage caching removed entirely
-- Seed successfully run on VPS: 10 themes, 488/493 articles tagged ✅
-- 5 untagged articles are title_only stubs — will be tagged on next sync via /api/kt/tag-new
+### What is NOT yet deployed (Session 28 first task)
+- brief_pdf.py: ~/meridian-server/brief_pdf.py (has syntax error from heredoc -- needs fix)
+  Functions: score_charts_for_section, build_brief_pdf, start_pdf_job, get_job
+  Uses: ReportLab Platypus, A4, section-per-subtopic, 2-per-row chart grid, source footer
+- PDF routes in server.py (patched locally, uncommitted):
+  POST /api/kt/brief/pdf | GET status/<job_id> | GET download/<job_id>
+  Imported via: import brief_pdf as _bpdf with try/except fallback
 
-### 10 themes seeded (30 March 2026)
-- ⚔️ Iran War and Geopolitical Crisis — 108 articles
-- 🇪🇺 European Economic and Political Challenges — 117 articles
-- 📈 Global Financial Markets Volatility — 91 articles
-- 🐉 China-US Strategic Competition — 92 articles
-- 🏛️ Trump Administration Foreign Policy — 84 articles
-- 🤖 Artificial Intelligence Revolution — 78 articles
-- 🛢️ Energy Markets and Security — 78 articles
-- 🏢 Corporate Strategy and Innovation — 79 articles
-- 🌍 Trade Wars and Global Commerce
-- (10th theme)
+### Flask process management learnings
+- launchctl unload errors are harmless if Flask running via python3 directly
+- Find PID: lsof -ti :4242
+- Clean restart: pkill -f server.py; sleep 1; cd ~/meridian-server && python3 server.py &
+- Never restart via shell endpoint -- kills the process mid-response
+- Two PIDs on 4242: kill lower (older) one
 
-### Key design decisions (agreed)
-- Seed: representative sample of titles (every 3rd article), not full corpus
-- Themes: lean fields only at seed time; key_facts/subtopic_details generated on-demand
-- Assignments: Haiku in batches of 50 (not Sonnet — cheaper, faster, sufficient)
-- Evolution: nudge model — detect candidates, show banner, user applies manually
-- Reset: full wipe of all 3 tables + re-seed
+### DB state end of Session 27
+- Total articles: 508 (Mac), ~493 (VPS)
+- article_images: 153 images, 153 with insight populated
 
-## Key Themes — Design Spec
-
-### Layout
-- Mode switcher row between server bar and tally bar: [News Feed] [Key Themes] — two large full-width toggle buttons
-- Key Themes replaces the entire area below the switcher (nav tabs + feed + sidebar hidden)
-- News Feed shows current layout unchanged
-
-### Theme grid
-- 10 themes in a 5x2 icon grid — Claude-generated names, emoji icons, article counts
-- Click a theme: selected card goes dark, all others dim to 30% opacity, downward arrow indicator
-- Below grid: bold divider line, then theme detail section
-
-### Theme detail sections (in order)
-1. Eyebrow + title + meta (article count, sources, most recent date)
-2. Short brief / Full intelligence brief buttons (amber primary)
-3. AI Overview — cream panel with amber left border, generated from all theme articles
-4. Key Facts — 10 cards in 5x2 grid, two-tone (cream top: number+title; white bottom: body text with bold stats)
-5. Sub-topics — pill tags; click opens inline AI overview panel (dark header, bullet points, source badges)
-6. Article grid — 2 columns, source/date/title/summary/tags/link per card, sort dropdown
-
-### Briefs
-- Short brief: 1-page PDF — executive summary (amber panel) + key developments (bullets) + implications + watch list + source badges
-- Full intelligence brief: 4-page PDF — contents table, sections per sub-topic with prose, pull quotes, charts, source citations
-- Both pull from: feed articles + newsletters + interviews
-- Chart selection: two-pass process — generate brief text first, then score each chart description against brief text, include only charts with meaningful term overlap
 
 ## Build History
 ### 31 March 2026 (Session 26/27 transition)
