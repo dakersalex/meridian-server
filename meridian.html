@@ -3353,13 +3353,8 @@ async function downloadBriefPDF(themeIdx, type) {
       }, 3000);
     });
 
-    // Trigger download
-    const a = document.createElement('a');
-    a.href = SERVER + '/api/kt/brief/pdf/download/' + jobId;
-    a.download = `meridian_brief_${theme.name.toLowerCase().replace(/[^a-z0-9]+/g,'-')}_${type}.pdf`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+    // Trigger download — window.open() is more reliable than hidden <a> for large files
+    window.open(SERVER + '/api/kt/brief/pdf/download/' + jobId, '_blank');
 
     if (btn) { btn.disabled = false; btn.innerHTML = origLabel; }
     toast('PDF downloaded');
