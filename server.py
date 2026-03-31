@@ -119,6 +119,10 @@ def init_db():
             captured_at INTEGER NOT NULL,
             FOREIGN KEY (article_id) REFERENCES articles(id)
         )""")
+        # Add insight column if missing (added Session 27)
+        ai_cols = [r[1] for r in cx.execute("PRAGMA table_info(article_images)").fetchall()]
+        if 'insight' not in ai_cols:
+            cx.execute("ALTER TABLE article_images ADD COLUMN insight TEXT DEFAULT ''")
         cx.commit()
 
 def article_exists(aid):
@@ -463,6 +467,98 @@ def capture_economist_charts(page, article_id):
     except Exception as e:
         log.warning(f"Charts: capture failed for {article_id}: {e}")
         return 0
+
+
+# ── Image insight enrichment ──────────────────────────────────────────────────
+_insight_job = {"running": False, "total": 0, "done": 0, "enriched": 0, "error": None, "started_at": None}
+
+def enrich_image_insights():
+    """Generate insight strings for all article_images rows that have empty insight.
+    Insight = what analytical point this chart supports in the context of its source article.
+    Uses Haiku vision + article title/summary. Runs as async job after backfill completes,
+    and incrementally after each sync to pick up new images."""
+    import base64 as _b64
+    global _insight_job
+
+    with sqlite3.connect(DB_PATH) as cx:
+        rows = cx.execute("""
+            SELECT ai.id, ai.article_id, ai.caption, ai.description, ai.image_data,
+                   a.title, a.summary
+            FROM article_images ai
+            JOIN articles a ON ai.article_id = a.id
+            WHERE ai.insight = '' OR ai.insight IS NULL
+        """).fetchall()
+
+    if not rows:
+        log.info("Insight enrichment: nothing to do")
+        return 0
+
+    log.info(f"Insight enrichment: {len(rows)} images to process")
+    _insight_job.update({"running": True, "total": len(rows), "done": 0, "enriched": 0,
+                         "error": None, "started_at": now_ts()})
+    enriched = 0
+
+    for i, row in enumerate(rows):
+        img_id, article_id, caption, description, image_data, title, summary = row
+        try:
+            img_b64 = _b64.b64encode(image_data).decode("utf-8")
+            prompt = (
+                f"This chart appears in an Economist article titled: "{title}"
+"
+                f"The article argues: {(summary or '')[:300]}
+"
+                f"The chart shows: {description}
+
+"
+                "In ONE sentence (max 30 words), explain what analytical point or argument this chart "
+                "supports in the context of that article. Be specific — name the trend, statistic, or "
+                "conclusion it evidences. No preamble."
+            )
+            resp = call_anthropic({
+                "model": "claude-haiku-4-5-20251001",
+                "max_tokens": 80,
+                "messages": [{
+                    "role": "user",
+                    "content": [
+                        {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": img_b64}},
+                        {"type": "text", "text": prompt}
+                    ]
+                }]
+            }, timeout=20)
+            insight = resp["content"][0]["text"].strip()
+            with sqlite3.connect(DB_PATH) as cx:
+                cx.execute("UPDATE article_images SET insight=? WHERE id=?", (insight, img_id))
+            enriched += 1
+            log.info(f"Insight [{i+1}/{len(rows)}] img {img_id}: {insight[:80]}")
+        except Exception as e:
+            log.warning(f"Insight enrichment: failed for img {img_id}: {e}")
+        finally:
+            _insight_job["done"] = i + 1
+            _insight_job["enriched"] = enriched
+        # Rate limit: 1s between calls, extra pause every 20
+        time.sleep(1)
+        if (i + 1) % 20 == 0:
+            time.sleep(10)
+
+    _insight_job["running"] = False
+    log.info(f"Insight enrichment: done — {enriched}/{len(rows)} images enriched")
+    return enriched
+
+@app.route("/api/images/enrich-insights", methods=["POST"])
+def enrich_insights_route():
+    """Async job: generate insight strings for all images missing them."""
+    if _insight_job.get("running"):
+        return jsonify({"ok": False, "error": "Already running"}), 409
+    threading.Thread(target=enrich_image_insights, daemon=True).start()
+    return jsonify({"ok": True, "started": True})
+
+@app.route("/api/images/enrich-insights/status", methods=["GET"])
+def enrich_insights_status():
+    with sqlite3.connect(DB_PATH) as cx:
+        pending = cx.execute(
+            "SELECT COUNT(*) FROM article_images WHERE insight='' OR insight IS NULL"
+        ).fetchone()[0]
+    return jsonify({**_insight_job, "pending": pending})
 
 
 # ── Backfill job state ────────────────────────────────────────────────────────
@@ -2277,6 +2373,24 @@ def scheduler_loop(interval_hours):
                         saved = run_agent()
                         log.info(f"Scheduler: agent saved {len(saved)} articles")
                         auto_dismiss_old_suggested(days=30)
+                        # Tag any new untagged articles with KT themes
+                        try:
+                            import urllib.request as _ur2, json as _j2
+                            _ur2.urlopen(_ur2.Request(
+                                "http://localhost:4242/api/kt/tag-new",
+                                data=b"{}",
+                                headers={"Content-Type": "application/json"},
+                                method="POST"
+                            ), timeout=5)
+                            log.info("Scheduler: triggered kt/tag-new")
+                        except Exception as _kte:
+                            log.warning(f"Scheduler: kt/tag-new trigger failed: {_kte}")
+                        # Enrich any new images missing insight
+                        try:
+                            threading.Thread(target=enrich_image_insights, daemon=True).start()
+                            log.info("Scheduler: triggered insight enrichment")
+                        except Exception as _ie:
+                            log.warning(f"Scheduler: insight enrichment trigger failed: {_ie}")
                     except Exception as e:
                         log.warning(f"Scheduler: suggested/agent error — {e}")
                 threading.Thread(target=_suggested_and_agent, daemon=True).start()

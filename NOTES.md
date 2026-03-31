@@ -1,5 +1,5 @@
 # Meridian — Technical Notes
-Last updated: 31 March 2026 (Session 26 — complete)
+Last updated: 31 March 2026 (Session 27 — in progress)
 
 ## Overview
 Personal news aggregator. Flask API + SQLite backend now running on Hetzner VPS (always-on).
@@ -236,7 +236,7 @@ Mac launchd: com.alexdakers.meridian.wakesync runs at 05:40 and 11:40
 
 ### How capture_economist_charts() works
 1. Scrolls page fully to trigger lazy-loading
-2. Finds all `<figure>` elements whose `<figcaption>` contains "Chart:" or "Map:"
+2. Finds all `<figure>` elements whose `<figcaption>` contains "chart:" or "map:" (lowercase — actual Economist format: "chart: the economist" / "map: the economist")
 3. Scrolls each figure into view, screenshots as PNG via element.screenshot()
 4. Calls Claude Haiku vision API for one-line description (max 25 words)
 5. Saves to article_images (idempotent — skips if article already has images)
@@ -255,6 +255,15 @@ CREATE TABLE IF NOT EXISTS article_images (
     FOREIGN KEY (article_id) REFERENCES articles(id)
 )
 ```
+
+### Image insight enrichment (Session 27)
+- `article_images` table: `insight` column added (ALTER TABLE migration in init_db)
+- `enrich_image_insights()` function: Haiku vision call per image, passes article title + summary + description as context, generates 30-word analytical insight string
+- `POST /api/images/enrich-insights` — async job, processes all images with empty insight
+- `GET /api/images/enrich-insights/status` — poll progress
+- VPS scheduler: after each run, auto-triggers kt/tag-new and enrich_image_insights
+- Insight format: "what analytical point this chart supports in the context of its source article"
+- Brief pipeline uses both `description` (visual) and `insight` (contextual) for relevance scoring
 
 ### Session 26 end state
 - Code patched, syntax-verified, committed, deployed to VPS ✅
@@ -466,13 +475,17 @@ then navigate Tab B to the live site if it isn't already there.
 - Retention: 7 days
 
 ## Next Steps (priority order)
-1. **Push NOTES.md to GitHub** — git push did not complete at end of Session 26, do this first in Session 27
-2. **Verify Flask is running new code** — check /api/images/backfill/status responds (proves new server.py loaded)
-3. **Run chart backfill** — fire POST /api/images/backfill, monitor via GET /api/images/backfill/status (~30-60 min, ~500-1000 images from 254 Economist articles)
-4. **Wire charts into briefs** — two-pass relevance scoring, embed in PDF (design spec documented above)
-5. **Wire /api/kt/tag-new into VPS scheduler** — runs after each sync to tag new articles
-6. **PWA icons** — proper 192×192 and 512×512 instead of placeholders
-7. **Newsletter auto-sync** — newsletter_sync.py is gitignored (has credentials), so VPS can't auto-sync
+1. **Run insight enrichment** — POST /api/images/enrich-insights after backfill completes (~500 Haiku calls, ~15-20 min)
+2. **Wire charts into briefs** — two-pass relevance scoring using description + insight, embed in PDF (design spec documented above)
+3. **PWA icons** — proper 192×192 and 512×512 instead of placeholders
+4. **Newsletter auto-sync** — newsletter_sync.py is gitignored (has credentials), so VPS can't auto-sync
+
+## Session 27 fixes
+- Chart/map capture bug: figcaption check was case-sensitive ("Chart:" vs actual "chart: the economist") — fixed to `caption_text.lower()`
+- Backfill completed: ~150 images captured from 247 Economist articles
+- Insight enrichment: `insight` column added, enrich job built, wired into VPS scheduler
+- kt/tag-new wired into VPS scheduler (runs after each suggested refresh)
+- Flask process management: launchd unload error is harmless if Flask already running; use `lsof -ti :4242` to find PID and kill old process when restarting
 
 ## KT Incremental Architecture — Current Build State
 
