@@ -3328,6 +3328,15 @@ async function downloadBriefPDF(themeIdx, type) {
     btn.innerHTML = '<span class="spinner"></span> Generating…';
   }
 
+  // Open a blank window NOW, synchronously with the user gesture.
+  // This is allowed by Chrome. We'll navigate it to the PDF once ready.
+  const pdfWin = window.open('', '_blank');
+  if (pdfWin) {
+    pdfWin.document.write('<html><body style="font-family:sans-serif;padding:40px;color:#555">'
+      + '<p>Generating your intelligence brief — this takes about 60 seconds.</p>'
+      + '<p>The PDF will load here automatically when ready.</p></body></html>');
+  }
+
   try {
     const startResp = await fetch(SERVER + '/api/kt/brief/pdf', {
       method: 'POST',
@@ -3353,14 +3362,20 @@ async function downloadBriefPDF(themeIdx, type) {
       }, 3000);
     });
 
-    // Trigger download via location.href — avoids Chrome popup blocker
-    // Content-Disposition: attachment means the file downloads without navigating away
-    window.location.href = SERVER + '/api/kt/brief/pdf/download/' + jobId;
+    // Navigate the pre-opened window to the PDF — no popup blocker, opens inline in browser
+    const pdfUrl = SERVER + '/api/kt/brief/pdf/download/' + jobId;
+    if (pdfWin && !pdfWin.closed) {
+      pdfWin.location.href = pdfUrl;
+    } else {
+      // Fallback if user closed the tab
+      window.open(pdfUrl, '_blank');
+    }
 
     if (btn) { btn.disabled = false; btn.innerHTML = origLabel; }
-    toast('PDF downloaded');
+    toast('Brief ready — opening PDF');
 
   } catch(e) {
+    if (pdfWin && !pdfWin.closed) pdfWin.close();
     if (btn) { btn.disabled = false; btn.innerHTML = origLabel; }
     toast('Brief failed: ' + e.message);
   }
