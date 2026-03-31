@@ -2613,7 +2613,7 @@ def get_article_images(aid):
     with sqlite3.connect(DB_PATH) as cx:
         cx.row_factory = sqlite3.Row
         rows = cx.execute(
-            "SELECT id, article_id, caption, description, image_data, width, height, captured_at "
+            "SELECT id, article_id, caption, description, insight, image_data, width, height, captured_at "
             "FROM article_images WHERE article_id=? ORDER BY id ASC",
             (aid,)
         ).fetchall()
