@@ -1,5 +1,5 @@
 # Meridian — Technical Notes
-Last updated: 1 April 2026 (Session 34 — article filtering & brief quality)
+Last updated: 1 April 2026 (Session 34 — article filtering, brief quality, chart backfill)
 
 ## Overview
 Personal news aggregator. Flask API + SQLite backend running on Hetzner VPS (always-on).
@@ -162,6 +162,16 @@ Khamenei, Strait, Tehran, Houthi, sanctions, ceasefire, airstrike, Persian Gulf.
 - Solo charts (only 1 qualifies for a section) → 0 charts shown (never unpaired)
 - Budget: up to 2 per section, global cap 14 charts per brief
 
+### Why some briefs have fewer charts than others
+- Charts are pulled only from articles matched to the theme. Focused themes with tight
+  keyword matching (e.g. US-Iran Military Conflict) pull mostly FT/Foreign Affairs
+  analysis pieces which are text-heavy and chart-sparse.
+- Broader themes (e.g. Gulf Energy Markets Shock) pull more Economist data articles
+  which are chart-rich. The second PDF in Session 34 had 14 charts because it used
+  the old broader keyword set; the first had 2 because it used the tighter new set.
+- Fix: ensure energy/market keywords (oil, LNG, Hormuz) appear in Iran War theme so
+  relevant charted Economist articles are pulled in alongside the geopolitical analysis.
+
 ---
 
 ## Flask Routes — Brief Pipeline
@@ -179,8 +189,8 @@ Khamenei, Strait, Tehran, Houthi, sanctions, ceasefire, airstrike, Persian Gulf.
 ## Economist Chart & Map Capture (Session 26 ✅)
 
 ### DB state (1 April 2026)
-- Mac: 153 images, 153 with insight
-- VPS: 153 images, mac_id dedup prevents duplicates
+- Mac: 156 images, 86 articles with images (backfill running — 168 articles queued)
+- VPS: 156 images, mac_id dedup prevents duplicates
 
 ### Image sync to VPS
 - POST /api/push-images — receives images from Mac, upserts on mac_id
@@ -232,14 +242,33 @@ Before any DELETE/UPDATE: SELECT preview first, state what will be affected, the
 ## Next Steps (priority order)
 1. **Reset Themes one more time** — key_facts are blank, Haiku-per-theme fix is now
    deployed. Trigger from live site: Key Themes → Reset Themes.
-2. **Clean up tmp_ files** — many tmp_*.py, tmp_*.png accumulated across sessions.
+2. **Key Facts section blank in theme panel** — after Reset Themes above this should
+   populate. If still blank after re-seed, debug Call 3 in kt/seed by checking VPS
+   log for "key_facts enrichment done" and inspecting DB directly.
+3. **Add energy/market keywords to Iran War theme** — "US-Iran Military Conflict" brief
+   has very few charts because tight keyword matching excludes energy/market Economist
+   articles (oil prices, LNG, Hormuz chokepoint) which go to "Gulf Energy Markets Shock"
+   instead. Fix: add "oil", "LNG", "Hormuz", "energy" to Iran War theme keywords so
+   charted energy articles are pulled into that brief too.
+4. **Sort theme articles by relevance, not date** — articles list in Key Themes detail
+   panel currently shows most recent first. Better UX: sort by a relevance score
+   (keyword hit count, summary length, full_text status) so the most substantive
+   articles surface first regardless of date.
+5. **Sub-topics review** — sub-topics currently appear as filter chips in the theme
+   panel but clicking them does nothing (no filtering implemented). Decide: either
+   implement sub-topic filtering of the article list, or remove the chips and use
+   sub-topics only as brief section headings (their current primary purpose in the
+   PDF). If keeping, sub-topic details (bullet points from kt/seed Call 3) could
+   expand on click.
+6. **Focused Intelligence Briefing from manual text input** — new feature: allow user
+   to paste or type their own topic/question as free text, with AI suggestions for
+   relevant articles from the library. Would generate a targeted brief not tied to
+   the 10 seeded themes. Design questions: where does it live in the UI (new tab or
+   within Key Themes)? Does it use the same brief pipeline or a simpler one-shot call?
+7. **Clean up tmp_ files** — many tmp_*.py, tmp_*.png accumulated across sessions.
    Run: git rm tmp_*.py tmp_*.png *.png crop_*.png orig_*.png && git commit -m 'chore: remove tmp files'
-3. **Foreign Affairs paywall** — FA articles still truncating at ~1,400 chars.
+8. **Foreign Affairs paywall** — FA articles still truncating at ~1,400 chars.
    Investigate fa_profile/ cookie freshness, try re-login via Playwright.
-4. **Chart-to-brief integration review** — chart selection scoring works well; consider
-   whether _MIN_SCORE threshold is right for non-Iran-war themes.
-5. **KT keywords UI** — no in-app way to view/edit theme keywords; consider adding
-   to theme detail panel.
 
 ---
 
@@ -271,6 +300,12 @@ Before any DELETE/UPDATE: SELECT preview first, state what will be affected, the
 - Fix: Call 3 generates key_facts + subtopic_details per theme using Haiku
 - key_facts still blank after latest seed because it ran before the fix deployed.
   Pending one more Reset Themes.
+
+**Chart investigation**
+- Backfill triggered for 168 Economist articles missing charts; most are text-only
+  opinion/analysis pieces with no figures — expected to yield few new charts
+- Root cause of chart-sparse briefs: tight theme keywords exclude energy/market
+  articles (which have the most charts) from the Iran War theme
 
 **VPS outage (server offline)**
 - Caused by a line-number patch that inserted new theme_prompt block without removing
