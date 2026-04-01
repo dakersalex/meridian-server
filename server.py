@@ -1729,7 +1729,7 @@ def scrape_suggested_articles():
         # Agentic loop — web_search requires multiple roundtrips
         for attempt in range(6):
             payload = _json.dumps({
-                "model": "claude-sonnet-4-20250514",
+                "model": "claude-sonnet-4-6",
                 "max_tokens": 2000,
                 "tools": [{"type": "web_search_20250305", "name": "web_search"}],
                 "messages": messages
@@ -1790,7 +1790,7 @@ def scrape_suggested_articles():
                         date_msgs = [{"role": "user", "content": date_prompt}]
                         for _da in range(4):
                             date_data = call_anthropic({
-                                "model": "claude-sonnet-4-20250514",
+                                "model": "claude-sonnet-4-6",
                                 "max_tokens": 500,
                                 "tools": [{"type": "web_search_20250305", "name": "web_search"}],
                                 "messages": date_msgs
@@ -1818,7 +1818,7 @@ def scrape_suggested_articles():
                     score_prompt = ("You are scoring news articles for a senior analyst. Their interests: " + interests_str + ". Score each article 0-10 for relevance to these interests. Be strict - only score 6+ if genuinely relevant. Exclude: lifestyle, sport, celebrity, recipes, quizzes, obituaries." + (" The analyst has dismissed articles about: " + avoid_str + " — score these lower." if avoid_str else "") + " Articles to score: " + titles_str + " Respond ONLY with a JSON array (same order): [{\"score\":8,\"reason\":\"one sentence why relevant\"}]")
                     try:
                         score_data = call_anthropic({
-                            "model": "claude-sonnet-4-20250514",
+                            "model": "claude-sonnet-4-6",
                             "max_tokens": 1000,
                             "messages": [{"role": "user", "content": score_prompt}]
                         })
@@ -1876,7 +1876,7 @@ def scrape_suggested_articles():
                     " Articles: " + titles_str +
                     " Respond ONLY with a JSON array (same order): [{\"score\":8,\"reason\":\"one sentence\"}]")
                 score_data = call_anthropic({
-                    "model": "claude-sonnet-4-20250514",
+                    "model": "claude-sonnet-4-6",
                     "max_tokens": 1000,
                     "messages": [{"role": "user", "content": score_prompt}]
                 })
@@ -2029,7 +2029,7 @@ Article text:
 {body[:6000]}"""
     try:
         data = call_anthropic({
-            "model": "claude-sonnet-4-20250514",
+            "model": "claude-sonnet-4-6",
             "max_tokens": 300,
             "messages": [{"role": "user", "content": prompt}]
         })
@@ -2552,7 +2552,7 @@ def kt_generate():
                 "ARTICLES:\n" + ctx
             )
             resp = call_anthropic({
-                "model": "claude-sonnet-4-20250514",
+                "model": "claude-sonnet-4-6",
                 "max_tokens": 8000,
                 "messages": [{"role": "user", "content": prompt}]
             }, timeout=180, retries=1)
@@ -2604,7 +2604,7 @@ def kt_brief():
             max_tokens = 1500 if brief_type == "short" else 4000
 
             resp = call_anthropic({
-                "model": "claude-sonnet-4-20250514",
+                "model": "claude-sonnet-4-6",
                 "max_tokens": max_tokens,
                 "messages": [{"role": "user", "content": prompt}]
             }, timeout=180, retries=1)
@@ -2861,7 +2861,7 @@ def kt_seed():
                 "ARTICLES:\n" + sample_ctx
             )
             resp1 = call_anthropic({
-                "model": "claude-sonnet-4-20250514",
+                "model": "claude-sonnet-4-6",
                 "max_tokens": 3000,
                 "messages": [{"role": "user", "content": theme_prompt}]
             }, timeout=60, retries=2)

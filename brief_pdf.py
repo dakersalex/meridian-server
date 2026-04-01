@@ -726,7 +726,7 @@ def start_pdf_job(job_id, theme, articles, brief_type, db_path, base_dir,
                                        ctx, brief_type)
                 mt = 1500 if brief_type == "short" else 4000
                 data = json.dumps({
-                    "model": "claude-sonnet-4-20250514",
+                    "model": "claude-sonnet-4-6",
                     "max_tokens": mt,
                     "messages": [{"role": "user", "content": prompt}]
                 }).encode()
