@@ -87,71 +87,35 @@ def _find_top_crop(img):
     """
     Crop the entire title block: bold title + subtitle line(s).
 
-    The Economist chart header from top:
-      y=0-5:   white padding
-      y=6-11:  red accent bar (pinkish beige)
-      y=12-36: BOLD TITLE text (dark rows on beige)
-      y=37-52: beige gap between title and subtitle
-      y=53-62: SUBTITLE line 1 (e.g. "Oil tankers passing through...")
-      y=63-73: beige gap
-      y=74-81: SUBTITLE line 2 (axis unit, e.g. "$ per barrel") — sometimes absent
-      y=82-89: beige gap
-      y=90+:   chart data area (y-axis numbers, gridlines, data)
+    Strategy: scan only the fixed title region (y=6 to y=95 — the Economist
+    title block never extends beyond ~90px). Find the LAST dark text row in
+    that region. Crop at last_dark + 2.
 
-    Strategy:
-    - Scan the title region (y=6 to y≈120)
-    - Track all dark text rows
-    - Find the LAST dark row in the title region
-    - Then find the first SUSTAINED beige gap after it (10+ consecutive beige rows)
-    - That sustained gap marks the transition to chart data — crop there
-
-    The 10-row threshold distinguishes the short gaps BETWEEN subtitle lines
-    (typically 5-8 rows) from the longer gap AFTER the last subtitle line
-    before chart data begins (typically 10-15 rows).
+    This is simpler and more reliable than hunting for a beige run gap:
+    - Capping at y=95 means we never accidentally pick up chart data rows
+    - last_dark + 2 gives one pixel of padding after the title block ends
+    - Works for both single-subtitle and double-subtitle charts
+    - Maps skip this function entirely (handled by caller)
     """
     w, h = img.size
-    SCAN_END = min(130, h - 30)
-    MIN_BEIGE_RUN = 10  # must be longer than inter-subtitle gaps (~5-8px)
+    TITLE_REGION_END = min(95, h // 4)  # title block never beyond 95px
 
-    # Collect all dark row positions in title region
-    last_dark_y = None
-    for y in range(6, SCAN_END):
+    last_dark_y = 0
+    for y in range(6, TITLE_REGION_END):
         px = _sample_row(img, y)
         if _row_dark_count(px) >= 2:
             last_dark_y = y
 
-    if last_dark_y is None:
-        return 0  # no title found, don't crop
+    if last_dark_y == 0:
+        return 0  # no title text found
 
-    # Scan forward from last dark row, find first sustained beige run
-    beige_run = 0
-    beige_start = None
-    for y in range(last_dark_y + 1, min(last_dark_y + 40, h)):
-        px = _sample_row(img, y)
-        if _row_is_beige(px):
-            if beige_run == 0:
-                beige_start = y
-            beige_run += 1
-            if beige_run >= MIN_BEIGE_RUN:
-                # Found the sustained gap — crop at its start
-                crop_y = beige_start
-                # Sanity: never crop more than 20% of image height
-                return min(crop_y, int(h * 0.20))
-        else:
-            beige_run = 0
-            beige_start = None
-
-    # Fallback: crop just after last dark row
-    return min(last_dark_y + 1, int(h * 0.20))
+    return last_dark_y + 2
 
 
 def _find_bottom_crop(img):
     """
-    Crop at the beige-to-white boundary — removing the white separator
-    and CHART/MAP: THE ECONOMIST footer.
-
-    Scans top-to-bottom in the lower 40% looking for the first
-    sustained near-white band (3+ consecutive rows, >85% pixels >230).
+    Crop at the beige-to-white boundary — removing white separator and footer.
+    Scans top-to-bottom in lower 40% for first sustained near-white band.
     """
     w, h = img.size
     scan_start = int(h * 0.6)
@@ -191,6 +155,9 @@ def _is_double_image(img):
 def _crop_economist_chart(image_data, caption=""):
     """
     Process an Economist chart/map image.
+    - Maps: bottom crop only (remove CHART/MAP: THE ECONOMIST footer), no whitening.
+    - Charts: top crop (remove title+subtitle) + bottom crop + whiten background.
+    - Double images: bottom crop only, no whitening.
     """
     try:
         from PIL import Image
@@ -198,6 +165,7 @@ def _crop_economist_chart(image_data, caption=""):
         w, h = img.size
         is_map = _is_map(caption)
 
+        # Double image detection (two figures stacked)
         if _is_double_image(img):
             log.info(f"Double image ({w}x{h}), skipping top crop")
             bottom_crop = _find_bottom_crop(img)
@@ -207,11 +175,21 @@ def _crop_economist_chart(image_data, caption=""):
             img.save(buf, format="PNG", optimize=True)
             return buf.getvalue(), img.size
 
+        # Maps: no top crop, no whitening — just remove footer
+        if is_map:
+            bottom_crop = _find_bottom_crop(img)
+            log.info(f"Map crop: bottom={bottom_crop}/{h}")
+            if bottom_crop < h:
+                img = img.crop((0, 0, w, bottom_crop))
+            buf = io.BytesIO()
+            img.save(buf, format="PNG", optimize=True)
+            return buf.getvalue(), img.size
+
+        # Charts: top crop + bottom crop + whiten
         top_crop = _find_top_crop(img)
         bottom_crop = _find_bottom_crop(img)
 
-        log.info(f"Crop: top={top_crop} bottom={bottom_crop}/{h} "
-                 f"({'map' if is_map else 'chart'})")
+        log.info(f"Chart crop: top={top_crop} bottom={bottom_crop}/{h}")
 
         if top_crop > 0 or bottom_crop < h:
             top_crop = max(0, top_crop)
@@ -219,8 +197,7 @@ def _crop_economist_chart(image_data, caption=""):
             if bottom_crop > top_crop + 30:
                 img = img.crop((0, top_crop, w, bottom_crop))
 
-        if not is_map:
-            img = _whiten_background(img)
+        img = _whiten_background(img)
 
         buf = io.BytesIO()
         img.save(buf, format="PNG", optimize=True)
@@ -508,6 +485,7 @@ def build_brief_pdf(theme, articles, brief_text, brief_type="full", db_path=None
             story.append(Spacer(1, 6))
             for i in range(0, len(charts_for_sec), 2):
                 pair = charts_for_sec[i:i+2]
+                # Use consistent height scaled to column width
                 target_h = 7 * cm
                 for c in pair:
                     ow = c["width"] or 336; oh = c["height"] or 252
