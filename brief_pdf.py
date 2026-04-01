@@ -111,18 +111,39 @@ def _find_top_crop(img):
     if last_dark_y == 0:
         return 0
 
+    # If the last dark row extends well into the chart area (past y=95),
+    # it may be a legend or colour key, not just a subtitle. Cap conservatively.
+    # The bold title always ends before y=50; subtitles end before y=95.
+    # Anything past y=95 that's still dark is likely chart content we should keep.
+    if last_dark_y > 95:
+        # Find the last dark row ONLY in the pure title zone (<=95)
+        title_only_dark = 0
+        for y in range(6, min(96, h)):
+            px = _sample_row(img, y)
+            if sum(1 for p in px if max(p) < 155) >= 2:
+                title_only_dark = y
+        if title_only_dark > 0:
+            return title_only_dark + 2
+        return 0  # no clear title found, don't crop
+
     return last_dark_y + 2
 
 
-def _find_bottom_crop(img):
+def _find_bottom_crop(img, is_map=False):
     """
-    Crop at the beige-to-white boundary — removing white separator and footer.
-    Scans top-to-bottom in lower 40% for first sustained near-white band.
+    Crop the footer (white separator + CHART/MAP: THE ECONOMIST label).
+
+    For charts: scan top-to-bottom in lower 40%, find first sustained
+    near-white band of 5+ rows. The 5-row threshold avoids cutting at
+    white regions within chart content (scale backgrounds etc).
+
+    For maps: same logic but we also check that removing the candidate
+    region doesn't cut into the actual map content — require 8+ white rows.
     """
     w, h = img.size
     scan_start = int(h * 0.6)
     WHITE_THRESH = 230
-    MIN_RUN = 3
+    MIN_RUN = 8 if is_map else 5  # maps need bigger white band to confirm footer
     white_run_start = None
     white_run = 0
 
@@ -179,7 +200,7 @@ def _crop_economist_chart(image_data, caption=""):
 
         # Maps: no top crop, no whitening — just remove footer
         if is_map:
-            bottom_crop = _find_bottom_crop(img)
+            bottom_crop = _find_bottom_crop(img, is_map=True)
             log.info(f"Map crop: bottom={bottom_crop}/{h}")
             if bottom_crop < h:
                 img = img.crop((0, 0, w, bottom_crop))
@@ -189,7 +210,7 @@ def _crop_economist_chart(image_data, caption=""):
 
         # Charts: top crop + bottom crop + whiten
         top_crop = _find_top_crop(img)
-        bottom_crop = _find_bottom_crop(img)
+        bottom_crop = _find_bottom_crop(img, is_map=False)
 
         log.info(f"Chart crop: top={top_crop} bottom={bottom_crop}/{h}")
 
@@ -454,11 +475,12 @@ def build_brief_pdf(theme, articles, brief_text, brief_type="full", db_path=None
         fig_counter[0] += 1
         fn = fig_counter[0]
         caption = c.get("caption", "")
+        is_map_img = _is_map(caption)
         processed_data, new_size = _crop_economist_chart(c["image_data"], caption)
         title = _extract_figure_title(c.get("description", ""), caption)
         nw, nh = new_size if new_size else (c.get("width") or 336, c.get("height") or 252)
         return {**c, "image_data": processed_data, "width": nw, "height": nh,
-                "fig_num": fn, "fig_title": title}
+                "fig_num": fn, "fig_title": title, "is_map": is_map_img}
 
     processed_section_charts = {
         h: [process_chart(c) for c in charts]
@@ -511,54 +533,78 @@ def build_brief_pdf(theme, articles, brief_text, brief_type="full", db_path=None
             story.append(Spacer(1, 6))
             for i in range(0, len(charts_for_sec), 2):
                 pair = charts_for_sec[i:i+2]
-                # Use consistent height scaled to column width
-                target_h = 7 * cm
-                for c in pair:
-                    ow = c["width"] or 336; oh = c["height"] or 252
-                    ih = cw * (oh / ow)
-                    if ih < target_h:
-                        target_h = ih
-                target_h = min(target_h, 7 * cm)
 
-                img_cells, cap_cells = [], []
-                for c in pair:
-                    try:
+                # Maps render at full page width (pw), not paired half-width (cw)
+                # Charts render as pairs at half-width
+                any_map = any(c.get("is_map") for c in pair)
+
+                if any_map:
+                    # Render each map individually at full width
+                    for c in pair:
+                        try:
+                            ow = c["width"] or 336; oh = c["height"] or 252
+                            # Scale to full page width, cap height at 10cm
+                            iw = pw
+                            ih = iw * (oh / ow)
+                            if ih > 10 * cm:
+                                ih = 10 * cm; iw = ih * (ow / oh)
+                            cap_para = Paragraph(
+                                f"Figure {c['fig_num']} — {c['fig_title']}", SFIG)
+                            img_elem = RLImage(io.BytesIO(c["image_data"]),
+                                              width=iw, height=ih)
+                            story.append(KeepTogether([cap_para, img_elem,
+                                                       Spacer(1, 8)]))
+                        except Exception as e:
+                            log.warning(f"Map render err: {e}")
+                else:
+                    # Regular paired chart rendering
+                    target_h = 7 * cm
+                    for c in pair:
                         ow = c["width"] or 336; oh = c["height"] or 252
-                        ih = target_h
-                        iw = ih * (ow / oh)
-                        if iw > cw:
-                            iw = cw; ih = iw * (oh / ow)
-                        img_cells.append(RLImage(io.BytesIO(c["image_data"]),
-                                                 width=iw, height=ih))
-                        cap_cells.append(Paragraph(
-                            f"Figure {c['fig_num']} — {c['fig_title']}", SFIG))
-                    except Exception as e:
-                        log.warning(f"Chart render err: {e}")
-                        img_cells.append(Paragraph("", SB))
-                        cap_cells.append(Paragraph("", SFIG))
+                        ih = cw * (oh / ow)
+                        if ih < target_h:
+                            target_h = ih
+                    target_h = min(target_h, 7 * cm)
 
-                while len(img_cells) < 2:
-                    img_cells.append(""); cap_cells.append("")
+                    img_cells, cap_cells = [], []
+                    for c in pair:
+                        try:
+                            ow = c["width"] or 336; oh = c["height"] or 252
+                            ih = target_h
+                            iw = ih * (ow / oh)
+                            if iw > cw:
+                                iw = cw; ih = iw * (oh / ow)
+                            img_cells.append(RLImage(io.BytesIO(c["image_data"]),
+                                                     width=iw, height=ih))
+                            cap_cells.append(Paragraph(
+                                f"Figure {c['fig_num']} — {c['fig_title']}", SFIG))
+                        except Exception as e:
+                            log.warning(f"Chart render err: {e}")
+                            img_cells.append(Paragraph("", SB))
+                            cap_cells.append(Paragraph("", SFIG))
 
-                t_cap = Table([cap_cells], colWidths=[cw, cw])
-                t_cap.setStyle(TableStyle([
-                    ("ALIGN",         (0,0), (-1,-1), "LEFT"),
-                    ("VALIGN",        (0,0), (-1,-1), "TOP"),
-                    ("LEFTPADDING",   (0,0), (-1,-1), 4),
-                    ("RIGHTPADDING",  (0,0), (-1,-1), 6),
-                    ("TOPPADDING",    (0,0), (-1,-1), 0),
-                    ("BOTTOMPADDING", (0,0), (-1,-1), 2),
-                ]))
-                t_img = Table([img_cells], colWidths=[cw, cw])
-                t_img.setStyle(TableStyle([
-                    ("ALIGN",         (0,0), (-1,-1), "CENTER"),
-                    ("VALIGN",        (0,0), (-1,-1), "MIDDLE"),
-                    ("LEFTPADDING",   (0,0), (-1,-1), 0),
-                    ("RIGHTPADDING",  (0,0), (-1,-1), 6),
-                    ("TOPPADDING",    (0,0), (-1,-1), 0),
-                    ("BOTTOMPADDING", (0,0), (-1,-1), 8),
-                ]))
-                story.append(KeepTogether([t_cap, t_img]))
+                    while len(img_cells) < 2:
+                        img_cells.append(""); cap_cells.append("")
+
+                    t_cap = Table([cap_cells], colWidths=[cw, cw])
+                    t_cap.setStyle(TableStyle([
+                        ("ALIGN",         (0,0), (-1,-1), "LEFT"),
+                        ("VALIGN",        (0,0), (-1,-1), "TOP"),
+                        ("LEFTPADDING",   (0,0), (-1,-1), 4),
+                        ("RIGHTPADDING",  (0,0), (-1,-1), 6),
+                        ("TOPPADDING",    (0,0), (-1,-1), 0),
+                        ("BOTTOMPADDING", (0,0), (-1,-1), 2),
+                    ]))
+                    t_img = Table([img_cells], colWidths=[cw, cw])
+                    t_img.setStyle(TableStyle([
+                        ("ALIGN",         (0,0), (-1,-1), "CENTER"),
+                        ("VALIGN",        (0,0), (-1,-1), "MIDDLE"),
+                        ("LEFTPADDING",   (0,0), (-1,-1), 0),
+                        ("RIGHTPADDING",  (0,0), (-1,-1), 6),
+                        ("TOPPADDING",    (0,0), (-1,-1), 0),
+                        ("BOTTOMPADDING", (0,0), (-1,-1), 8),
+                    ]))
+                    story.append(KeepTogether([t_cap, t_img]))
 
         story.append(HRFlowable(width="100%", thickness=0.5, color=BORD, spaceAfter=4))
 
