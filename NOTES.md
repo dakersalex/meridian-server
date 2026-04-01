@@ -1,5 +1,5 @@
 # Meridian — Technical Notes
-Last updated: 31 March 2026 (Session 28 — complete)
+Last updated: 1 April 2026 (Session 29 — complete)
 
 ## Overview
 Personal news aggregator. Flask API + SQLite backend now running on Hetzner VPS (always-on).
@@ -18,6 +18,9 @@ Frontend served via nginx with HTTPS. Accessible from anywhere at https://meridi
 - Flask service: systemd (auto-starts, auto-restarts)
 - HTTP: nginx on port 80 (redirects to HTTPS)
 - HTTPS: nginx on port 443
+- nginx config: /etc/nginx/sites-available/meridian
+  - meridian.html served with Cache-Control: no-cache (added Session 29)
+  - sw.js served with Cache-Control: no-cache (added Session 29)
 - GitHub: https://github.com/dakersalex/meridian-server (public)
 
 ## File Locations (VPS)
@@ -53,7 +56,7 @@ SSH in: ssh root@204.168.179.158
 Check Flask: systemctl status meridian
 Restart Flask: systemctl restart meridian
 Check nginx: systemctl status nginx
-Restart nginx: systemctl restart nginx
+Restart nginx: systemctl reload nginx
 View logs: journalctl -u meridian -f
 Dump recent VPS logs to file: ssh root@204.168.179.158 "journalctl -u meridian --since '10 minutes ago'" > ~/meridian-server/vps_last_log.txt
 
@@ -68,7 +71,7 @@ Repo: https://github.com/dakersalex/meridian-server (public)
 Token stored in Mac keychain (credential.helper osxkeychain)
 Sensitive files excluded: credentials.json, cookies.json, meridian.db, newsletter_sync.py, venv/, *.wav, *.mp4, vps_last_log.txt
 
-## Database (31 March 2026)
+## Database (1 April 2026)
 Total: ~508 articles (Mac), ~508 articles (VPS)
 - Financial Times: 153
 - The Economist: 257
@@ -277,64 +280,72 @@ is not unique — mac_id is the correct dedup key).
 - POST /api/push-images route added to server.py — receives image rows from Mac, upserts into VPS DB
 - Deduplicates on mac_id (not article_id+caption — see schema note above)
 - wake_and_sync.sh updated to push images after every article push
-- All 153 Mac images manually pushed to VPS (Session 28) — VPS now has 240 rows
-  (87 legacy single-per-article rows from partial earlier push + 153 correct full set)
-- The 87 legacy rows are harmless — they score the same and new ones cover the gaps
+- All 153 Mac images manually pushed to VPS (Session 28) — VPS now has 153 rows (87 legacy rows deleted Session 29)
 - reportlab installed in VPS venv (required for PDF generation)
 
-### Brief image selection logic (FINALISED — Session 27)
+### Brief image selection logic (CURRENT — Session 29)
 
 #### Chart display in briefs
 - Charts appear with NO caption — the image already contains its own title, axis labels and source
 - description and insight are INTERNAL ONLY — used by the pipeline for relevance scoring, never shown to reader
 - Charts only appear in the FULL brief, not the short brief
-- Layout: inline within sections, 2 per row at half-column width
+- Layout: inline within sections, ALWAYS 2 per row (never a solo chart)
+- Both images in a pair are normalised to the same height to prevent cropping/misalignment
 
-#### Two-pass chart selection pipeline
-1. Generate brief section text first (Sonnet)
-2. Score each chart's insight string against the section text — keyword/semantic overlap, free, no API call
-3. Also score description as a secondary signal (insight x2, description x1)
-4. Keep top 3-4 charts per section, max 8 per full brief total
-5. Prefer charts from articles already cited in that section
-6. Discard duplicates (same article, same data)
+#### Chart selection rules (Session 29 overhaul)
+- No charts in: Executive Summary, Overview, Cross-cutting Themes, Strategic Implications, Watch List, Key Developments, Source Notes
+- Charts only placed in named subtopic sections
+- Never a solo chart — if only 1 qualifies for a section, that section gets 0
+- Cross-brief similarity dedup: if a chart's description is >50% similar to one already placed anywhere in the brief, it is rejected — prevents similar maps/charts appearing in different sections
+- Budget: up to 2 per section, global cap 14, minimum budget of 2 required before attempting a section
+- Minimum score threshold: 2 (prevents loose single-word matches)
+- Prompt instructs Sonnet: "Do NOT include a title heading or overview section" — kills the spurious `# Theme — Intelligence Brief` line
 
 #### DB fields used
 - article_images.description — what the chart shows visually (25 words, generated at capture time)
 - article_images.insight — what analytical point it supports in context of source article (30 words)
 - Both confirmed fully populated: 153/153 images on Mac as of 31 March 2026
 
-## Intelligence Brief PDF Pipeline (Session 28 — BUILT ✅)
+## Intelligence Brief Pipeline (Sessions 28-29 — FULLY WORKING ✅)
 
 ### Overview
 - brief_pdf.py — standalone module, ReportLab Platypus, generates A4 PDF
-- Both short and full briefs now download as PDF (no modal text view)
-- Full brief includes Economist charts inline; short brief is text only
+- Clicking "Short Brief" or "Full Intelligence Brief" opens a modal with the text brief + "Open as PDF ↗" button
+- The PDF job runs in parallel in the background while you read the text brief
+- Full brief includes Economist charts inline (subtopic sections only); short brief is text only
 - reportlab installed: Mac (pip3) and VPS venv
 
+### User flow (current design)
+1. Click "Short Brief" or "Full Intelligence Brief" on any theme
+2. Modal opens immediately showing a loading spinner with rotating progress messages and elapsed time
+3. ~60-90s later the text brief renders in the modal (readable immediately)
+4. "Open as PDF ↗" button top-right of modal — click to open the fully-formatted PDF with charts in a new tab
+5. The PDF was generating in parallel so it's usually ready by the time you've read the first section
+
+### Progress messages during generation (Session 29)
+- Modal shows rotating step labels (e.g. "Reading 200+ articles…", "Assessing energy threats…") + elapsed seconds
+- Button shows elapsed seconds ticking up (e.g. "42s…")
+- Both reset cleanly when the brief arrives or errors
+
 ### Flask routes
-- POST /api/kt/brief/pdf — start async job, returns {ok, job_id}
+- POST /api/kt/brief — text brief (async job), returns {ok, job_id}
+- GET /api/kt/brief/status/<job_id> — poll {status, brief, error}
+- POST /api/kt/brief/pdf — PDF job (async), returns {ok, job_id}
 - GET /api/kt/brief/pdf/status/<job_id> — poll {status, ready, size, error}
-- GET /api/kt/brief/pdf/download/<job_id> — download completed PDF
+- GET /api/kt/brief/pdf/download/<job_id> — download/open completed PDF
 
-### Frontend
-- generateBrief() replaced with downloadBriefPDF(themeIdx, type)
-- Both buttons (Short Brief + Full Intelligence Brief) trigger PDF download
-- Button shows spinner + "Generating…" while polling, then auto-downloads
-- Modal print path removed entirely
+### brief_pdf.py key learnings
+- Original file had pervasive heredoc corruption (literal newlines inside Python string literals)
+- Rewritten from scratch via Filesystem MCP in Session 28
+- NEVER write brief_pdf.py via heredoc or shell — always use filesystem:write_file
+- Same applies to any JS file with regex literals — patch scripts must use filesystem:write_file
+  and binary-safe replacements to avoid corrupting `/` in regex patterns
 
-### brief_pdf.py history
-- Originally written in Session 27 via heredoc injection — resulted in pervasive corruption
-  (literal newlines embedded inside Python string literals throughout the file)
-- Rewritten from scratch via Filesystem MCP in Session 28 — all bugs fixed:
-  1. SQL: `AND insight != ''` (was `AND insight!=`)
-  2. Bold regex: `r"<b>\1</b>"` (was stripping content with `r"<b></b>"`)
-  3. All `\n` inside strings restored from literal newlines
-- Compile-verified: python3 -m py_compile brief_pdf.py ✅
-
-### End-to-end test (Session 28)
-- Short brief (test theme, 3 articles): done in ~30s, 5KB ✅
-- Full Iran brief (60 articles, charts): done in ~70s, 960KB ✅
-  960KB vs ~50KB confirms charts are embedded
+### Service worker & caching (Session 29)
+- sw.js cache version: meridian-v5 (bumped Session 29 to force cache invalidation)
+- sw.js is now properly committed and deployed (was empty on VPS in Session 28)
+- nginx serves meridian.html and sw.js with Cache-Control: no-cache so clients always get latest
+- If clients are stuck on old code: DevTools → Application → Service Workers → Unregister, then hard refresh
 
 ## Autonomous Mode (Claude in Chrome + shell endpoint)
 
@@ -416,16 +427,21 @@ Claude operates fully autonomously and never asks the user to check, refresh, or
 2. Query the DOM on the meridianreader.com MCP tab via `javascript_tool`
 3. Apply the fix (edit file via Filesystem MCP, deploy via shell endpoint)
 4. Re-verify by querying API/DOM again
-5. Take a screenshot of the meridianreader.com MCP tab to visually confirm
-6. Report the confirmed result to the user — never say "please check" or "please refresh"
+5. Report the confirmed result to the user — never say "please check" or "please refresh"
 
 **Clearing stale UI cache (after deploys):**
 ```js
 // Run on meridianreader.com MCP tab
 navigator.serviceWorker.getRegistrations().then(regs => regs.forEach(r => r.unregister()));
-localStorage.clear(); sessionStorage.clear();
+caches.keys().then(keys => keys.forEach(k => caches.delete(k)));
 ```
-Then navigate the tab to `https://meridianreader.com/meridian.html` and screenshot to confirm.
+Then navigate the tab to `https://meridianreader.com/meridian.html` and reload.
+Note: nginx now serves meridian.html with no-cache headers so hard refresh always gets latest.
+
+**When a user reports a JS syntax error / page not loading:**
+- Check browser console for SyntaxError — often a literal newline inside a regex or string
+- Root cause: patch scripts that use Python string literals can embed real \n inside JS regexes
+- Fix: use filesystem:write_file for all file writes, and binary-safe replacements for regex patches
 
 **When a user reports a visual bug:**
 - Never ask them to refresh or check
@@ -524,45 +540,59 @@ then navigate Tab B to the live site if it isn't already there.
 ## Next Steps (priority order)
 1. **PWA icons** — proper 192x192 and 512x512
 2. **Newsletter auto-sync** — newsletter_sync.py gitignored; VPS cannot auto-sync
-3. **Clean up tmp_ files** — many tmp_*.py and tmp_*.sh files committed to repo during Session 28 debugging; worth a housekeeping commit to remove them
+3. **Clean up tmp_ files** — many tmp_*.py and tmp_*.sh files committed to repo during Sessions 28-29; worth a housekeeping commit to remove them
+4. **Charts in modal preview** — currently modal shows text only; charts only in PDF. Could add inline chart images to modal by fetching /api/articles/<id>/images for each article and injecting as <img> tags. Deferred — not a blocker.
 
-## Session 28 — Complete build log (31 March 2026)
+## Session 29 — Complete build log (1 April 2026)
 
-### What was built and deployed
+### Context
+Session 29 was primarily a brief pipeline polish session, triggered by Alex reviewing the Iran War full brief PDF and identifying several quality issues.
 
-#### brief_pdf.py — fixed and deployed (commit 046c229b)
-- Rewrote from scratch via Filesystem MCP (original had pervasive heredoc corruption)
-- Three bugs fixed: SQL `insight != ''`, bold regex `\1` backref, `\n` in re.split
-- reportlab installed on VPS venv and Mac (pip3)
-- PDF routes confirmed live: /api/kt/brief/pdf, /api/kt/brief/pdf/status/<id>, /api/kt/brief/pdf/download/<id>
+### Issues found and fixed
 
-#### PDF buttons wired in UI (commit 9345040e)
-- generateBrief() replaced with downloadBriefPDF() — both short and full brief now download PDFs
-- Button shows spinner while generating, auto-downloads on completion
-- Modal print path removed entirely
+#### brief_pdf.py — chart selection overhaul (commit 24d4e6d6)
+- No charts in Executive Summary, Overview, or prose-only sections — charts now subtopic-only
+- Never a solo chart — score_charts_for_section returns [] if only 1 chart qualifies; budget loop requires ≥2 remaining
+- Cross-brief similarity dedup: placed_descs list tracks all placed chart descriptions; new candidates rejected if >50% similar — kills duplicate maps/charts across sections
+- Aligned image heights: both images in a pair normalised to same height (min of the two natural heights, capped at 7cm) — fixes the mismatched/cropped pair issue
+- Prompt updated to instruct Sonnet not to generate title heading or overview section
 
-#### Image sync to VPS (commits bbec5adb, a5b16b39)
-- Root cause of missing charts: images only existed on Mac DB; VPS had 0
-- Secondary bug: dedup on (article_id, caption) collapsed multi-chart articles to 1 image
-  (all Economist captions are "chart: the economist" — not unique per image)
-- Fix: POST /api/push-images route with mac_id-based dedup
-- mac_id column added to article_images via ALTER TABLE migration in the route
-- wake_and_sync.sh updated to push images on every sync going forward
-- kt_article_tags table created on VPS (was missing — added directly to VPS DB)
-- All 153 Mac images pushed to VPS: 153/153 upserted, 0 errors
+#### Brief modal UX overhaul (commits 6eb96e61, b1f3bde5, fa0be720)
+- Brief now renders as text in existing modal (not auto-download)
+- "Open as PDF ↗" button in modal header — opens PDF in new tab via direct user click (no popup blocker)
+- PDF job starts in parallel with text generation so it's usually ready when user clicks the button
+- Progress ticker: modal shows rotating step labels + elapsed seconds during generation
+- Button shows elapsed seconds ticking up
+- `# Title` lines stripped from modal markdown renderer
 
-#### End-to-end verification
-- Iran War full brief: 60 articles, ~70s generation, 960KB PDF — charts confirmed embedded
-- Compare: previous chartless brief ~50KB; 960KB = ~19× larger = charts present ✅
+#### Service worker / caching crisis (commits 39b35a50, b0caec46)
+- Root cause: VPS had empty sw.js — some previous service worker (meridian-v4 or earlier) was installed in browsers and caching old meridian.html indefinitely
+- Fix: bumped cache version to meridian-v5, deployed correct sw.js to VPS
+- nginx updated to serve meridian.html and sw.js with Cache-Control: no-cache
+- JS syntax error caused by patch script embedding literal newlines inside regex literals — fixed with binary-safe Python replacements
 
-### DB state end of Session 28
-- Total articles: 508 (Mac), 508 (VPS)
-- article_images Mac: 153 images, 153 with insight
-- article_images VPS: 240 rows (87 legacy + 153 new with mac_id)
-- KT themes: 10 (VPS), 0 (Mac — Mac KT not seeded this session)
-- Last commit: a5b16b39
+#### Regex corruption incident
+- Patch script that wrote downloadBriefPDF embedded literal newlines inside two JS regexes:
+  `(<li>.*<\/li>\n?)` → split across two lines; `/\n\n/g` → real newlines inside regex
+- Result: SyntaxError on page load, SERVER undefined, entire app broken
+- Fix: tmp_fix_regex.py used binary replacement to restore escaped sequences
+- Lesson: ALWAYS use filesystem:write_file for JS files; NEVER construct JS with Python string interpolation that includes backslash sequences
+
+### DB state end of Session 29
+- Total articles: ~508 (Mac + VPS)
+- article_images VPS: 153 (87 legacy rows deleted)
+- Last commit: fa0be720
 
 ## Build History
+### 1 April 2026 (Session 29)
+- Brief modal: text preview + "Open as PDF ↗" button replacing auto-download
+- Progress ticker during brief generation (rotating steps + elapsed time)
+- brief_pdf.py: no solo charts, cross-brief dedup, aligned heights, no overview section
+- sw.js fixed and deployed (was empty on VPS), cache bumped to v5
+- nginx: no-cache headers for meridian.html and sw.js
+- JS regex corruption fixed (literal newlines in patch scripts)
+- 87 legacy article_images rows deleted from VPS
+
 ### 31 March 2026 (Session 28)
 - brief_pdf.py rewritten and deployed — heredoc corruption fixed end-to-end
 - PDF download buttons wired for both short and full briefs
@@ -582,23 +612,11 @@ then navigate Tab B to the live site if it isn't already there.
 - article_images table, capture_economist_charts(), backfill route
 - Deployed to VPS and Mac (commit c5603391)
 
-### 30 March 2026 (Session 25)
-- Built KT incremental architecture end-to-end in server.py (tables + 6 routes), deployed to VPS ✅
-- meridian.html: renderKeyThemes() patched to call loadThemes(), generateThemes() replaced with DB-backed version
+### 30 March 2026 (Sessions 23-25)
+- Key Themes: KT incremental architecture, async generation, article grid, pub_date normalisation
 
-### 30 March 2026 (Session 24)
-- Key Themes: async generation fixed, article grid raised, sort fixed
-- Key Themes: title-matching, interviews included, PDF print button added
-- pub_date normalisation: 167 Mac DB rows fixed
-
-### 30 March 2026 (Session 23)
-- Fixed Key Themes end-to-end: generateThemes() and generateBrief() route through Flask ✅
-
-### 29 March 2026 (Session 22)
-- Designed and built Key Themes feature end-to-end
-
-### 29 March 2026 (Sessions 18-21)
-- Activity bar, autonomous verification, Economist junk filter, push logic fixes
+### 29 March 2026 (Sessions 18-22)
+- Key Themes feature built end-to-end; activity bar, autonomous verification, Economist junk filter
 
 ### 28 March 2026 (Sessions 13-17)
 - Economist scraper overhaul, mobile PWA, shell endpoint, VPS sync, newsletters
