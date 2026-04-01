@@ -85,42 +85,64 @@ def _row_dark_count(px):
 
 def _find_top_crop(img):
     """
-    Crop after the FIRST dark text block (the bold title line only).
+    Crop the entire title block: bold title + subtitle line(s).
 
-    The Economist layout from top:
-      y=0-5:  white padding
-      y=6-11: pink-red accent bar (beige-ish)
-      y=12+:  FIRST dark block = bold title (~10-15px tall)
-      gap:    beige rows  ← CROP HERE (keeps subtitle, legend, y-axis all intact)
-      more:   subtitle text, y-axis label, chart data...
+    The Economist chart header from top:
+      y=0-5:   white padding
+      y=6-11:  red accent bar (pinkish beige)
+      y=12-36: BOLD TITLE text (dark rows on beige)
+      y=37-52: beige gap between title and subtitle
+      y=53-62: SUBTITLE line 1 (e.g. "Oil tankers passing through...")
+      y=63-73: beige gap
+      y=74-81: SUBTITLE line 2 (axis unit, e.g. "$ per barrel") — sometimes absent
+      y=82-89: beige gap
+      y=90+:   chart data area (y-axis numbers, gridlines, data)
 
-    We find the first DARK rows, then find the first beige row after them.
-    That's our crop point — the gap between title and subtitle/chart area.
+    Strategy:
+    - Scan the title region (y=6 to y≈120)
+    - Track all dark text rows
+    - Find the LAST dark row in the title region
+    - Then find the first SUSTAINED beige gap after it (10+ consecutive beige rows)
+    - That sustained gap marks the transition to chart data — crop there
+
+    The 10-row threshold distinguishes the short gaps BETWEEN subtitle lines
+    (typically 5-8 rows) from the longer gap AFTER the last subtitle line
+    before chart data begins (typically 10-15 rows).
     """
     w, h = img.size
+    SCAN_END = min(130, h - 30)
+    MIN_BEIGE_RUN = 10  # must be longer than inter-subtitle gaps (~5-8px)
 
-    # Scan from y=6 onwards (skip white padding + accent bar region)
-    first_dark_start = None
-    first_dark_end = None
-
-    for y in range(6, min(80, h)):
+    # Collect all dark row positions in title region
+    last_dark_y = None
+    for y in range(6, SCAN_END):
         px = _sample_row(img, y)
-        dark = _row_dark_count(px)
-        if dark >= 2:
-            if first_dark_start is None:
-                first_dark_start = y
-            first_dark_end = y
-        else:
-            # If we've found a dark block and now hit clean beige, we're done
-            if first_dark_end is not None:
-                px_beige = _sample_row(img, y)
-                if _row_is_beige(px_beige):
-                    crop_y = y
-                    # Sanity: never crop more than 15% of image
-                    return min(crop_y, int(h * 0.15))
+        if _row_dark_count(px) >= 2:
+            last_dark_y = y
 
-    # Fallback: no clear gap found — don't crop
-    return 0
+    if last_dark_y is None:
+        return 0  # no title found, don't crop
+
+    # Scan forward from last dark row, find first sustained beige run
+    beige_run = 0
+    beige_start = None
+    for y in range(last_dark_y + 1, min(last_dark_y + 40, h)):
+        px = _sample_row(img, y)
+        if _row_is_beige(px):
+            if beige_run == 0:
+                beige_start = y
+            beige_run += 1
+            if beige_run >= MIN_BEIGE_RUN:
+                # Found the sustained gap — crop at its start
+                crop_y = beige_start
+                # Sanity: never crop more than 20% of image height
+                return min(crop_y, int(h * 0.20))
+        else:
+            beige_run = 0
+            beige_start = None
+
+    # Fallback: crop just after last dark row
+    return min(last_dark_y + 1, int(h * 0.20))
 
 
 def _find_bottom_crop(img):
@@ -128,25 +150,12 @@ def _find_bottom_crop(img):
     Crop at the beige-to-white boundary — removing the white separator
     and CHART/MAP: THE ECONOMIST footer.
 
-    From the pixel data:
-      - Last beige rows (source text / x-axis labels): beige, dark=0-7
-      - White separator: pure white (min>245), no text
-      - CHART: THE ECONOMIST: dark text ON white background
-      - More white
-
-    The separator is the first occurrence of a sustained pure-white band
-    scanning from top downward in the bottom 20% of the image.
-    We find the last BEIGE row before the white band starts and crop there.
-
-    Since the CHART: THE ECONOMIST text is on white (not beige), scanning
-    upward for the last beige row correctly excludes it.
+    Scans top-to-bottom in the lower 40% looking for the first
+    sustained near-white band (3+ consecutive rows, >85% pixels >230).
     """
     w, h = img.size
-    scan_start = int(h * 0.6)  # start from 60% down
-
-    # Scan top-to-bottom in the lower portion, find first sustained white band
-    # A "white band" = 3+ consecutive rows where >85% pixels are near-white (>230)
-    WHITE_THRESH = 230  # looser than pure white — catches the separator reliably
+    scan_start = int(h * 0.6)
+    WHITE_THRESH = 230
     MIN_RUN = 3
     white_run_start = None
     white_run = 0
@@ -159,13 +168,12 @@ def _find_bottom_crop(img):
                 white_run_start = y
             white_run += 1
             if white_run >= MIN_RUN:
-                # Found the white separator — crop at its start
                 return white_run_start
         else:
             white_run = 0
             white_run_start = None
 
-    return h  # no separator found
+    return h
 
 
 def _is_double_image(img):
@@ -183,10 +191,6 @@ def _is_double_image(img):
 def _crop_economist_chart(image_data, caption=""):
     """
     Process an Economist chart/map image.
-    1. Detect double-captured images.
-    2. Find crop points on ORIGINAL image before whitening.
-    3. Crop title block from top; crop white footer from bottom.
-    4. Charts only: whiten beige background. Maps: keep original colours.
     """
     try:
         from PIL import Image
@@ -194,7 +198,6 @@ def _crop_economist_chart(image_data, caption=""):
         w, h = img.size
         is_map = _is_map(caption)
 
-        # Double image — only crop footer, preserve as-is
         if _is_double_image(img):
             log.info(f"Double image ({w}x{h}), skipping top crop")
             bottom_crop = _find_bottom_crop(img)
@@ -204,7 +207,6 @@ def _crop_economist_chart(image_data, caption=""):
             img.save(buf, format="PNG", optimize=True)
             return buf.getvalue(), img.size
 
-        # Crop points on original image
         top_crop = _find_top_crop(img)
         bottom_crop = _find_bottom_crop(img)
 
@@ -217,7 +219,6 @@ def _crop_economist_chart(image_data, caption=""):
             if bottom_crop > top_crop + 30:
                 img = img.crop((0, top_crop, w, bottom_crop))
 
-        # Whiten background for charts only
         if not is_map:
             img = _whiten_background(img)
 
@@ -373,7 +374,6 @@ def build_brief_pdf(theme, articles, brief_text, brief_type="full", db_path=None
     SFIG = S("fig", fontSize=8, textColor=FIGC, fontName="Helvetica-Oblique",
              leading=11, spaceAfter=4, spaceBefore=8)
 
-    # Fetch charts
     article_ids = [a.get("id") for a in articles if a.get("id")]
     all_charts = []
     if article_ids and db_path:
@@ -412,7 +412,6 @@ def build_brief_pdf(theme, articles, brief_text, brief_type="full", db_path=None
     sections = parse_sections(brief_text)
     sources = sorted(set(a.get("source", "") for a in articles if a.get("source", "")))
 
-    # Pre-assign charts
     MAX_TOTAL = 14
     MAX_PER_SECTION = 2
     section_charts = {}
@@ -446,7 +445,6 @@ def build_brief_pdf(theme, articles, brief_text, brief_type="full", db_path=None
         log.info(f"Brief PDF: {sum(len(v) for v in section_charts.values())} charts "
                  f"across {len(section_charts)} sections")
 
-    # Process chart images
     fig_counter = [0]
 
     def process_chart(c):
@@ -464,7 +462,6 @@ def build_brief_pdf(theme, articles, brief_text, brief_type="full", db_path=None
         for h, charts in section_charts.items()
     }
 
-    # Build PDF
     buf = io.BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=A4,
         leftMargin=2.2*cm, rightMargin=2.2*cm,
