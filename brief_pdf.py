@@ -355,21 +355,93 @@ def _build_prompt(theme_name, subtopics, article_context, brief_type):
 
 
 def _build_article_context(articles, brief_type):
-    MAX_ARTICLES = 30 if brief_type == "short" else 60
-    BODY_EXCERPT = 400
-    parts = []
-    for a in articles[:MAX_ARTICLES]:
-        if not a.get("summary"):
-            continue
-        snippet = f"SOURCE: {a.get('source', '')}\nTITLE: {a.get('title', '')}\n"
-        snippet += f"SUMMARY: {a.get('summary', '')}"
-        body = (a.get("body") or "").strip()
-        if body and len(body) > 100:
-            excerpt = body[:BODY_EXCERPT].rsplit(" ", 1)[0]
-            snippet += f"\nEXCERPT: {excerpt}…"
-        parts.append(snippet)
-    return "\n\n---\n\n".join(parts)
+    """
+    Select articles for brief context using temporal bucketing.
 
+    Divides articles into equal-count quartiles (not equal calendar time) and
+    selects the best articles from each, ensuring the brief covers the whole
+    arc of a story - not just the most recent reporting.
+
+    Full brief:  4 buckets x 15 articles = up to 60
+    Short brief: 2 buckets x 15 articles = up to 30
+
+    Within each bucket, articles are ranked by:
+      1. full_text status first (have summaries + body excerpts)
+      2. Summary length (longer = more analytical substance)
+    Per-source cap of 5 per bucket ensures source diversity.
+    """
+    import datetime as _dt
+
+    BUCKETS = 2 if brief_type == 'short' else 4
+    PER_BUCKET = 15
+    SOURCE_CAP = 5
+    BODY_EXCERPT = 400
+
+    def get_ts_days(a):
+        pd = (a.get('pub_date') or '').strip()
+        if pd and pd not in ('null', ''):
+            try:
+                return _dt.date.fromisoformat(pd[:10]).toordinal()
+            except Exception:
+                pass
+        sa = a.get('saved_at') or 0
+        try:
+            return int(sa) // 86400000
+        except Exception:
+            return 0
+
+    candidates = [a for a in articles if a.get('summary')]
+    if not candidates:
+        return '' 
+
+    # Sort by publication date (oldest first)
+    candidates_sorted = sorted(candidates, key=get_ts_days)
+
+    # Split into equal-count quartiles (not equal calendar time).
+    # With 227 articles and 4 buckets, each bucket gets ~56-57 articles.
+    # This guarantees the brief draws from every phase of the story equally,
+    # even if reporting density is uneven across time.
+    n = len(candidates_sorted)
+    buckets = []
+    for i in range(BUCKETS):
+        start = (i * n) // BUCKETS
+        end = ((i + 1) * n) // BUCKETS
+        buckets.append(candidates_sorted[start:end])
+
+    def score_article(a):
+        status_bonus = 1000 if a.get('status') == 'full_text' else 0
+        return status_bonus + len(a.get('summary') or '')
+
+    selected = []
+    for bucket in buckets:
+        ranked = sorted(bucket, key=score_article, reverse=True)
+        source_counts = {}
+        bucket_selected = []
+        for a in ranked:
+            src = a.get('source', '')
+            if source_counts.get(src, 0) >= SOURCE_CAP:
+                continue
+            source_counts[src] = source_counts.get(src, 0) + 1
+            bucket_selected.append(a)
+            if len(bucket_selected) >= PER_BUCKET:
+                break
+        selected.extend(bucket_selected)
+
+    log.info(
+        f'Article context: {len(candidates)} candidates, {BUCKETS} buckets ' +
+        f'({[len(b) for b in buckets]}), selected {len(selected)}'
+    )
+
+    parts = []
+    for a in selected:
+        snippet = 'SOURCE: ' + a.get('source', '') + '\nTITLE: ' + a.get('title', '') + '\n'
+        snippet += 'SUMMARY: ' + a.get('summary', '')
+        body = (a.get('body') or '').strip()
+        if body and len(body) > 100:
+            excerpt = body[:BODY_EXCERPT].rsplit(' ', 1)[0]
+            snippet += '\nEXCERPT: ' + excerpt + '…'
+        parts.append(snippet)
+    return '\n\n---\n\n'.join(parts)
 
 def build_brief_pdf(theme, articles, brief_text, brief_type="full", db_path=None):
     from reportlab.lib.pagesizes import A4
