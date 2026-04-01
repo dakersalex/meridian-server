@@ -12,11 +12,12 @@ _NO_CHART_SECTIONS = {
     "strategic implications", "watch list", "key developments", "overview"
 }
 
-# Minimum keyword-overlap score for a chart to qualify for a section
 _MIN_SCORE = 2
-
-# Cross-brief similarity threshold
 _CROSS_BRIEF_SIMILARITY = 0.5
+
+# Economist chart background colour (warm grey-beige) and replacement tolerance
+_ECON_BG_RGB = (236, 235, 223)
+_BG_TOLERANCE = 18   # max per-channel deviation to count as background
 
 
 def _tok(text):
@@ -39,27 +40,61 @@ def _dedup_by_description(charts):
     return kept
 
 
+def _whiten_background(img):
+    """
+    Replace the Economist warm-beige background with pure white.
+    Uses numpy for speed — processes all pixels in one vectorised operation.
+    Any pixel within _BG_TOLERANCE of _ECON_BG_RGB on all three channels
+    is replaced with (255, 255, 255).
+    """
+    try:
+        import numpy as np
+        arr = np.array(img, dtype=np.int16)
+        r_bg, g_bg, b_bg = _ECON_BG_RGB
+        tol = _BG_TOLERANCE
+        mask = (
+            (np.abs(arr[:, :, 0] - r_bg) <= tol) &
+            (np.abs(arr[:, :, 1] - g_bg) <= tol) &
+            (np.abs(arr[:, :, 2] - b_bg) <= tol)
+        )
+        arr[mask] = [255, 255, 255]
+        from PIL import Image
+        return Image.fromarray(arr.astype(np.uint8))
+    except ImportError:
+        # numpy not available — fall back to slower pixel-by-pixel
+        from PIL import Image
+        pixels = img.load()
+        w, h = img.size
+        r_bg, g_bg, b_bg = _ECON_BG_RGB
+        tol = _BG_TOLERANCE
+        for y in range(h):
+            for x in range(w):
+                r, g, b = pixels[x, y]
+                if abs(r - r_bg) <= tol and abs(g - g_bg) <= tol and abs(b - b_bg) <= tol:
+                    pixels[x, y] = (255, 255, 255)
+        return img
+
+
 def _crop_economist_chart(image_data):
     """
     Process an Economist chart PNG:
-    1. Crop the bottom label strip ("CHART: THE ECONOMIST" / "MAP: THE ECONOMIST")
-       by detecting the first all-white separator band scanning from the bottom up.
-    2. Crop the top title band (bold title + red accent bar + subtitle text)
-       by detecting the end of the title region scanning from the top down.
-    3. Return processed image bytes, and extract the title text from the top band.
-
-    Returns: (cropped_image_bytes, extracted_title)
+    1. Whiten the beige background (236, 235, 223) → (255, 255, 255).
+    2. Crop the bottom label strip ("CHART: THE ECONOMIST") by detecting
+       the first all-white separator band scanning from the bottom up.
+    3. Crop the top title band by detecting where title text ends.
+    Returns: (processed_image_bytes, extracted_title, new_size)
     """
     try:
         from PIL import Image
         img = Image.open(io.BytesIO(image_data)).convert("RGB")
         w, h = img.size
 
-        # ── Step 1: Find bottom crop point ────────────────────────────────────
-        # Scan upward from the bottom looking for a run of near-white rows
-        # (the separator line before the "CHART: THE ECONOMIST" label)
+        # ── Step 1: Whiten background ──────────────────────────────────────────
+        img = _whiten_background(img)
+
+        # ── Step 2: Find bottom crop point ────────────────────────────────────
         WHITE_THRESH = 245
-        MIN_WHITE_RUN = 3   # consecutive near-white rows = separator found
+        MIN_WHITE_RUN = 3
         bottom_crop = h
         white_run = 0
         for y in range(h - 1, max(h - 80, 0), -1):
@@ -68,9 +103,7 @@ def _crop_economist_chart(image_data):
             if row_avg >= WHITE_THRESH:
                 white_run += 1
                 if white_run >= MIN_WHITE_RUN:
-                    # Found separator — crop just above this white band
                     bottom_crop = y - white_run + 1
-                    # Keep scanning upward to include the whole white band
                     for y2 in range(y - white_run, max(h - 80, 0), -1):
                         row_avg2 = sum(img.getpixel((x2, y2))[0]
                                        for x2 in range(0, w, max(1, w // 20))) // max(1, w // 20)
@@ -82,24 +115,10 @@ def _crop_economist_chart(image_data):
             else:
                 white_run = 0
 
-        # ── Step 2: Find top crop point and extract title ──────────────────────
-        # The Economist layout from top:
-        #   ~4px white padding
-        #   ~2px red accent bar
-        #   bold title text (~18-22px tall)
-        #   italic/small subtitle text (~12-16px)
-        #   small whitespace gap
-        #   chart data begins
-        #
-        # Strategy: scan downward, find the end of the title block by detecting
-        # a transition from text-containing rows to a sustained clear region
-        # that precedes the chart data.
-        #
-        # "Text row" = row with at least some dark pixels (avg < 200)
-        # "Clear row" = row avg >= 220
+        # ── Step 3: Find top crop point ────────────────────────────────────────
         TEXT_THRESH = 200
         CLEAR_THRESH = 220
-        MIN_CLEAR_RUN = 4   # clear rows after title = gap found
+        MIN_CLEAR_RUN = 4
 
         top_crop = 0
         last_text_row = 0
@@ -113,61 +132,40 @@ def _crop_economist_chart(image_data):
             elif row_avg >= CLEAR_THRESH:
                 clear_run += 1
                 if clear_run >= MIN_CLEAR_RUN and last_text_row > 5:
-                    # Found a clear gap after text — title ends at last_text_row
                     top_crop = last_text_row + clear_run + 1
                     break
             else:
                 clear_run = 0
 
-        # ── Step 3: Extract title by OCR-lite approach ─────────────────────────
-        # We don't have pytesseract, but we have the description field from Haiku
-        # which already captured the chart title. So we just return None here and
-        # the caller uses description instead.
-        extracted_title = None
-
-        # ── Step 4: Crop and return ────────────────────────────────────────────
+        # ── Step 4: Crop ───────────────────────────────────────────────────────
         if top_crop > 0 or bottom_crop < h:
             top_crop = max(0, top_crop)
             bottom_crop = min(h, bottom_crop)
-            if bottom_crop > top_crop + 20:  # sanity check
+            if bottom_crop > top_crop + 20:
                 img = img.crop((0, top_crop, w, bottom_crop))
 
         buf = io.BytesIO()
         img.save(buf, format="PNG", optimize=True)
-        return buf.getvalue(), extracted_title, img.size
+        return buf.getvalue(), None, img.size
 
     except Exception as e:
-        log.warning(f"Chart crop failed: {e}")
+        log.warning(f"Chart crop/whiten failed: {e}")
         return image_data, None, None
 
 
 def _extract_figure_title(description, caption):
-    """
-    Derive a clean figure title from the chart description.
-    The description from Haiku is typically a sentence like:
-    'Brent crude oil options volatility peaks in early 2026...'
-    We want a short noun-phrase title like 'Brent crude options volatility, 2024-26'
-
-    Strategy: take the first clause up to the first comma or period,
-    capitalise it, strip trailing punctuation. Cap at 60 chars.
-    """
+    """Derive a clean short figure title from the Haiku description."""
     desc = (description or "").strip()
     if not desc:
-        # Fall back to caption type
         return "Chart" if "chart" in (caption or "").lower() else "Map"
-
-    # Take first clause
     for sep in [",", ".", ";"]:
         if sep in desc:
             title = desc.split(sep)[0].strip()
             break
     else:
         title = desc
-
-    # Truncate at word boundary
     if len(title) > 65:
         title = title[:65].rsplit(" ", 1)[0]
-
     return title.rstrip(".,;") if title else "Figure"
 
 
@@ -179,11 +177,9 @@ def score_charts_for_section(section_heading, section_text, charts,
     h_clean = section_heading.strip()
     if h_clean.startswith("#") or "intelligence brief" in h_clean.lower():
         return []
-
     section_tokens = _tok(section_heading + " " + section_text)
     if not section_tokens:
         return []
-
     scored = []
     for c in charts:
         if any(_desc_similar(c.get("description", ""), pd,
@@ -194,7 +190,6 @@ def score_charts_for_section(section_heading, section_text, charts,
                  + len(_tok(c.get("description", "")) & section_tokens))
         if score >= min_score:
             scored.append((score, c))
-
     scored.sort(key=lambda x: -x[0])
     result, seen_articles = [], set()
     for _, c in scored:
@@ -204,7 +199,6 @@ def score_charts_for_section(section_heading, section_text, charts,
             result.append(c)
         if len(result) >= max_charts:
             break
-
     if len(result) == 1:
         return []
     return result
@@ -212,11 +206,6 @@ def score_charts_for_section(section_heading, section_text, charts,
 
 def _build_prompt(theme_name, subtopics, article_context, brief_type,
                   figure_index=None):
-    """
-    Build the brief generation prompt.
-    If figure_index is provided (list of (fig_num, title, section) tuples),
-    instructs Sonnet to reference figures by number in the text.
-    """
     SECTION_INSTRUCTION = (
         "[2-3 paragraphs of analytical prose. "
         "Lead each paragraph with the key analytical finding. "
@@ -225,8 +214,6 @@ def _build_prompt(theme_name, subtopics, article_context, brief_type,
         "Close with the forward-looking implication. "
         "Only cite statistics that appear in the articles provided.]"
     )
-
-    # Build figure reference guidance if we have pre-assigned charts
     figure_guidance = ""
     if figure_index:
         fig_lines = "\n".join(
@@ -238,7 +225,6 @@ def _build_prompt(theme_name, subtopics, article_context, brief_type,
             f"Where relevant, reference them by figure number in your analysis "
             f"(e.g. 'as Figure 2 illustrates'):\n{fig_lines}\n"
         )
-
     if brief_type == "short":
         return (
             f'You are a senior intelligence analyst. '
@@ -283,13 +269,8 @@ def _build_prompt(theme_name, subtopics, article_context, brief_type,
 
 
 def _build_article_context(articles, brief_type):
-    """
-    Build richer article context including first 400 chars of body text
-    alongside summary to preserve statistics that get lost in summaries.
-    """
     MAX_ARTICLES = 30 if brief_type == "short" else 60
     BODY_EXCERPT = 400
-
     parts = []
     for a in articles[:MAX_ARTICLES]:
         if not a.get("summary"):
@@ -301,7 +282,6 @@ def _build_article_context(articles, brief_type):
             excerpt = body[:BODY_EXCERPT].rsplit(" ", 1)[0]
             snippet += f"\nEXCERPT: {excerpt}…"
         parts.append(snippet)
-
     return "\n\n---\n\n".join(parts)
 
 
@@ -320,15 +300,14 @@ def build_brief_pdf(theme, articles, brief_text, brief_type="full", db_path=None
                  spaceAfter=0, spaceBefore=0)
         d.update(kw); return ParagraphStyle(name, **d)
 
-    SE = S("e", fontSize=7,  textColor=AMBER, fontName="Helvetica-Bold",
-           letterSpacing=1.5, spaceAfter=4)
-    ST = S("t", fontSize=22, fontName="Helvetica-Bold", leading=26, spaceAfter=6)
-    SM = S("m", fontSize=8,  textColor=LIGHT, spaceAfter=16)
-    SS = S("s", fontSize=8,  textColor=AMBER, fontName="Helvetica-Bold",
-           letterSpacing=1.2, spaceAfter=8, spaceBefore=20)
-    SB = S("b", fontSize=10, leading=16, textColor=MID, spaceAfter=10)
-    SF = S("f", fontSize=7,  textColor=LIGHT, letterSpacing=0.8)
-    # Figure caption style: "Figure 1 — Title text" in small italic grey
+    SE   = S("e", fontSize=7,  textColor=AMBER, fontName="Helvetica-Bold",
+             letterSpacing=1.5, spaceAfter=4)
+    ST   = S("t", fontSize=22, fontName="Helvetica-Bold", leading=26, spaceAfter=6)
+    SM   = S("m", fontSize=8,  textColor=LIGHT, spaceAfter=16)
+    SS   = S("s", fontSize=8,  textColor=AMBER, fontName="Helvetica-Bold",
+             letterSpacing=1.2, spaceAfter=8, spaceBefore=20)
+    SB   = S("b", fontSize=10, leading=16, textColor=MID, spaceAfter=10)
+    SF   = S("f", fontSize=7,  textColor=LIGHT, letterSpacing=0.8)
     SFIG = S("fig", fontSize=8, textColor=FIGC, fontName="Helvetica-Oblique",
              leading=11, spaceAfter=6, spaceBefore=3)
 
@@ -375,7 +354,7 @@ def build_brief_pdf(theme, articles, brief_text, brief_type="full", db_path=None
     # ── Pre-assign charts ──────────────────────────────────────────────────────
     MAX_TOTAL = 14
     MAX_PER_SECTION = 2
-    section_charts = {}   # heading -> [chart, ...]
+    section_charts = {}
     used_ids = set()
     placed_descs = []
 
@@ -384,7 +363,6 @@ def build_brief_pdf(theme, articles, brief_text, brief_type="full", db_path=None
                     if s["heading"].lower().strip() not in _NO_CHART_SECTIONS
                     and not s["heading"].strip().startswith("#")
                     and "intelligence brief" not in s["heading"].lower()]
-
         for sec in eligible:
             h, b = sec["heading"], sec["body"]
             remaining_budget = MAX_TOTAL - sum(len(v) for v in section_charts.values())
@@ -396,11 +374,9 @@ def build_brief_pdf(theme, articles, brief_text, brief_type="full", db_path=None
                 per_sec_cap -= 1
             if per_sec_cap < 2:
                 break
-
             selected = score_charts_for_section(
                 h, b, candidates, placed_descs,
                 max_charts=per_sec_cap, min_score=_MIN_SCORE)
-
             if selected:
                 section_charts[h] = selected
                 for c in selected:
@@ -411,26 +387,18 @@ def build_brief_pdf(theme, articles, brief_text, brief_type="full", db_path=None
         log.info(f"Brief PDF: {total_assigned} charts assigned across "
                  f"{len(section_charts)} sections")
 
-    # ── Pre-process chart images and assign figure numbers ─────────────────────
-    # We process every assigned chart: crop title+footer, assign consecutive
-    # figure number, derive title from description.
-    fig_counter = [0]   # mutable so inner functions can increment
+    # ── Pre-process: whiten background, crop, assign figure numbers ────────────
+    fig_counter = [0]
 
     def process_chart(c):
-        """Crop the chart image and return enhanced chart dict with figure metadata."""
         fig_counter[0] += 1
         fn = fig_counter[0]
         cropped_data, _, new_size = _crop_economist_chart(c["image_data"])
         title = _extract_figure_title(c.get("description", ""), c.get("caption", ""))
-        # Update width/height from cropped image
-        if new_size:
-            nw, nh = new_size
-        else:
-            nw, nh = c.get("width") or 336, c.get("height") or 252
+        nw, nh = new_size if new_size else (c.get("width") or 336, c.get("height") or 252)
         return {**c, "image_data": cropped_data, "width": nw, "height": nh,
                 "fig_num": fn, "fig_title": title}
 
-    # Process all section charts, maintaining section_charts mapping
     processed_section_charts = {}
     for h, charts in section_charts.items():
         processed_section_charts[h] = [process_chart(c) for c in charts]
@@ -468,8 +436,7 @@ def build_brief_pdf(theme, articles, brief_text, brief_type="full", db_path=None
                 para = re.sub(r"^[*-] ", "", para, flags=re.MULTILINE)
                 para = para.replace("&", "&amp;")
                 story.append(Paragraph(para, SB))
-            story.append(HRFlowable(width="100%", thickness=0.5,
-                                     color=BORD, spaceAfter=4))
+            story.append(HRFlowable(width="100%", thickness=0.5, color=BORD, spaceAfter=4))
             continue
 
         story.append(Paragraph(h_clean.upper(), SS))
@@ -485,7 +452,7 @@ def build_brief_pdf(theme, articles, brief_text, brief_type="full", db_path=None
             for i in range(0, len(charts_for_sec), 2):
                 pair = charts_for_sec[i:i+2]
 
-                # Normalise both to same height
+                # Normalise pair to same height
                 target_h = 7 * cm
                 for c in pair:
                     ow = c["width"] or 336; oh = c["height"] or 252
@@ -494,8 +461,7 @@ def build_brief_pdf(theme, articles, brief_text, brief_type="full", db_path=None
                         target_h = ih
                 target_h = min(target_h, 7 * cm)
 
-                img_cells = []
-                cap_cells = []
+                img_cells, cap_cells = [], []
                 for c in pair:
                     try:
                         ow = c["width"] or 336; oh = c["height"] or 252
@@ -505,8 +471,8 @@ def build_brief_pdf(theme, articles, brief_text, brief_type="full", db_path=None
                             iw = cw; ih = iw * (oh / ow)
                         img_cells.append(RLImage(io.BytesIO(c["image_data"]),
                                                  width=iw, height=ih))
-                        cap_text = f"Figure {c['fig_num']} — {c['fig_title']}"
-                        cap_cells.append(Paragraph(cap_text, SFIG))
+                        cap_cells.append(Paragraph(
+                            f"Figure {c['fig_num']} — {c['fig_title']}", SFIG))
                     except Exception as e:
                         log.warning(f"Chart render err: {e}")
                         img_cells.append(Paragraph("", SB))
@@ -515,7 +481,6 @@ def build_brief_pdf(theme, articles, brief_text, brief_type="full", db_path=None
                 while len(img_cells) < 2:
                     img_cells.append(""); cap_cells.append("")
 
-                # Image row
                 t_img = Table([img_cells], colWidths=[cw, cw])
                 t_img.setStyle(TableStyle([
                     ("ALIGN",         (0,0), (-1,-1), "CENTER"),
@@ -525,7 +490,6 @@ def build_brief_pdf(theme, articles, brief_text, brief_type="full", db_path=None
                     ("TOPPADDING",    (0,0), (-1,-1), 4),
                     ("BOTTOMPADDING", (0,0), (-1,-1), 2),
                 ]))
-                # Caption row
                 t_cap = Table([cap_cells], colWidths=[cw, cw])
                 t_cap.setStyle(TableStyle([
                     ("ALIGN",         (0,0), (-1,-1), "LEFT"),
@@ -557,10 +521,6 @@ def get_job(job_id):
 
 def start_pdf_job(job_id, theme, articles, brief_type, db_path, base_dir,
                   pregenerated_text=None):
-    """
-    Start an async PDF generation job.
-    If pregenerated_text is provided, skip the Sonnet call (single-call architecture).
-    """
     _pdf_jobs[job_id] = {"status": "running", "error": None, "ready": False}
 
     def _run():
@@ -576,7 +536,6 @@ def start_pdf_job(job_id, theme, articles, brief_type, db_path, base_dir,
                 name = theme.get("name", "")
                 subs = theme.get("subtopics", [])
                 mt = 1500 if brief_type == "short" else 4000
-
                 prompt = _build_prompt(name, subs, ctx, brief_type)
                 data = json.dumps({
                     "model": "claude-sonnet-4-20250514",
