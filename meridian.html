@@ -3196,9 +3196,8 @@ function getThemeArticles(idx) {
     // Hard gate: anchor keyword must appear in title or summary
     if (!anchorReg.test(title) && !anchorReg.test(summary)) return false;
 
-    // Title-only articles have no summary to provide a 2nd hit — if the anchor
-    // appears in the title, that's sufficient (they'll be enriched eventually)
-    if (!a.summary) return anchorReg.test(title);
+    // Title-only articles have no summary or body — useless for brief context, exclude them
+    if (!a.summary) return false;
 
     // For articles with summaries, require 2+ keyword hits in content
     const contentHits = kwRegs.filter(r => r.test(title) || r.test(summary)).length;
