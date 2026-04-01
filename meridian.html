@@ -3385,8 +3385,9 @@ async function downloadBriefPDF(themeIdx, type) {
       }, 3000);
     });
 
-    // Render markdown to HTML
+    // Render markdown to HTML — strip title lines (# ...) first
     let html = text
+      .replace(/^# .+$/gm, '')
       .replace(/^## (.+)$/gm, '<h2>$1</h2>')
       .replace(/^### (.+)$/gm, '<h3>$1</h3>')
       .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
