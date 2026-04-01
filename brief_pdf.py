@@ -380,14 +380,24 @@ def _build_article_context(articles, brief_type):
     def get_ts_days(a):
         pd = (a.get('pub_date') or '').strip()
         if pd and pd not in ('null', ''):
+            # ISO format: YYYY-MM-DD
             try:
                 return _dt.date.fromisoformat(pd[:10]).toordinal()
             except Exception:
                 pass
+            # Human formats: '26 March 2026', 'March 2026', '26 Mar 2026' etc.
+            for fmt in ('%d %B %Y', '%d %b %Y', '%B %Y', '%b %Y',
+                        '%B %d, %Y', '%b %d, %Y'):
+                try:
+                    return _dt.datetime.strptime(pd.strip(), fmt).date().toordinal()
+                except Exception:
+                    pass
+        # Fall back to saved_at (millisecond epoch)
         sa = a.get('saved_at') or 0
         try:
             return int(sa) // 86400000
         except Exception:
+            return 0
             return 0
 
     candidates = [a for a in articles if a.get('summary')]
