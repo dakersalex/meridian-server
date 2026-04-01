@@ -3183,26 +3183,30 @@ function getThemeArticles(idx) {
   // Multi-word keywords like 'Middle East' are matched as phrases
   const kwRegs = kws.map(k => new RegExp('\\b' + k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'i'));
 
+  // keywords[0] is the anchor term — the most specific, defining keyword.
+  // An article must mention it as a whole word in title or summary to qualify.
+  const anchorReg = kwRegs[0];
+
   const matchedArticles = articles.filter(a => {
     const title   = (a.title   || '').toLowerCase();
     const summary = (a.summary || '').toLowerCase();
     const tags    = (a.tags    || []).map(t => t.toLowerCase()).join(' ');
     const topic   = (a.topic   || '').toLowerCase();
 
-    // Count whole-word keyword hits across title + summary (primary signal)
-    const contentHits = kwRegs.filter(r => r.test(title) || r.test(summary)).length;
+    // Hard gate: anchor keyword must appear in title or summary
+    if (!anchorReg.test(title) && !anchorReg.test(summary)) return false;
 
-    // Require 2+ hits in content — eliminates articles that only incidentally
-    // mention a single broad keyword like 'military' or 'geopolitics'
+    // Title-only articles have no summary to provide a 2nd hit — if the anchor
+    // appears in the title, that's sufficient (they'll be enriched eventually)
+    if (!a.summary) return anchorReg.test(title);
+
+    // For articles with summaries, require 2+ keyword hits in content
+    const contentHits = kwRegs.filter(r => r.test(title) || r.test(summary)).length;
     if (contentHits >= 2) return true;
 
-    // Single content hit + corroborating tag/topic match also qualifies
-    // (catches well-tagged articles where the summary is brief)
-    if (contentHits === 1) {
-      return kwRegs.some(r => r.test(tags) || r.test(topic));
-    }
-
-    return false;
+    // Single hit (the anchor) + corroborating tag/topic match qualifies
+    // for well-tagged articles with brief summaries
+    return kwRegs.some(r => r.test(tags) || r.test(topic));
   });
 
   // Include matching interviews as pseudo-articles
