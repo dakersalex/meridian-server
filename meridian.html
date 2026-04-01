@@ -3189,12 +3189,20 @@ function getThemeArticles(idx) {
     const tags    = (a.tags    || []).map(t => t.toLowerCase()).join(' ');
     const topic   = (a.topic   || '').toLowerCase();
 
-    // Primary: keyword must appear as a whole word in title or summary
-    const inContent = kwRegs.some(r => r.test(title) || r.test(summary));
-    if (inContent) return true;
+    // Count whole-word keyword hits across title + summary (primary signal)
+    const contentHits = kwRegs.filter(r => r.test(title) || r.test(summary)).length;
 
-    // Fallback: whole-word match in tags or topic (but not the loose substring check)
-    return kwRegs.some(r => r.test(tags) || r.test(topic));
+    // Require 2+ hits in content — eliminates articles that only incidentally
+    // mention a single broad keyword like 'military' or 'geopolitics'
+    if (contentHits >= 2) return true;
+
+    // Single content hit + corroborating tag/topic match also qualifies
+    // (catches well-tagged articles where the summary is brief)
+    if (contentHits === 1) {
+      return kwRegs.some(r => r.test(tags) || r.test(topic));
+    }
+
+    return false;
   });
 
   // Include matching interviews as pseudo-articles
