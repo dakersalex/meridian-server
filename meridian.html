@@ -3372,11 +3372,8 @@ async function downloadBriefPDF(themeIdx, type) {
       .replace(/^### (.+)$/gm, '<h3>$1</h3>')
       .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
       .replace(/^[-*] (.+)$/gm, '<li>$1</li>')
-      .replace(/(<li>.*<\/li>
-?)+/gs, m => '<ul>' + m + '</ul>')
-      .replace(/
-
-/g, '</p><p>');
+      .replace(/(<li>.*<\/li>\n?)+/gs, m => '<ul>' + m + '</ul>')
+      .replace(/\n\n/g, '</p><p>');
     html = html.replace(
       /<h2>Executive Summary<\/h2>([\s\S]*?)(?=<h2>|$)/,
       (m, body) => `<h2>Executive Summary</h2><div class="kt-brief-exec">${body.trim()}</div>`
