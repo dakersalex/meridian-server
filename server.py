@@ -2857,24 +2857,22 @@ def kt_seed():
                 "You are an intelligence analyst. Analyse these article titles (a representative sample "
                 "from a corpus of " + str(total) + " articles) and identify exactly 10 "
                 "dominant intelligence themes.\n\n"
-                "For each theme produce a JSON object with ALL these fields:\n"
+                "For each theme produce a JSON object with ONLY these fields:\n"
                 "- name (3-6 words)\n"
                 "- emoji (single emoji)\n"
                 "- keywords (array of 12-16 specific discriminating terms - named entities, proper nouns, "
                 "places, organisations; avoid generic words like war, military, economy, geopolitics)\n"
                 "- overview (2-3 sentences)\n"
-                "- subtopics (array of 5-7 strings)\n"
-                "- key_facts (array of exactly 10 objects, each with title (short label) and "
-                "body (1-2 sentences; use **bold** for key figures/stats))\n"
-                "- subtopic_details (object mapping each subtopic name to array of 4-6 bullet strings)\n\n"
+                "- subtopics (array of 5-7 strings)\n\n"
+                "Do NOT include key_facts or subtopic_details - these are generated separately.\n\n"
                 "Return ONLY a valid JSON array of 10 theme objects. No markdown, no preamble.\n\n"
                 "ARTICLES:\n" + sample_ctx
             )
             resp1 = call_anthropic({
                 "model": "claude-sonnet-4-6",
-                "max_tokens": 8000,
+                "max_tokens": 3000,
                 "messages": [{"role": "user", "content": theme_prompt}]
-            }, timeout=120, retries=2)
+            }, timeout=60, retries=2)
             resp1 = call_anthropic({
                 "model": "claude-sonnet-4-6",
                 "max_tokens": 3000,
@@ -2956,6 +2954,46 @@ def kt_seed():
 
                 cx.execute("INSERT OR REPLACE INTO kt_meta (key, value) VALUES ('last_seeded_at', ?)", (str(ts),))
                 cx.execute("INSERT OR REPLACE INTO kt_meta (key, value) VALUES ('article_count_at_seed', ?)", (str(total),))
+
+            # ── Call 3: Generate key_facts + subtopic_details for all themes ──
+            _kt_seed_jobs[job_id]["progress"] = "Generating key facts for each theme..."
+            try:
+                theme_names_list = json.dumps([t["name"] for t in themes])
+                kf_prompt = (
+                    "For each of these 10 intelligence themes, generate key_facts and subtopic_details.\n"
+                    "Themes: " + theme_names_list + "\n\n"
+                    "For each theme return a JSON object with:\n"
+                    "- name (exact theme name as given)\n"
+                    "- key_facts (array of exactly 10 objects, each with 'title' (short label) "
+                    "and 'body' (1-2 sentences; use **bold** for key figures/stats))\n"
+                    "- subtopic_details (object mapping subtopic name to array of 4-6 bullet strings)\n\n"
+                    "Subtopics for each theme:\n" +
+                    "\n".join(t["name"] + ": " + ", ".join(t.get("subtopics", [])) for t in themes) +
+                    "\n\nReturn ONLY a valid JSON array of 10 objects. No markdown, no preamble."
+                )
+                kf_resp = call_anthropic({
+                    "model": "claude-sonnet-4-6",
+                    "max_tokens": 8000,
+                    "messages": [{"role": "user", "content": kf_prompt}]
+                }, timeout=120, retries=1)
+                kf_raw = kf_resp["content"][0]["text"].strip()
+                if kf_raw.startswith("```"):
+                    kf_raw = kf_raw.split("\n", 1)[1] if "\n" in kf_raw else kf_raw
+                    kf_raw = kf_raw.rsplit("```", 1)[0]
+                kf_data = json.loads(kf_raw)
+                kf_map = {item["name"]: item for item in kf_data}
+                with sqlite3.connect(DB_PATH) as cx:
+                    for t in themes:
+                        kf_item = kf_map.get(t["name"], {})
+                        kf = kf_item.get("key_facts", [])
+                        sd = kf_item.get("subtopic_details", {})
+                        cx.execute(
+                            "UPDATE kt_themes SET key_facts=?, subtopic_details=? WHERE name=?",
+                            (json.dumps(kf), json.dumps(sd), t["name"])
+                        )
+                log.info(f"kt/seed: key_facts enrichment done for {len(kf_data)} themes")
+            except Exception as kf_err:
+                log.warning(f"kt/seed: key_facts generation failed (non-fatal): {kf_err}")
 
             log.info(f"kt/seed: done -- {len(themes)} themes, {len(assignments)} assignments")
             _kt_seed_jobs[job_id] = {
