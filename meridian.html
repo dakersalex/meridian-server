@@ -3179,15 +3179,22 @@ function getThemeArticles(idx) {
   if (!ktThemes || idx === null) return [];
   const kws = (ktThemes[idx].keywords || []).map(k => k.toLowerCase());
 
+  // Word-boundary regex for each keyword — prevents 'war' matching 'software'
+  // Multi-word keywords like 'Middle East' are matched as phrases
+  const kwRegs = kws.map(k => new RegExp('\\b' + k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'i'));
+
   const matchedArticles = articles.filter(a => {
-    const tags = (a.tags || []).map(t => t.toLowerCase());
-    const topic = (a.topic || '').toLowerCase();
-    const title = (a.title || '').toLowerCase();
-    return kws.some(k =>
-      tags.some(t => t.includes(k) || k.includes(t)) ||
-      topic.includes(k) ||
-      title.includes(k)
-    );
+    const title   = (a.title   || '').toLowerCase();
+    const summary = (a.summary || '').toLowerCase();
+    const tags    = (a.tags    || []).map(t => t.toLowerCase()).join(' ');
+    const topic   = (a.topic   || '').toLowerCase();
+
+    // Primary: keyword must appear as a whole word in title or summary
+    const inContent = kwRegs.some(r => r.test(title) || r.test(summary));
+    if (inContent) return true;
+
+    // Fallback: whole-word match in tags or topic (but not the loose substring check)
+    return kwRegs.some(r => r.test(tags) || r.test(topic));
   });
 
   // Include matching interviews as pseudo-articles
