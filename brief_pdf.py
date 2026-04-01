@@ -61,19 +61,16 @@ def _whiten_background(img):
 
 
 def _sample_row(img, y, step=None):
-    """Sample pixels across a row, return list of RGB tuples."""
     w = img.size[0]
     step = step or max(1, w // 26)
     return [img.getpixel((x, y)) for x in range(4, w - 4, step)]
 
 
 def _row_is_white(px):
-    """True if row is pure white (separator / footer region)."""
     return sum(1 for p in px if min(p) > 245) >= len(px) * 0.9
 
 
 def _row_is_beige(px):
-    """True if row is clean Economist beige background (no text)."""
     r_bg, g_bg, b_bg = _ECON_BG_RGB
     tol = 22
     return sum(1 for p in px
@@ -83,76 +80,92 @@ def _row_is_beige(px):
 
 
 def _row_dark_count(px):
-    """Count pixels darker than typical text (but not pure black)."""
     return sum(1 for p in px if max(p) < 130)
 
 
 def _find_top_crop(img):
     """
-    Find crop point for the top title block.
+    Crop after the FIRST dark text block (the bold title line only).
 
-    The Economist layout:
-      y=0-5:   white padding
-      y=6-11:  red accent bar (slightly pinkish beige, not the bold red line)
-      y=12-xx: TITLE text block (bold Economist headline) — dark rows on beige
-      y=xx-yy: beige gap
-      y=yy-zz: SUBTITLE text block (axis description, italic) — dark rows on beige
-      y=zz+:   clean beige gap then Y-axis top label, then chart data
+    The Economist layout from top:
+      y=0-5:  white padding
+      y=6-11: pink-red accent bar (beige-ish)
+      y=12+:  FIRST dark block = bold title (~10-15px tall)
+      gap:    beige rows  ← CROP HERE (keeps subtitle, legend, y-axis all intact)
+      more:   subtitle text, y-axis label, chart data...
 
-    Strategy: scan for text blocks in the title region (y=6 to y~=120).
-    Find the LAST text block in that region. The crop point is the first
-    clean beige row AFTER that last text block ends — this leaves the top
-    Y-axis label visible as required.
+    We find the first DARK rows, then find the first beige row after them.
+    That's our crop point — the gap between title and subtitle/chart area.
     """
     w, h = img.size
 
-    # Collect "dark rows" (text) vs "clear rows" (beige/empty)
-    text_rows = []
-    for y in range(6, min(125, h)):
+    # Scan from y=6 onwards (skip white padding + accent bar region)
+    first_dark_start = None
+    first_dark_end = None
+
+    for y in range(6, min(80, h)):
         px = _sample_row(img, y)
         dark = _row_dark_count(px)
-        if dark >= 2:  # any meaningful text content
-            text_rows.append(y)
+        if dark >= 2:
+            if first_dark_start is None:
+                first_dark_start = y
+            first_dark_end = y
+        else:
+            # If we've found a dark block and now hit clean beige, we're done
+            if first_dark_end is not None:
+                px_beige = _sample_row(img, y)
+                if _row_is_beige(px_beige):
+                    crop_y = y
+                    # Sanity: never crop more than 15% of image
+                    return min(crop_y, int(h * 0.15))
 
-    if not text_rows:
-        return 0
-
-    # Find the last contiguous block of text rows
-    last_text_y = text_rows[-1]
-
-    # Now scan just past the last text row to find the first clean beige gap
-    # The crop point is the start of that clean beige stretch
-    for y in range(last_text_y + 1, min(last_text_y + 25, h)):
-        px = _sample_row(img, y)
-        if _row_is_beige(px):
-            crop_y = y
-            # Sanity: never crop more than 22% of image height
-            return min(crop_y, int(h * 0.22))
-
-    # Fallback: crop just past last text row
-    return min(last_text_y + 1, int(h * 0.22))
+    # Fallback: no clear gap found — don't crop
+    return 0
 
 
 def _find_bottom_crop(img):
     """
-    Find the bottom crop point.
+    Crop at the beige-to-white boundary — removing the white separator
+    and CHART/MAP: THE ECONOMIST footer.
 
-    Keep: chart data, x-axis labels, source text below x-axis.
-    Remove: the pure-white separator + "CHART/MAP: THE ECONOMIST" footer.
+    From the pixel data:
+      - Last beige rows (source text / x-axis labels): beige, dark=0-7
+      - White separator: pure white (min>245), no text
+      - CHART: THE ECONOMIST: dark text ON white background
+      - More white
 
-    The white separator starts immediately when beige ends and white begins.
-    Scan upward from bottom — the crop point is the first row from below
-    that is NOT pure white. That preserves everything including source text.
+    The separator is the first occurrence of a sustained pure-white band
+    scanning from top downward in the bottom 20% of the image.
+    We find the last BEIGE row before the white band starts and crop there.
+
+    Since the CHART: THE ECONOMIST text is on white (not beige), scanning
+    upward for the last beige row correctly excludes it.
     """
     w, h = img.size
+    scan_start = int(h * 0.6)  # start from 60% down
 
-    for y in range(h - 1, max(h - 120, 0), -1):
+    # Scan top-to-bottom in the lower portion, find first sustained white band
+    # A "white band" = 3+ consecutive rows where >85% pixels are near-white (>230)
+    WHITE_THRESH = 230  # looser than pure white — catches the separator reliably
+    MIN_RUN = 3
+    white_run_start = None
+    white_run = 0
+
+    for y in range(scan_start, h):
         px = _sample_row(img, y)
-        if not _row_is_white(px):
-            # This row is not pure white — it's the last row to keep
-            return y + 1
+        near_white = sum(1 for p in px if min(p) > WHITE_THRESH)
+        if near_white >= len(px) * 0.85:
+            if white_run == 0:
+                white_run_start = y
+            white_run += 1
+            if white_run >= MIN_RUN:
+                # Found the white separator — crop at its start
+                return white_run_start
+        else:
+            white_run = 0
+            white_run_start = None
 
-    return h  # no white footer found, keep everything
+    return h  # no separator found
 
 
 def _is_double_image(img):
@@ -170,9 +183,9 @@ def _is_double_image(img):
 def _crop_economist_chart(image_data, caption=""):
     """
     Process an Economist chart/map image.
-    1. Detect double-captured images (skip top crop, no whitening).
+    1. Detect double-captured images.
     2. Find crop points on ORIGINAL image before whitening.
-    3. Crop title block from top; crop footer from bottom.
+    3. Crop title block from top; crop white footer from bottom.
     4. Charts only: whiten beige background. Maps: keep original colours.
     """
     try:
@@ -191,7 +204,7 @@ def _crop_economist_chart(image_data, caption=""):
             img.save(buf, format="PNG", optimize=True)
             return buf.getvalue(), img.size
 
-        # Crop points determined on original (pre-whiten) image
+        # Crop points on original image
         top_crop = _find_top_crop(img)
         bottom_crop = _find_bottom_crop(img)
 
@@ -354,9 +367,8 @@ def build_brief_pdf(theme, articles, brief_text, brief_type="full", db_path=None
     SM   = S("m", fontSize=8,  textColor=LIGHT, spaceAfter=16)
     SS   = S("s", fontSize=8,  textColor=AMBER, fontName="Helvetica-Bold",
              letterSpacing=1.2, spaceAfter=8, spaceBefore=20)
-    # Justified body text
     SB   = S("b", fontSize=10, leading=16, textColor=MID, spaceAfter=10,
-             alignment=4)  # 4 = JUSTIFY
+             alignment=4)  # JUSTIFY
     SF   = S("f", fontSize=7,  textColor=LIGHT, letterSpacing=0.8)
     SFIG = S("fig", fontSize=8, textColor=FIGC, fontName="Helvetica-Oblique",
              leading=11, spaceAfter=4, spaceBefore=8)
@@ -499,7 +511,6 @@ def build_brief_pdf(theme, articles, brief_text, brief_type="full", db_path=None
             story.append(Spacer(1, 6))
             for i in range(0, len(charts_for_sec), 2):
                 pair = charts_for_sec[i:i+2]
-                # Normalise pair to same height
                 target_h = 7 * cm
                 for c in pair:
                     ow = c["width"] or 336; oh = c["height"] or 252
@@ -528,7 +539,6 @@ def build_brief_pdf(theme, articles, brief_text, brief_type="full", db_path=None
                 while len(img_cells) < 2:
                     img_cells.append(""); cap_cells.append("")
 
-                # Caption ABOVE image
                 t_cap = Table([cap_cells], colWidths=[cw, cw])
                 t_cap.setStyle(TableStyle([
                     ("ALIGN",         (0,0), (-1,-1), "LEFT"),
