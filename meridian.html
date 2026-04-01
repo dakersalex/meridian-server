@@ -835,7 +835,7 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
   letter-spacing: 0.8px;
   margin: 16px 0 6px;
 }
-.kt-brief-content p { margin-bottom: 10px; }
+.kt-brief-content p { margin-bottom: 10px; text-align: justify; }
 .kt-brief-content ul { padding-left: 18px; margin-bottom: 10px; }
 .kt-brief-content li { margin-bottom: 5px; }
 .kt-brief-exec {
@@ -3410,10 +3410,10 @@ async function downloadBriefPDF(themeIdx, type) {
           <div style="font-size:11px;color:var(--ink-3);margin-top:4px">${themeArts.length} articles · ${new Date().toLocaleDateString('en-GB',{day:'numeric',month:'long',year:'numeric'})}</div>
         </div>
         <button id="open-pdf-btn" onclick="openBriefPDF(window._pdfJobId)"
-          style="flex-shrink:0;padding:7px 14px;background:none;border:1px solid var(--rule);color:var(--ink-3);cursor:pointer;font-family:'IBM Plex Sans',sans-serif;font-size:11px;white-space:nowrap;transition:all 0.15s"
-          onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'"
-          onmouseout="this.style.borderColor='var(--rule)';this.style.color='var(--ink-3)'">
-          Open as PDF ↗
+          style="flex-shrink:0;padding:8px 18px;background:var(--accent);border:2px solid var(--accent);color:white;cursor:pointer;font-family:'IBM Plex Sans',sans-serif;font-size:12px;font-weight:600;white-space:nowrap;border-radius:3px;transition:opacity 0.15s"
+          onmouseover="this.style.opacity='0.85'"
+          onmouseout="this.style.opacity='1'">
+          ⤓ Open as PDF
         </button>
       </div>
       <div class="kt-brief-content"><p>${html}</p></div>`;
