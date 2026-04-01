@@ -2856,17 +2856,28 @@ def kt_seed():
             theme_prompt = (
                 "You are an intelligence analyst. Analyse these article titles (a representative sample "
                 "from a corpus of " + str(total) + " articles) and identify exactly 10 "
+            theme_prompt = (
+                "You are an intelligence analyst. Analyse these article titles (a representative sample "
+                "from a corpus of " + str(total) + " articles) and identify exactly 10 "
                 "dominant intelligence themes.\n\n"
-                "For each theme produce a JSON object with ONLY these fields:\n"
+                "For each theme produce a JSON object with ALL these fields:\n"
                 "- name (3-6 words)\n"
                 "- emoji (single emoji)\n"
-                "- keywords (array of 8-12 keywords)\n"
+                "- keywords (array of 12-16 specific discriminating terms - named entities, proper nouns, "
+                "places, organisations; avoid generic words like war, military, economy, geopolitics)\n"
                 "- overview (2-3 sentences)\n"
-                "- subtopics (array of 5-7 strings)\n\n"
-                "key_facts and subtopic_details are generated later — do NOT include them.\n\n"
+                "- subtopics (array of 5-7 strings)\n"
+                "- key_facts (array of exactly 10 objects, each with title (short label) and "
+                "body (1-2 sentences; use **bold** for key figures/stats))\n"
+                "- subtopic_details (object mapping each subtopic name to array of 4-6 bullet strings)\n\n"
                 "Return ONLY a valid JSON array of 10 theme objects. No markdown, no preamble.\n\n"
                 "ARTICLES:\n" + sample_ctx
             )
+            resp1 = call_anthropic({
+                "model": "claude-sonnet-4-6",
+                "max_tokens": 8000,
+                "messages": [{"role": "user", "content": theme_prompt}]
+            }, timeout=120, retries=2)
             resp1 = call_anthropic({
                 "model": "claude-sonnet-4-6",
                 "max_tokens": 3000,
