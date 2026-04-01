@@ -2856,9 +2856,6 @@ def kt_seed():
             theme_prompt = (
                 "You are an intelligence analyst. Analyse these article titles (a representative sample "
                 "from a corpus of " + str(total) + " articles) and identify exactly 10 "
-            theme_prompt = (
-                "You are an intelligence analyst. Analyse these article titles (a representative sample "
-                "from a corpus of " + str(total) + " articles) and identify exactly 10 "
                 "dominant intelligence themes.\n\n"
                 "For each theme produce a JSON object with ALL these fields:\n"
                 "- name (3-6 words)\n"
