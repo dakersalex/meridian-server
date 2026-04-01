@@ -33,8 +33,7 @@ def _desc_similar(a, b, threshold=0.6):
 
 
 def _dedup_by_description(charts):
-    """Remove near-duplicate images (same chart pushed twice).
-    Keeps the first occurrence of each visually-similar image."""
+    """Remove near-duplicate images (same chart pushed twice)."""
     kept = []
     for c in charts:
         desc = c.get("description", "")
@@ -46,21 +45,9 @@ def _dedup_by_description(charts):
 def score_charts_for_section(section_heading, section_text, charts,
                               placed_descriptions, max_charts=2,
                               min_score=_MIN_SCORE):
-    """Score candidate charts against a section and return the top matches.
-
-    Args:
-        section_heading: heading text (used to skip no-chart sections)
-        section_text: body text for keyword scoring
-        charts: candidate charts not yet used in this brief
-        placed_descriptions: descriptions of charts already placed anywhere
-                             in the brief — used to avoid cross-brief duplicates
-        max_charts: maximum charts to return (must be 2 or 0 — never 1)
-        min_score: minimum overlap score required
-    """
+    """Score candidate charts against a section and return the top matches."""
     if section_heading.lower().strip() in _NO_CHART_SECTIONS:
         return []
-    # Also skip headings that look like the document title (start with emoji/# or
-    # match "X — Intelligence Brief" pattern)
     h_clean = section_heading.strip()
     if h_clean.startswith("#") or "intelligence brief" in h_clean.lower():
         return []
@@ -71,7 +58,6 @@ def score_charts_for_section(section_heading, section_text, charts,
 
     scored = []
     for c in charts:
-        # Skip if too visually similar to anything already placed in the brief
         if any(_desc_similar(c.get("description", ""), pd,
                              threshold=_CROSS_BRIEF_SIMILARITY)
                for pd in placed_descriptions):
@@ -95,6 +81,93 @@ def score_charts_for_section(section_heading, section_text, charts,
     if len(result) == 1:
         return []
     return result
+
+
+def _build_prompt(theme_name, subtopics, article_context, brief_type):
+    """
+    Build the brief generation prompt.
+
+    Design principles:
+    - Works across all Meridian themes (geopolitics, markets, technology, corporate, etc.)
+    - Explicitly requests statistics and figures where available in source articles
+    - Follows intelligence analyst register: lead with finding, support with evidence, state implication
+    - Does NOT hallucinate — only uses figures present in the source material
+    - Section instruction guides depth without prescribing domain-specific content
+    """
+    SECTION_INSTRUCTION = (
+        "[2-3 paragraphs of analytical prose. "
+        "Lead each paragraph with the key analytical finding. "
+        "Support findings with specific figures, percentages, prices, quantities "
+        "or dates from the source articles where available — these anchor the analysis. "
+        "Close with the forward-looking implication. "
+        "Only cite statistics that appear in the articles provided.]"
+    )
+
+    if brief_type == "short":
+        return (
+            f'You are a senior intelligence analyst. '
+            f'Write a concise intelligence brief on "{theme_name}".\n\n'
+            f"Where source articles contain specific figures, percentages, prices or data points, "
+            f"incorporate them precisely — one or two per section is sufficient to ground the analysis. "
+            f"Do not invent statistics.\n\n"
+            f"Structure:\n"
+            f"## Executive Summary\n[2-3 sentences capturing the core assessment]\n\n"
+            f"## Key Developments\n[5-7 bullet points, each with a specific figure or date where available]\n\n"
+            f"## Strategic Implications\n{SECTION_INSTRUCTION}\n\n"
+            f"## Watch List\n[3-5 specific things to monitor in the coming weeks]\n\n"
+            f"ARTICLES:\n{article_context}"
+        )
+    else:
+        subtopic_sections = "\n\n".join(
+            f"## {s}\n{SECTION_INSTRUCTION}" for s in subtopics)
+        return (
+            f'You are a senior intelligence analyst. '
+            f'Write a comprehensive intelligence brief on "{theme_name}".\n\n'
+            f"IMPORTANT: Start directly with the Executive Summary. "
+            f"Do NOT include a title heading or overview section.\n\n"
+            f"Where source articles contain specific figures, percentages, prices, "
+            f"quantities or dates, incorporate them precisely into your analysis — "
+            f"aim for one or two concrete data points per section to anchor the assessment. "
+            f"Do not invent or estimate statistics; only use figures present in the articles.\n\n"
+            f"Structure:\n"
+            f"## Executive Summary\n"
+            f"[3-4 sentences. State the overarching assessment directly — "
+            f"what is happening, why it matters, and what the key tension or implication is.]\n\n"
+            + subtopic_sections + "\n\n"
+            f"## Cross-cutting Themes\n"
+            f"[3-4 analytical observations that cut across the subtopics above — "
+            f"patterns, paradoxes or structural dynamics that individual sections don't fully capture]\n\n"
+            f"## Strategic Implications\n"
+            f"[2-3 paragraphs of forward-looking analysis. "
+            f"What does the current trajectory lead to? "
+            f"What are the key uncertainties and decision points?]\n\n"
+            f"ARTICLES:\n{article_context}"
+        )
+
+
+def _build_article_context(articles, brief_type):
+    """
+    Build richer article context by including the first 400 chars of body text
+    alongside the summary. This preserves specific statistics that get lost
+    when only summaries are used.
+    """
+    MAX_ARTICLES = 30 if brief_type == "short" else 60
+    BODY_EXCERPT = 400  # chars of body to include alongside summary
+
+    parts = []
+    for a in articles[:MAX_ARTICLES]:
+        if not a.get("summary"):
+            continue
+        snippet = f"SOURCE: {a.get('source', '')}\nTITLE: {a.get('title', '')}\n"
+        snippet += f"SUMMARY: {a.get('summary', '')}"
+        # Append a body excerpt if available and non-trivial
+        body = (a.get("body") or "").strip()
+        if body and len(body) > 100:
+            excerpt = body[:BODY_EXCERPT].rsplit(" ", 1)[0]  # trim at word boundary
+            snippet += f"\nEXCERPT: {excerpt}…"
+        parts.append(snippet)
+
+    return "\n\n---\n\n".join(parts)
 
 
 def build_brief_pdf(theme, articles, brief_text, brief_type="full", db_path=None):
@@ -137,7 +210,6 @@ def build_brief_pdf(theme, articles, brief_text, brief_type="full", db_path=None
                                 "description": r[3], "insight": r[4],
                                 "image_data": r[5], "width": r[6], "height": r[7]})
 
-    # Remove exact/near duplicates (same chart pushed twice)
     all_charts = _dedup_by_description(all_charts)
     log.info(f"Brief PDF: {len(all_charts)} distinct charts for {len(article_ids)} articles")
 
@@ -162,28 +234,26 @@ def build_brief_pdf(theme, articles, brief_text, brief_type="full", db_path=None
     sections = parse_sections(brief_text)
     sources = sorted(set(a.get("source", "") for a in articles if a.get("source", "")))
 
-    # ── Pre-assign charts — one pass across all eligible sections ─────────────
+    # ── Pre-assign charts ──────────────────────────────────────────────────────
     MAX_TOTAL = 14
     MAX_PER_SECTION = 2
-    section_charts = {}   # heading -> [chart, ...]
+    section_charts = {}
     used_ids = set()
-    placed_descs = []     # descriptions of charts already placed (cross-brief dedup)
+    placed_descs = []
 
     if brief_type == "full" and all_charts:
         eligible = [s for s in sections
                     if s["heading"].lower().strip() not in _NO_CHART_SECTIONS
                     and not s["heading"].strip().startswith("#")
                     and "intelligence brief" not in s["heading"].lower()]
-        n_eligible = len(eligible)
 
         for sec in eligible:
             h, b = sec["heading"], sec["body"]
             remaining_budget = MAX_TOTAL - sum(len(v) for v in section_charts.values())
-            if remaining_budget < 2:   # need at least 2 (never show 1 alone)
+            if remaining_budget < 2:
                 break
             candidates = [c for c in all_charts if c["id"] not in used_ids]
             per_sec_cap = min(MAX_PER_SECTION, remaining_budget)
-            # Ensure cap is even so we never pass an odd number
             if per_sec_cap % 2 != 0:
                 per_sec_cap -= 1
             if per_sec_cap < 2:
@@ -226,14 +296,12 @@ def build_brief_pdf(theme, articles, brief_text, brief_type="full", db_path=None
 
     for sec in sections:
         h, b = sec["heading"], sec["body"]
-
-        # Skip title/overview lines (raw markdown title rendered as a section)
         h_clean = h.strip()
+
+        # Skip title lines and overview
         if h_clean.startswith("#") or "intelligence brief" in h_clean.lower():
             continue
-        if h_clean.lower() == "overview" and not section_charts.get(h):
-            # If overview has no charts and is just an intro blob, merge into header
-            # by not printing the heading but still printing the body
+        if h_clean.lower() == "overview":
             for para in [p.strip() for p in b.split("\n\n") if p.strip()]:
                 para = re.sub(r"\*\*(.*?)\*\*", r"<b>\1</b>", para)
                 para = re.sub(r"^[*-] ", "", para, flags=re.MULTILINE)
@@ -253,40 +321,31 @@ def build_brief_pdf(theme, articles, brief_text, brief_type="full", db_path=None
         charts_for_sec = section_charts.get(h, [])
         if charts_for_sec:
             story.append(Spacer(1, 8))
-            # Always render in pairs — guaranteed by score_charts_for_section
             for i in range(0, len(charts_for_sec), 2):
                 pair = charts_for_sec[i:i+2]
-                # Determine a shared target height for the pair so they align
-                # Cap at 7cm, use the smaller computed height of the two
+                # Normalise both images to same height
                 target_h = 7 * cm
-                cells = []
                 for c in pair:
-                    ow = c["width"]  or 336
-                    oh = c["height"] or 252
+                    ow = c["width"] or 336; oh = c["height"] or 252
                     ih = cw * (oh / ow)
                     if ih < target_h:
                         target_h = ih
-                # target_h is now the minimum natural height — cap at 7cm
                 target_h = min(target_h, 7 * cm)
 
+                cells = []
                 for c in pair:
                     try:
-                        ow = c["width"]  or 336
-                        oh = c["height"] or 252
-                        # Scale to target height, preserving aspect
+                        ow = c["width"] or 336; oh = c["height"] or 252
                         ih = target_h
                         iw = ih * (ow / oh)
-                        # If width exceeds column, scale down
                         if iw > cw:
-                            iw = cw
-                            ih = iw * (oh / ow)
+                            iw = cw; ih = iw * (oh / ow)
                         cells.append(RLImage(io.BytesIO(c["image_data"]),
                                              width=iw, height=ih))
                     except Exception as e:
                         log.warning(f"Chart render err: {e}")
                         cells.append(Paragraph("", SB))
 
-                # Pad to 2 if somehow only 1 (shouldn't happen with new logic)
                 while len(cells) < 2:
                     cells.append("")
 
@@ -319,57 +378,47 @@ def get_job(job_id):
     return _pdf_jobs.get(job_id)
 
 
-def start_pdf_job(job_id, theme, articles, brief_type, db_path, base_dir):
+def start_pdf_job(job_id, theme, articles, brief_type, db_path, base_dir,
+                  pregenerated_text=None):
+    """
+    Start an async PDF generation job.
+
+    If pregenerated_text is provided (text already generated by the modal
+    /api/kt/brief call), skip the Sonnet API call and build the PDF directly.
+    This implements the single-call architecture: generate once, use twice.
+    """
     _pdf_jobs[job_id] = {"status": "running", "error": None, "ready": False}
 
     def _run():
         try:
-            cp = Path(base_dir) / "credentials.json"
-            api_key = (json.loads(cp.read_text()).get("anthropic_api_key", "")
-                       if cp.exists() else "")
-            ctx = "\n\n---\n\n".join(
-                "SOURCE: " + a.get("source", "") + "\nTITLE: " + a.get("title", "")
-                + "\nSUMMARY: " + a.get("summary", "")
-                for a in articles if a.get("summary"))
-            name = theme.get("name", "")
-            em   = theme.get("emoji", "")
-            subs = theme.get("subtopics", [])
-
-            if brief_type == "short":
-                prompt = (
-                    f'You are a senior intelligence analyst. Write a concise intelligence brief on "{name}".\n\n'
-                    "Structure:\n## Executive Summary\n[2-3 sentences]\n\n"
-                    "## Key Developments\n[5-7 bullets]\n\n"
-                    f"## Strategic Implications\n[2-3 paragraphs]\n\n"
-                    f"## Watch List\n[3-5 items]\n\nARTICLES:\n{ctx}"
-                )
-                mt = 1500
+            if pregenerated_text:
+                # Single-call path: text was already generated for the modal
+                brief_text = pregenerated_text
+                log.info(f"Brief PDF {job_id}: using pre-generated text ({len(brief_text)} chars)")
             else:
-                ss = "\n\n".join(
-                    f"## {s}\n[2-3 paragraphs of analytical prose]" for s in subs)
-                prompt = (
-                    f'You are a senior intelligence analyst. Write a comprehensive intelligence brief on "{name}".\n\n'
-                    f"IMPORTANT: Start directly with the Executive Summary. Do NOT include a title heading or overview section.\n\n"
-                    f"Structure:\n## Executive Summary\n[3-4 sentences]\n\n"
-                    + ss + "\n\n## Cross-cutting Themes\n[overarching patterns]\n\n"
-                    f"## Strategic Implications\n[forward-looking analysis]\n\n"
-                    f"ARTICLES:\n{ctx}"
-                )
-                mt = 4000
+                # Standalone path: generate text here (fallback / direct API use)
+                cp = Path(base_dir) / "credentials.json"
+                api_key = (json.loads(cp.read_text()).get("anthropic_api_key", "")
+                           if cp.exists() else "")
+                ctx = _build_article_context(articles, brief_type)
+                name = theme.get("name", "")
+                subs = theme.get("subtopics", [])
+                mt = 1500 if brief_type == "short" else 4000
 
-            data = json.dumps({
-                "model": "claude-sonnet-4-20250514",
-                "max_tokens": mt,
-                "messages": [{"role": "user", "content": prompt}]
-            }).encode()
-            req = urllib.request.Request(
-                "https://api.anthropic.com/v1/messages", data=data,
-                headers={"Content-Type": "application/json",
-                         "x-api-key": api_key,
-                         "anthropic-version": "2023-06-01"},
-                method="POST")
-            with urllib.request.urlopen(req, timeout=180) as r:
-                brief_text = json.loads(r.read())["content"][0]["text"]
+                prompt = _build_prompt(name, subs, ctx, brief_type)
+                data = json.dumps({
+                    "model": "claude-sonnet-4-20250514",
+                    "max_tokens": mt,
+                    "messages": [{"role": "user", "content": prompt}]
+                }).encode()
+                req = urllib.request.Request(
+                    "https://api.anthropic.com/v1/messages", data=data,
+                    headers={"Content-Type": "application/json",
+                             "x-api-key": api_key,
+                             "anthropic-version": "2023-06-01"},
+                    method="POST")
+                with urllib.request.urlopen(req, timeout=180) as r:
+                    brief_text = json.loads(r.read())["content"][0]["text"]
 
             pdf = build_brief_pdf(theme, articles, brief_text, brief_type, db_path)
             out = Path(base_dir) / f"tmp_brief_{job_id}.pdf"

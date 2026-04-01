@@ -3362,15 +3362,7 @@ async function downloadBriefPDF(themeIdx, type) {
     if (textStart.error) throw new Error(textStart.error);
     const textJobId = textStart.job_id;
 
-    // Step 2: Start the PDF job in parallel (so it's ready when they click)
-    let pdfJobId = null;
-    fetch(SERVER + '/api/kt/brief/pdf', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ theme, articles: themeArts, type })
-    }).then(r => r.json()).then(d => { if (d.job_id) pdfJobId = d.job_id; });
-
-    // Poll text brief
+    // Poll text brief — PDF job starts AFTER, passing the text (single Sonnet call)
     const text = await new Promise((resolve, reject) => {
       let attempts = 0;
       const poll = setInterval(async () => {
@@ -3384,6 +3376,14 @@ async function downloadBriefPDF(themeIdx, type) {
         } catch(e) { clearInterval(poll); reject(e); }
       }, 3000);
     });
+
+    // Start PDF job now, passing the already-generated text — server skips Sonnet call
+    let pdfJobId = null;
+    fetch(SERVER + '/api/kt/brief/pdf', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ theme, articles: themeArts, type, text })
+    }).then(r => r.json()).then(d => { if (d.job_id) pdfJobId = d.job_id; });
 
     // Render markdown to HTML — strip title lines (# ...) first
     let html = text
