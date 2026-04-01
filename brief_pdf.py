@@ -6,22 +6,31 @@ from pathlib import Path
 
 log = logging.getLogger("meridian")
 
-# Headings that should never receive charts
-_NO_CHART_SECTIONS = {"executive summary", "cross-cutting themes", "source notes",
-                      "strategic implications", "watch list", "key developments"}
+# Headings that should never receive charts (lowercase)
+_NO_CHART_SECTIONS = {
+    "executive summary", "cross-cutting themes", "source notes",
+    "strategic implications", "watch list", "key developments", "overview"
+}
 
 # Minimum keyword-overlap score for a chart to qualify for a section
 _MIN_SCORE = 2
 
+# Cross-brief similarity threshold — reject chart if description too similar
+# to one already placed elsewhere in the brief
+_CROSS_BRIEF_SIMILARITY = 0.5
+
+
 def _tok(text):
     return set(re.sub(r"[^a-z0-9 ]", " ", (text or "").lower()).split())
 
-def _desc_similar(a, b):
-    """True if two description strings share >60% of tokens — i.e. same chart."""
+
+def _desc_similar(a, b, threshold=0.6):
+    """True if two description strings share > threshold fraction of tokens."""
     ta, tb = _tok(a), _tok(b)
     if not ta or not tb:
         return False
-    return len(ta & tb) / max(len(ta), len(tb)) > 0.6
+    return len(ta & tb) / max(len(ta), len(tb)) > threshold
+
 
 def _dedup_by_description(charts):
     """Remove near-duplicate images (same chart pushed twice).
@@ -33,27 +42,45 @@ def _dedup_by_description(charts):
             kept.append(c)
     return kept
 
+
 def score_charts_for_section(section_heading, section_text, charts,
-                              max_charts=2, min_score=_MIN_SCORE):
+                              placed_descriptions, max_charts=2,
+                              min_score=_MIN_SCORE):
     """Score candidate charts against a section and return the top matches.
 
-    Changes vs original:
-    - Executive Summary and other prose-only sections return [] immediately
-    - Minimum score threshold (default 2) — loose single-word overlap excluded
-    - max_charts defaults to 2 (caller may pass 1 for budget management)
-    - Deduplication by article_id still applies
+    Args:
+        section_heading: heading text (used to skip no-chart sections)
+        section_text: body text for keyword scoring
+        charts: candidate charts not yet used in this brief
+        placed_descriptions: descriptions of charts already placed anywhere
+                             in the brief — used to avoid cross-brief duplicates
+        max_charts: maximum charts to return (must be 2 or 0 — never 1)
+        min_score: minimum overlap score required
     """
     if section_heading.lower().strip() in _NO_CHART_SECTIONS:
         return []
+    # Also skip headings that look like the document title (start with emoji/# or
+    # match "X — Intelligence Brief" pattern)
+    h_clean = section_heading.strip()
+    if h_clean.startswith("#") or "intelligence brief" in h_clean.lower():
+        return []
+
     section_tokens = _tok(section_heading + " " + section_text)
     if not section_tokens:
         return []
+
     scored = []
     for c in charts:
+        # Skip if too visually similar to anything already placed in the brief
+        if any(_desc_similar(c.get("description", ""), pd,
+                             threshold=_CROSS_BRIEF_SIMILARITY)
+               for pd in placed_descriptions):
+            continue
         score = (len(_tok(c.get("insight", "")) & section_tokens) * 2
                  + len(_tok(c.get("description", "")) & section_tokens))
         if score >= min_score:
             scored.append((score, c))
+
     scored.sort(key=lambda x: -x[0])
     result, seen_articles = [], set()
     for _, c in scored:
@@ -63,6 +90,10 @@ def score_charts_for_section(section_heading, section_text, charts,
             result.append(c)
         if len(result) >= max_charts:
             break
+
+    # Never return exactly 1 chart — either 0 or 2+
+    if len(result) == 1:
+        return []
     return result
 
 
@@ -75,10 +106,12 @@ def build_brief_pdf(theme, articles, brief_text, brief_type="full", db_path=None
     from reportlab.lib.colors import HexColor
     AMBER = HexColor("#c4783a"); MID = HexColor("#555555"); LIGHT = HexColor("#888888")
     DARK = HexColor("#1a1a1a"); BORD = HexColor("#ddd8cc")
+
     def S(name, **kw):
         d = dict(fontName="Helvetica", fontSize=10, leading=14, textColor=DARK,
                  spaceAfter=0, spaceBefore=0)
         d.update(kw); return ParagraphStyle(name, **d)
+
     SE = S("e", fontSize=7,  textColor=AMBER, fontName="Helvetica-Bold",
            letterSpacing=1.5, spaceAfter=4)
     ST = S("t", fontSize=22, fontName="Helvetica-Bold", leading=26, spaceAfter=6)
@@ -88,7 +121,7 @@ def build_brief_pdf(theme, articles, brief_text, brief_type="full", db_path=None
     SB = S("b", fontSize=10, leading=16, textColor=MID, spaceAfter=10)
     SF = S("f", fontSize=7,  textColor=LIGHT, letterSpacing=0.8)
 
-    # ── Fetch candidate charts from DB ────────────────────────────────────────
+    # ── Fetch candidate charts ─────────────────────────────────────────────────
     article_ids = [a.get("id") for a in articles if a.get("id")]
     all_charts = []
     if article_ids and db_path:
@@ -104,11 +137,11 @@ def build_brief_pdf(theme, articles, brief_text, brief_type="full", db_path=None
                                 "description": r[3], "insight": r[4],
                                 "image_data": r[5], "width": r[6], "height": r[7]})
 
-    # Remove near-duplicate images (same chart pushed twice due to legacy rows)
+    # Remove exact/near duplicates (same chart pushed twice)
     all_charts = _dedup_by_description(all_charts)
     log.info(f"Brief PDF: {len(all_charts)} distinct charts for {len(article_ids)} articles")
 
-    # ── Parse brief text into sections ───────────────────────────────────────
+    # ── Parse sections ─────────────────────────────────────────────────────────
     def parse_sections(text):
         parts = re.split(r"\n(?=## )", text.strip())
         secs = []
@@ -129,44 +162,48 @@ def build_brief_pdf(theme, articles, brief_text, brief_type="full", db_path=None
     sections = parse_sections(brief_text)
     sources = sorted(set(a.get("source", "") for a in articles if a.get("source", "")))
 
-    # ── Pre-assign charts to sections (one pass) ─────────────────────────────
-    # Strategy: skip no-chart sections, then give each eligible section
-    # up to 1 chart by default, up to 2 if score is strong (>=4).
-    # Global cap = 14 (2 per section * 7 subtopics) but effectively limited
-    # by the distinct charts available.
+    # ── Pre-assign charts — one pass across all eligible sections ─────────────
     MAX_TOTAL = 14
     MAX_PER_SECTION = 2
     section_charts = {}   # heading -> [chart, ...]
     used_ids = set()
+    placed_descs = []     # descriptions of charts already placed (cross-brief dedup)
 
     if brief_type == "full" and all_charts:
         eligible = [s for s in sections
-                    if s["heading"].lower().strip() not in _NO_CHART_SECTIONS]
+                    if s["heading"].lower().strip() not in _NO_CHART_SECTIONS
+                    and not s["heading"].strip().startswith("#")
+                    and "intelligence brief" not in s["heading"].lower()]
         n_eligible = len(eligible)
 
         for sec in eligible:
             h, b = sec["heading"], sec["body"]
             remaining_budget = MAX_TOTAL - sum(len(v) for v in section_charts.values())
-            if remaining_budget <= 0:
+            if remaining_budget < 2:   # need at least 2 (never show 1 alone)
                 break
-            remaining_sections = n_eligible - len(section_charts)
-            # Allow up to 2 per section; but if budget is tight, limit to 1
-            per_sec_cap = min(MAX_PER_SECTION,
-                              max(1, remaining_budget // max(remaining_sections, 1)))
             candidates = [c for c in all_charts if c["id"] not in used_ids]
-            selected = score_charts_for_section(h, b, candidates,
-                                                max_charts=per_sec_cap,
-                                                min_score=_MIN_SCORE)
+            per_sec_cap = min(MAX_PER_SECTION, remaining_budget)
+            # Ensure cap is even so we never pass an odd number
+            if per_sec_cap % 2 != 0:
+                per_sec_cap -= 1
+            if per_sec_cap < 2:
+                break
+
+            selected = score_charts_for_section(
+                h, b, candidates, placed_descs,
+                max_charts=per_sec_cap, min_score=_MIN_SCORE)
+
             if selected:
                 section_charts[h] = selected
                 for c in selected:
                     used_ids.add(c["id"])
+                    placed_descs.append(c.get("description", ""))
 
         total_assigned = sum(len(v) for v in section_charts.values())
         log.info(f"Brief PDF: {total_assigned} charts assigned across "
                  f"{len(section_charts)} sections")
 
-    # ── Build PDF story ───────────────────────────────────────────────────────
+    # ── Build PDF story ────────────────────────────────────────────────────────
     buf = io.BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=A4,
         leftMargin=2.2*cm, rightMargin=2.2*cm,
@@ -185,11 +222,28 @@ def build_brief_pdf(theme, articles, brief_text, brief_type="full", db_path=None
         f"  .  {len(sources)} sources", SM))
     story.append(HRFlowable(width="100%", thickness=2, color=AMBER, spaceAfter=20))
 
-    cw = (pw - 0.5*cm) / 2   # column width for 2-per-row chart layout
+    cw = (pw - 0.5*cm) / 2
 
     for sec in sections:
         h, b = sec["heading"], sec["body"]
-        story.append(Paragraph(h.upper(), SS))
+
+        # Skip title/overview lines (raw markdown title rendered as a section)
+        h_clean = h.strip()
+        if h_clean.startswith("#") or "intelligence brief" in h_clean.lower():
+            continue
+        if h_clean.lower() == "overview" and not section_charts.get(h):
+            # If overview has no charts and is just an intro blob, merge into header
+            # by not printing the heading but still printing the body
+            for para in [p.strip() for p in b.split("\n\n") if p.strip()]:
+                para = re.sub(r"\*\*(.*?)\*\*", r"<b>\1</b>", para)
+                para = re.sub(r"^[*-] ", "", para, flags=re.MULTILINE)
+                para = para.replace("&", "&amp;")
+                story.append(Paragraph(para, SB))
+            story.append(HRFlowable(width="100%", thickness=0.5,
+                                     color=BORD, spaceAfter=4))
+            continue
+
+        story.append(Paragraph(h_clean.upper(), SS))
         for para in [p.strip() for p in b.split("\n\n") if p.strip()]:
             para = re.sub(r"\*\*(.*?)\*\*", r"<b>\1</b>", para)
             para = re.sub(r"^[*-] ", "", para, flags=re.MULTILINE)
@@ -199,28 +253,43 @@ def build_brief_pdf(theme, articles, brief_text, brief_type="full", db_path=None
         charts_for_sec = section_charts.get(h, [])
         if charts_for_sec:
             story.append(Spacer(1, 8))
+            # Always render in pairs — guaranteed by score_charts_for_section
             for i in range(0, len(charts_for_sec), 2):
-                pair  = charts_for_sec[i:i+2]
+                pair = charts_for_sec[i:i+2]
+                # Determine a shared target height for the pair so they align
+                # Cap at 7cm, use the smaller computed height of the two
+                target_h = 7 * cm
                 cells = []
+                for c in pair:
+                    ow = c["width"]  or 336
+                    oh = c["height"] or 252
+                    ih = cw * (oh / ow)
+                    if ih < target_h:
+                        target_h = ih
+                # target_h is now the minimum natural height — cap at 7cm
+                target_h = min(target_h, 7 * cm)
+
                 for c in pair:
                     try:
                         ow = c["width"]  or 336
                         oh = c["height"] or 252
-                        # Fix: cap width first so the image fills the column
-                        # then only height-cap if the result is still too tall.
-                        # This preserves the top of maps/charts (where titles live).
-                        iw = cw
-                        ih = iw * (oh / ow)
-                        if ih > 7*cm:
-                            ih = 7*cm
-                            iw = ih * (ow / oh)
+                        # Scale to target height, preserving aspect
+                        ih = target_h
+                        iw = ih * (ow / oh)
+                        # If width exceeds column, scale down
+                        if iw > cw:
+                            iw = cw
+                            ih = iw * (oh / ow)
                         cells.append(RLImage(io.BytesIO(c["image_data"]),
                                              width=iw, height=ih))
                     except Exception as e:
                         log.warning(f"Chart render err: {e}")
                         cells.append(Paragraph("", SB))
+
+                # Pad to 2 if somehow only 1 (shouldn't happen with new logic)
                 while len(cells) < 2:
                     cells.append("")
+
                 t = Table([cells], colWidths=[cw, cw])
                 t.setStyle(TableStyle([
                     ("ALIGN",         (0,0), (-1,-1), "CENTER"),
@@ -252,6 +321,7 @@ def get_job(job_id):
 
 def start_pdf_job(job_id, theme, articles, brief_type, db_path, base_dir):
     _pdf_jobs[job_id] = {"status": "running", "error": None, "ready": False}
+
     def _run():
         try:
             cp = Path(base_dir) / "credentials.json"
@@ -264,6 +334,7 @@ def start_pdf_job(job_id, theme, articles, brief_type, db_path, base_dir):
             name = theme.get("name", "")
             em   = theme.get("emoji", "")
             subs = theme.get("subtopics", [])
+
             if brief_type == "short":
                 prompt = (
                     f'You are a senior intelligence analyst. Write a concise intelligence brief on "{name}".\n\n'
@@ -278,13 +349,14 @@ def start_pdf_job(job_id, theme, articles, brief_type, db_path, base_dir):
                     f"## {s}\n[2-3 paragraphs of analytical prose]" for s in subs)
                 prompt = (
                     f'You are a senior intelligence analyst. Write a comprehensive intelligence brief on "{name}".\n\n'
-                    f"Structure:\n## {em} {name} - Intelligence Brief\n\n"
-                    f"## Executive Summary\n[3-4 sentences]\n\n"
+                    f"IMPORTANT: Start directly with the Executive Summary. Do NOT include a title heading or overview section.\n\n"
+                    f"Structure:\n## Executive Summary\n[3-4 sentences]\n\n"
                     + ss + "\n\n## Cross-cutting Themes\n[overarching patterns]\n\n"
                     f"## Strategic Implications\n[forward-looking analysis]\n\n"
                     f"ARTICLES:\n{ctx}"
                 )
                 mt = 4000
+
             data = json.dumps({
                 "model": "claude-sonnet-4-20250514",
                 "max_tokens": mt,
@@ -298,6 +370,7 @@ def start_pdf_job(job_id, theme, articles, brief_type, db_path, base_dir):
                 method="POST")
             with urllib.request.urlopen(req, timeout=180) as r:
                 brief_text = json.loads(r.read())["content"][0]["text"]
+
             pdf = build_brief_pdf(theme, articles, brief_text, brief_type, db_path)
             out = Path(base_dir) / f"tmp_brief_{job_id}.pdf"
             out.write_bytes(pdf)
@@ -307,4 +380,5 @@ def start_pdf_job(job_id, theme, articles, brief_type, db_path, base_dir):
         except Exception as e:
             log.error(f"Brief PDF {job_id}: {e}", exc_info=True)
             _pdf_jobs[job_id] = {"status": "error", "error": str(e), "ready": False}
+
     threading.Thread(target=_run, daemon=True).start()
