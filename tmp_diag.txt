@@ -1,0 +1,19 @@
+Deleting 8 stale themes:
+  - Iran-Gulf War and Hormuz (ts=1775117915929)
+  - Energy Shock and Oil Markets (ts=1775117915929)
+  - Trump Trade War and Tariffs (ts=1775117915929)
+  - Global AI and Tech Race (ts=1775117915929)
+  - European Security and Rearmament (ts=1775117915929)
+  - Financial Markets and Macro Instability (ts=1775117915929)
+  - China's Strategic Positioning (ts=1775117915929)
+  - Demographics, Labour and Social Trends (ts=1775117915929)
+
+Remaining 8 themes:
+   133 articles — Global Markets Financial Instability
+   126 articles — Iran Gulf War & Hormuz
+    57 articles — AI Race US China Tech
+    55 articles — Iran War Energy Shock
+    46 articles — Europe Security & Strategic Autonomy
+    40 articles — Trump Trade Wars & Tariffs
+    30 articles — China Economy & Geostrategy
+    19 articles — Demographics Fertility & Social Trends

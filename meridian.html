@@ -3325,7 +3325,10 @@ function renderThemeGrid() {
   if (!ktThemes) return;
 
   // Build combined theme list: AI themes sorted by article_count desc, then manual slots
-  const aiThemes = [...ktThemes].sort((a, b) => (b.article_count || 0) - (a.article_count || 0));
+  // Guard against any malformed theme rows (missing name/keywords from partial seeds)
+  const aiThemes = [...ktThemes]
+    .filter(t => t && t.name && t.keywords)
+    .sort((a, b) => (b.article_count || 0) - (a.article_count || 0));
 
   // Match articles for AI themes
   const aiArticles = aiThemes.map(theme =>

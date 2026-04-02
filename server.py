@@ -3031,7 +3031,10 @@ def kt_themes_route():
     """Return current themes from DB. Returns {seeded: false} if not yet seeded."""
     with sqlite3.connect(DB_PATH) as cx:
         cx.row_factory = sqlite3.Row
-        rows = cx.execute("SELECT * FROM kt_themes ORDER BY article_count DESC").fetchall()
+        # Only return themes from the latest seed (highest last_updated timestamp)
+        latest_ts = cx.execute("SELECT MAX(last_updated) FROM kt_themes").fetchone()
+        latest_ts = latest_ts[0] if latest_ts and latest_ts[0] else 0
+        rows = cx.execute("SELECT * FROM kt_themes WHERE last_updated=? ORDER BY article_count DESC", (latest_ts,)).fetchall()
         meta_rows = cx.execute("SELECT key, value FROM kt_meta").fetchall()
     if not rows:
         return jsonify({"seeded": False, "themes": []})
