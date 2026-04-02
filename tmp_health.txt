@@ -1,69 +1,57 @@
+╔══════════════════════════════════════════════════════════╗
+  MERIDIAN ARTICLE HEALTH CHECK
+╚══════════════════════════════════════════════════════════╝
 
-=======================================================
-  Financial Times
-=======================================================
-  Total:              173
-  Full  (>=8k chars): 13  (8%)
-  Med   (3-8k chars): 73  (42%)
-  Short (0.5-3k):     77  (45%)
-  Empty (<500 chars): 10  (6%)
-  Avg body:           3,837 chars
-  Avg summary:        291 chars
-  Body range:         0 – 17,070 chars
-  By status: {'full_text': 161, 'title_only': 3, 'fetched': 3, 'agent': 6}
+── BY SOURCE ─────────────────────────────────────────────
+Source                          Total  full_text  title_only  agent   Avg body  Empty  No summ
+------------------------------------------------------------------------------------------
+The Economist                     267        260           7      0      2,132      6        6
+Financial Times                   173        161           3      6      3,837     10       32
+Foreign Affairs                    57         57           0      0     11,469      0        2
+Bloomberg                          38         37           0      0      5,509      1        2
+Foreign Policy                      4          2           0      2      1,245      2        0
+CNN                                 3          1           0      2      2,666      2        1
+Council on Foreign Relations        2          1           0      1        935      1        0
+Atlantic Council                    2          1           0      1      4,000      1        1
+Washington Examiner                 1          0           0      1          0      1        0
+Tax Foundation                      1          0           0      1          0      1        0
+PBS NewsHour                        1          1           0      0      2,107      0        0
+NPR                                 1          1           0      0      2,557      0        0
+J.P. Morgan                         1          0           0      1          0      1        0
+CEBRI Journal                       1          0           0      1          0      1        0
+Al Jazeera Centre for Studies       1          1           0      0      1,903      0        0
+Al Jazeera                          1          1           0      0      2,954      0        0
+------------------------------------------------------------------------------------------
+TOTAL                             554                     10                       27       44
 
-  Shortest bodies:
-         0  [title_only]  Iran war should prompt a North Sea rethink
-         0  [title_only]  Russia sending drones to Iran, western intelligence says
-         0  [title_only]  Trump taps Silicon Valley billionaires for policy advice
-         0  [agent]  Trump says US could ‘take the oil in Iran’
-         0  [agent]  Distressed-debt funds target private credit downturn as ‘gre
-         0  [agent]  US-Israeli war against Iran escalates as talks prove fruitle
-         0  [agent]  Gulf states consider new pipelines to avoid Strait of Hormuz
-         0  [agent]  Trump learns that not everyone has a price
+── TITLE-ONLY ARTICLES (10) ─────────────────────────
+  [MY] [Financial Ti] Trump taps Silicon Valley billionaires for policy advice
+  [MY] [Financial Ti] Russia sending drones to Iran, western intelligence says
+  [MY] [Financial Ti] Iran war should prompt a North Sea rethink
+  [AI] [The Economis] “Liberation Day” has reshaped trade—but not as Donald Trump hoped
+  [MY] [The Economis] Golden Dome is one of the most ambitious military projects ever
+  [MY] [The Economis] How much wealth an AI stockmarket crash could destroy
+  [MY] [The Economis] What our analysis of 900 firms shows about their values
+  [MY] [The Economis] The gigantic task of catering on the world’s biggest cruise ship
+  [MY] [The Economis] China is winning the AI talent race
+  [MY] [The Economis] The nightmare scenario for global trade
 
-=======================================================
-  The Economist
-=======================================================
-  Total:              267
-  Full  (>=8k chars): 0  (0%)
-  Med   (3-8k chars): 9  (3%)
-  Short (0.5-3k):     252  (94%)
-  Empty (<500 chars): 6  (2%)
-  Avg body:           2,132 chars
-  Avg summary:        380 chars
-  Body range:         0 – 6,442 chars
-  By status: {'full_text': 260, 'title_only': 7}
-
-  Shortest bodies:
-         0  [title_only]  The nightmare scenario for global trade
-         0  [title_only]  China is winning the AI talent race
-         0  [title_only]  The gigantic task of catering on the world’s biggest cruise 
-         0  [title_only]  What our analysis of 900 firms shows about their values
-         0  [title_only]  Golden Dome is one of the most ambitious military projects e
-         0  [title_only]  How much wealth an AI stockmarket crash could destroy
-     1,186  [full_text]  The growing divide between America and Israel
-     1,356  [full_text]  What to watch this weekend
-
-=======================================================
-  Foreign Affairs
-=======================================================
-  Total:              57
-  Full  (>=8k chars): 56  (98%)
-  Med   (3-8k chars): 0  (0%)
-  Short (0.5-3k):     1  (2%)
-  Empty (<500 chars): 0  (0%)
-  Avg body:           11,469 chars
-  Avg summary:        466 chars
-  Body range:         1,421 – 12,000 chars
-  By status: {'full_text': 57}
-
-  Shortest bodies:
-     1,421  [full_text]  The Predatory Hegemon: How Trump Wields American Power
-     8,034  [full_text]  How Long Can the Iranian Regime Hold On?
-     8,256  [full_text]  How Congress Can Prevent a Quagmire in Iran
-     9,104  [full_text]  The Hormuz Minefield
-     9,964  [full_text]  How America’s War on Iran Backfired
-    10,037  [full_text]  The Dangers of a Weak Iran
-    10,587  [full_text]  What Is the Endgame in Iran?
-    10,637  [full_text]  The Age of Tariffs: Trump Is Launching a Turbulent New Era f
+── NON-TITLE-ONLY WITH EMPTY BODY (<200 chars) (18) ─
+  [agent] [Atlantic Cou] 0ch  Trump is fighting two wars with Iran. He needs to win both.
+  [fetched] [Bloomberg] 0ch  Norway’s $2 Trillion Wealth Fund Is Sounding a Warning on Iran
+  [agent] [CEBRI Journa] 0ch  From Geoeconomics to Trump's Geopolitics
+  [agent] [CNN] 0ch  Analysis: If Trump's diplomacy fails, the Iran war could get much
+  [agent] [CNN] 0ch  Analysis: Trump's new red line could set the Iran war on a fatefu
+  [agent] [Council on F] 0ch  Geopolitics of Trump Tariffs: How U.S. Trade Policy Has Shaken Al
+  [agent] [Financial Ti] 0ch  Trump says US could ‘take the oil in Iran’
+  [agent] [Financial Ti] 0ch  Distressed-debt funds target private credit downturn as ‘greatest
+  [agent] [Financial Ti] 0ch  US-Israeli war against Iran escalates as talks prove fruitless
+  [agent] [Financial Ti] 0ch  Gulf states consider new pipelines to avoid Strait of Hormuz
+  [agent] [Financial Ti] 0ch  Trump learns that not everyone has a price
+  [agent] [Financial Ti] 0ch  Saudi Arabia bridles at Trump’s way of waging war
+  [full_text] [Financial Ti] 124ch  Google DeepMind chief warns AI investment looks ‘bubble-like’ | F
+  [agent] [Foreign Poli] 0ch  Trump's War on Iran is Unravelling U.S. Strategy in the Gulf
+  [agent] [Foreign Poli] 0ch  Iran War: Will Trump Put Boots on the Ground?
+  [agent] [J.P. Morgan] 0ch  US Tariffs: What's the Impact?
+  [agent] [Tax Foundati] 0ch  Tracking the Impact of the Trump Tariffs & Trade War
+  [agent] [Washington E] 0ch  Trump tariffs and 'TACO': Why markets stopped reacting

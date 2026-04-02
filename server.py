@@ -243,7 +243,10 @@ Article text:
         text = data["content"][0]["text"]
         parsed = json.loads(text.replace("```json","").replace("```","").strip())
         art["summary"]  = parsed.get("summary", art.get("summary",""))
-        art["body"]     = parsed.get("fullSummary", art.get("body",""))
+        # Do NOT overwrite body with fullSummary — preserve raw scraped text as body
+        # fullSummary is stored only if body is currently empty
+        if not art.get("body") or len(art.get("body","")) < 200:
+            art["body"] = parsed.get("fullSummary", art.get("body",""))
         art["tags"]     = json.dumps(parsed.get("tags", []))
         art["topic"]    = parsed.get("topic", art.get("topic",""))
         # Only use Claude's pub_date if we don't already have one from URL extraction
