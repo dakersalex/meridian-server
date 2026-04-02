@@ -1,0 +1,117 @@
+=== FOLDER CSS ===
+.folder-tab {
+  height: 30px;
+  padding: 0 20px;
+  font-size: 12px;
+  font-weight: 500;
+  font-family: 'IBM Plex Sans', sans-serif;
+  border: 1.5px solid var(--ink);
+  border-bottom: none;
+  border-radius: 5px 5px 0 0;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  letter-spacing: 0.3px;
+  margin-bottom: -2.5px;
+  transition: filter 0.15s;
+}
+.folder-tab-newsfeed {
+  background: var(--accent);
+  color: var(--paper);
+  height: 34px;
+  z-index: 3;
+  position: relative;
+  border-bottom: 2.5px solid var(--accent);
+  box-shadow: -2px -3px 5px rgba(0,0,0,0.18), 2px -3px 5px rgba(0,0,0,0.10);
+}
+.folder-tab-themes {
+  background: var(--paper-3);
+  color: var(--ink-3);
+  height: 28px;
+  z-index: 1;
+  position: relative;
+  margin-left: 2px;
+  border-bottom: none;
+  box-shadow: 1px -2px 3px rgba(0,0,0,0.08);
+}
+.folder-tab-themes.active {
+  background: var(--accent);
+  color: var(--paper);
+  height: 34px;
+  z-index: 3;
+  border-bottom: 2.5px solid var(--accent);
+  box-shadow: -2px -3px 5px rgba(0,0,0,0.18), 2px -3px 5px rgba(0,0,0,0.10);
+}
+.folder-tab-newsfeed.inactive {
+  background: var(--paper-3);
+  color: var(--ink-3);
+  height: 28px;
+  z-index: 1;
+  border-bottom: none;
+  box-shadow: 1px -2px 3px rgba(0,0,0,0.08);
+}
+.folder-spacer { flex: 1; }
+
+/* ── Key Themes view ── */
+
+=== switchMode ===
+function switchMode(mode) {
+  ktCurrentMode = mode;
+  const newsfeedEl = document.getElementById('tab-newsfeed');
+  const themesEl   = document.getElementById('tab-themes');
+  const ktView     = document.getElementById('key-themes-view');
+  const mainNav    = document.getElementById('main-nav');
+  const tallyBar   = document.getElementById('tally-bar');
+  const actBar     = document.getElementById('activity-bar');
+  const feedHeader = document.getElementById('feed-header-outer');
+  const mainLayout = document.querySelector('.main-layout');
+  const mobileFilter = document.getElementById('mobile-filter-bar');
+
+  if (mode === 'themes') {
+    newsfeedEl.classList.add('inactive');
+    themesEl.classList.add('active');
+    ktView.classList.add('visible');
+    if (mainLayout) mainLayout.style.display = 'none';
+    if (feedHeader) feedHeader.style.display = 'none';
+    if (tallyBar)   tallyBar.style.display = 'none';
+    if (actBar)     actBar.style.display = 'none';
+    if (mobileFilter) mobileFilter.style.display = 'none';
+    mainNav.style.display = 'none';
+    renderKeyThemes();
+  } else {
+    newsfeedEl.classList.remove('inactive');
+    themesEl.classList.remove('active');
+    ktView.classList.remove('visible');
+    if (mainLayout) mainLayout.style.display = '';
+    if (feedHeader) feedHeader.style.display = '';
+    if (tallyBar)   tallyBar.style.display = '';
+    if (actBar)     actBar.style.display = '';
+    mainNav.style.display = '';
+  }
+}
+
+function renderKeyThemes() {
+  // Themes now come from DB via loadThemes() — no localStorage
+
+=== init area ===
+  ktActiveSubtopic = ktActiveSubtopic === st ? null : st;
+  renderThemeGrid();
+  setTimeout(() => {
+    const det = document.querySelector('.kt-subtopic-detail.visible');
+    if (det) det.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }, 50);
+}
+
+function openKtArticle(id) {
+  // Switch back to newsfeed mode, open the article
+  switchMode('newsfeed');
+  const art = articles.find(a => a.id === id);
+  if (art) openDetail(art);
+}
+
+function ktSortArticles(val) {
+  // re-render article grid with sort
+  const themeArts = getThemeArticles(ktSelectedIdx);
+  let sorted = [...themeArts];
+  if (val === 'date') sorted.sort((a,b) => {
+    const da = a.pub_date ? new Date(a.pub_date).getTime() : (a.saved_at || 0);

@@ -1,0 +1,69 @@
+function getThemeArticles(idxOrTheme) {
+  if (!ktThemes || idxOrTheme === null || idxOrTheme === undefined) return [];
+  // Accept either a numeric index or a theme object directly
+  const theme = (typeof idxOrTheme === 'object') ? idxOrTheme : ktThemes[idxOrTheme];
+  if (!theme || !theme.keywords) return [];
+  const kws = (theme.keywords || []).map(k => k.toLowerCase());
+
+  // Word-boundary regex for each keyword — prevents 'war' matching 'software'
+  // Multi-word keywords like 'Middle East' are matched as phrases
+  const kwRegs = kws.map(k => new RegExp('\\b' + k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'i'));
+
+  // keywords[0] is the anchor term — the most specific, defining keyword.
+  // An article must mention it as a whole word in title or summary to qualify.
+  const anchorReg = kwRegs[0];
+
+  const matchedArticles = articles.filter(a => {
+    const title   = (a.title   || '').toLowerCase();
+    const summary = (a.summary || '').toLowerCase();
+    const tags    = (a.tags    || []).map(t => t.toLowerCase()).join(' ');
+    const topic   = (a.topic   || '').toLowerCase();
+
+    // Hard gate: anchor keyword must appear in title or summary
+    if (!anchorReg.test(title) && !anchorReg.test(summary)) return false;
+
+    // Title-only articles have no summary or body — useless for brief context, exclude them
+    if (!a.summary) return false;
+
+    // For articles with summaries, require 2+ keyword hits in content
+    const contentHits = kwRegs.filter(r => r.test(title) || r.test(summary)).length;
+    if (contentHits >= 2) return true;
+
+    // Single hit (the anchor) + corroborating tag/topic match qualifies
+    // for well-tagged articles with brief summaries
+    return kwRegs.some(r => r.test(tags) || r.test(topic));
+  });
+
+  // Include matching interviews as pseudo-articles
+  const matchedInterviews = (interviews || []).filter(iv => {
+    const text = ((iv.title || '') + ' ' + (iv.summary || '') + ' ' + (iv.transcript || '')).toLowerCase();
+    return kws.some(k => text.includes(k));
+  }).map(iv => ({
+    id: 'iv_' + iv.id,
+    source: iv.source || 'Interview',
+    title: iv.title,
+    summary: iv.summary || '',
+    pub_date: iv.published_date || '',
+    saved_at: iv.added_date,
+    tags: [],
+    topic: 'Interview',
+    status: 'full_text',
+    url: iv.url || '',
+    _isInterview: true
+  }));
+
+  return [...matchedArticles, ...matchedInterviews];
+}
+
+async function generateThemes(forceReseed = false) {
+  await loadThemes(forceReseed);
+}
+
+async function loadThemes(forceReseed = false) {
+  if (forceReseed) {
+    const permNames = [...permanentThemes].filter(n =>
+      (typeof ktThemes !== 'undefined' && ktThemes && ktThemes.some(t => t.name === n)) ||
+      manualThemes.some(m => m && m.name === n)
+    );
+    const manNames = manualThemes.filter(Boolean).map(m => m.name);
+    let msg = 'Reset Themes will re-analyse your library and generate 8 new themes.\n\nThis takes ~2 minutes and costs ~$0.07.';
