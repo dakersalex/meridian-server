@@ -319,6 +319,7 @@ def fetch_fa_article_text(page, url):
         # FA uses article__body-content (confirmed via Playwright inspection April 2026)
         paragraphs = (
             soup.select("div.article__body-content p") or
+            soup.select("section.rich-text p") or
             soup.select("div.article__body p") or
             soup.select("div.article-body p") or
             soup.select("main p")
