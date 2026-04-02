@@ -1,0 +1,17 @@
+221:    prompt = f"""You are a research assistant. Analyse this article and respond ONLY with a JSON object (no markdown):
+1708:        "You are a research assistant finding articles for a senior analyst. "
+2519:def kt_generate():
+2546:                "You are an intelligence analyst. Analyse these article titles and identify exactly 10 "
+2549:                "keywords (array of 12-16 specific discriminating terms — use named entities, "
+2572:            log.info(f"kt_generate job {job_id}: done ({len(themes)} themes)")
+2574:            log.error(f"kt_generate job {job_id} error: {e}")
+2581:def kt_generate_status(job_id):
+2807:def kt_seed():
+2850:            # ── Call 1: Generate 10 themes using a representative sample ─────
+2855:            _kt_seed_jobs[job_id]["progress"] = f"Identifying themes from {len(sample_lines)} representative articles..."
+2856:            theme_prompt = (
+2857:                "You are an intelligence analyst. Analyse these article titles (a representative sample "
+2863:                "- keywords (array of 12-16 specific discriminating terms - named entities, proper nouns, "
+2874:                "messages": [{"role": "user", "content": theme_prompt}]
+2879:                "messages": [{"role": "user", "content": theme_prompt}]
+3012:def kt_seed_status(job_id):
