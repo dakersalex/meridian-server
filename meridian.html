@@ -3619,9 +3619,12 @@ function ktSortArticles(val) {
     </div>`).join('');
 }
 
-function getThemeArticles(idx) {
-  if (!ktThemes || idx === null) return [];
-  const kws = (ktThemes[idx].keywords || []).map(k => k.toLowerCase());
+function getThemeArticles(idxOrTheme) {
+  if (!ktThemes || idxOrTheme === null || idxOrTheme === undefined) return [];
+  // Accept either a numeric index or a theme object directly
+  const theme = (typeof idxOrTheme === 'object') ? idxOrTheme : ktThemes[idxOrTheme];
+  if (!theme || !theme.keywords) return [];
+  const kws = (theme.keywords || []).map(k => k.toLowerCase());
 
   // Word-boundary regex for each keyword — prevents 'war' matching 'software'
   // Multi-word keywords like 'Middle East' are matched as phrases
