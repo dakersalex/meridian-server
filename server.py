@@ -316,11 +316,11 @@ def fetch_fa_article_text(page, url):
         page.goto(url, wait_until="domcontentloaded", timeout=25000)
         page.wait_for_timeout(3000)
         soup = BeautifulSoup(page.content(), "html.parser")
-        # FA selectors — try multiple patterns
+        # FA uses article__body-content (confirmed via Playwright inspection April 2026)
         paragraphs = (
+            soup.select("div.article__body-content p") or
+            soup.select("div.article__body p") or
             soup.select("div.article-body p") or
-            soup.select("div[class*='body'] p") or
-            soup.select("div[class*='article'] p") or
             soup.select("main p")
         )
         text = " ".join(p.get_text(strip=True) for p in paragraphs if len(p.get_text(strip=True)) > 40)

@@ -30,37 +30,29 @@ sleep 90
 echo "$(date): Triggering enrichment" >> "$LOG"
 curl -s -X POST "$API/api/enrich-title-only" >> "$LOG" 2>&1
 
-# Push recently-synced articles from Mac DB to VPS
-echo "$(date): Pushing new articles to VPS" >> "$LOG"
+# Push all full_text articles from Mac DB to VPS
+# Pushes ALL full_text (no time window) so VPS stays in sync permanently.
+# The VPS push-articles endpoint skips existing records with richer content, so this is safe to run every sync.
+echo "$(date): Pushing articles to VPS" >> "$LOG"
 python3 - << 'PYEOF' >> "$LOG" 2>&1
 import sqlite3, json, urllib.request, time
 
 DB = "/Users/alexdakers/meridian-server/meridian.db"
 VPS = "https://meridianreader.com/api/push-articles"
 
-# Push recently-synced/enriched articles from Mac to VPS:
-# - Foreign Affairs: all
-# - FT/Economist auto_saved=1: agent picks
-# - FT/Economist auto_saved=0 full_text: your bookmarks that have been enriched
-cutoff = int((time.time() - 3*60*60) * 1000)
 conn = sqlite3.connect(DB)
 conn.row_factory = sqlite3.Row
 rows = conn.execute("""
     SELECT id, source, url, title, body, summary, topic, tags,
            saved_at, fetched_at, status, pub_date, auto_saved
     FROM articles
-    WHERE (
-        (saved_at >= ? AND source = 'Foreign Affairs')
-        OR (saved_at >= ? AND source IN ('Financial Times','The Economist') AND auto_saved = 1)
-        OR (source IN ('Financial Times','The Economist') AND auto_saved = 0 AND status = 'full_text'
-            AND fetched_at >= ?)
-    )
+    WHERE status = 'full_text'
     ORDER BY saved_at DESC
-""", (cutoff, cutoff, cutoff)).fetchall()
+""").fetchall()
 conn.close()
 
 if not rows:
-    print(f"push: no recent articles to push")
+    print("push: no full_text articles to push")
 else:
     arts = []
     for r in rows:
@@ -68,15 +60,25 @@ else:
         try: a['tags'] = json.loads(a.get('tags') or '[]')
         except: a['tags'] = []
         arts.append(a)
-    payload = json.dumps({'articles': arts}).encode()
-    req = urllib.request.Request(VPS, data=payload,
-        headers={'Content-Type': 'application/json'}, method='POST')
-    try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            result = json.loads(resp.read())
-            print(f"push: {result.get('upserted',0)} upserted, {result.get('skipped',0)} skipped of {len(arts)}")
-    except Exception as e:
-        print(f"push error: {e}")
+
+    total_upserted = 0
+    total_skipped = 0
+    batch_size = 50
+    for i in range(0, len(arts), batch_size):
+        batch = arts[i:i+batch_size]
+        payload = json.dumps({'articles': batch}).encode()
+        req = urllib.request.Request(VPS, data=payload,
+            headers={'Content-Type': 'application/json'}, method='POST')
+        try:
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                result = json.loads(resp.read())
+                total_upserted += result.get('upserted', 0)
+                total_skipped += result.get('skipped', 0)
+        except Exception as e:
+            print(f"push batch error: {e}")
+        time.sleep(0.3)
+
+    print(f"push: {total_upserted} upserted, {total_skipped} skipped of {len(arts)} full_text articles")
 PYEOF
 
 

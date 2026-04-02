@@ -1,19 +1,26 @@
-Deleting 8 stale themes:
-  - Iran-Gulf War and Hormuz (ts=1775117915929)
-  - Energy Shock and Oil Markets (ts=1775117915929)
-  - Trump Trade War and Tariffs (ts=1775117915929)
-  - Global AI and Tech Race (ts=1775117915929)
-  - European Security and Rearmament (ts=1775117915929)
-  - Financial Markets and Macro Instability (ts=1775117915929)
-  - China's Strategic Positioning (ts=1775117915929)
-  - Demographics, Labour and Social Trends (ts=1775117915929)
-
-Remaining 8 themes:
-   133 articles — Global Markets Financial Instability
-   126 articles — Iran Gulf War & Hormuz
-    57 articles — AI Race US China Tech
-    55 articles — Iran War Energy Shock
-    46 articles — Europe Security & Strategic Autonomy
-    40 articles — Trump Trade Wars & Tariffs
-    30 articles — China Economy & Geostrategy
-    19 articles — Demographics Fertility & Social Trends
+{
+  "test_articles": [
+    {
+      "title": "The New Khamenei",
+      "url": "https://www.foreignaffairs.com/iran/new-khamenei",
+      "stored_body_len": 11526,
+      "fetched_body_len": 11749,
+      "has_logout": false,
+      "has_my_account": false,
+      "has_paywall": true,
+      "page_title": "The New Khamenei | Foreign Affairs",
+      "body_preview": "AKBAR GANJIis an Iranian journalist. A former member of the Islamic Revolutionary Guard Corps from 1980 until his resignation in 1985, he became a political dissident and was held in Tehran\u2019s Evin pri"
+    },
+    {
+      "title": "How Long Can the Iranian Regime Hold On?",
+      "url": "ffairs.com/middle-east/how-long-can-iranian-regime-hold-iran",
+      "stored_body_len": 8034,
+      "fetched_body_len": 8034,
+      "has_logout": false,
+      "has_my_account": false,
+      "has_paywall": true,
+      "page_title": "How Long Can the Iranian Regime Hold On? | Foreign Affairs",
+      "body_preview": "SUZANNE MALONEYis Vice President of the Brookings Institution and Director of its Foreign Policy program. She served as an external adviser to the U.S. State Department\u2019s Undersecretary for Political "
+    }
+  ]
+}
