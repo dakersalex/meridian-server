@@ -4161,35 +4161,30 @@ async function bgGenerate() {
     const contextArts = filteredArts.slice(0, maxArts);
     const context = contextArts.map(a =>
       `[${a.source}${a.pub_date ? ', ' + a.pub_date : ''}] ${a.title}: ${(a.summary||'').slice(0,300)}`
-    ).join('
-');
+    ).join('\n');
 
     const periodLabel = bgPeriodDays === 0 ? 'all available coverage'
       : bgPeriodDays === 1 ? 'last 24 hours'
       : bgPeriodDays === 7 ? 'last 7 days' : 'last 30 days';
 
-    let userMsg = `Articles (${contextArts.length}, ${periodLabel}):
-${context}`;
-    if (focusedTopic) userMsg += `
-
-Focus: ${focusedTopic}`;
-    if (guidance) userMsg += `
-
-Guidance: ${guidance}`;
+    let userMsg = `Articles (${contextArts.length}, ${periodLabel}):\n${context}`;
+    if (focusedTopic) userMsg += `\n\nFocus: ${focusedTopic}`;
+    if (guidance) userMsg += `\n\nGuidance: ${guidance}`;
 
     const maxTokens = bgBriefType === 'short' ? 1500 : 4000;
-    const system = `You are an intelligence analyst producing a ${bgBriefType === 'short' ? 'concise' : 'comprehensive'} strategic intelligence brief.
-Structure your response with these sections:
-## Executive Summary
-(2-3 sentences — the single most important insight)
-## Key Developments
-(4-6 themes as ### subheadings, each with 3-4 bullet points citing [Source, Date])
-## Strategic Implications
-(3 bullet points on what this means going forward)
-${bgBriefType === 'full' ? '## Watch List
-(2-3 items to monitor in coming days)
-' : ''}
-Always cite sources. Prioritise recent articles. ${guidance ? 'Incorporate this guidance: ' + guidance : ''}`;
+    const sectionBreak = '\n';
+    const system = [
+      `You are an intelligence analyst producing a ${bgBriefType === 'short' ? 'concise' : 'comprehensive'} strategic intelligence brief.`,
+      'Structure your response with these sections:',
+      '## Executive Summary',
+      '(2-3 sentences — the single most important insight)',
+      '## Key Developments',
+      '(4-6 themes as ### subheadings, each with 3-4 bullet points citing [Source, Date])',
+      '## Strategic Implications',
+      '(3 bullet points on what this means going forward)',
+      bgBriefType === 'full' ? '## Watch List\n(2-3 items to monitor in coming days)' : '',
+      `Always cite sources. Prioritise recent articles. ${guidance ? 'Incorporate this guidance: ' + guidance : ''}`
+    ].filter(Boolean).join('\n');
 
     const resp = await fetch(SERVER + '/api/claude', {
       method: 'POST',
@@ -4217,9 +4212,7 @@ Always cite sources. Prioritise recent articles. ${guidance ? 'Incorporate this 
       .replace(/^[-•] (.+)$/gm, '<li>$1</li>')
       .replace(/(<li>[\s\S]*?<\/li>)/g, '<ul>$1</ul>')
       .replace(/<\/ul>\s*<ul>/g, '')
-      .replace(/
-
-/g, '</p><p>')
+      .replace(/\n\n/g, '</p><p>')
       .replace(/^(?!<[hul])/gm, '');
 
     html = html.replace(
