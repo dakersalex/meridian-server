@@ -1,0 +1,48 @@
+{
+  "article": [
+    {
+      "id": "519878db0f687f05",
+      "title": "What the Iran War Means for China",
+      "source": "Foreign Affairs",
+      "status": "full_text",
+      "pub_date": "2026-03-30",
+      "body_len": 12000,
+      "summary_len": 533,
+      "body_preview": "Beijing Fears American Volatility More Than American Power Chinese President Xi Jinping is getting the United States he always wanted. Since U.S. President Donald Trump\u2019s return to the White House in 2025, Washington has grown less confident in its global purpose, less committed to the rules-based order it once upheld, and more willing to wield power in ways that unsettle markets, institutions, and allies. Washington\u2019s global authority and credibility are wearing away. In one sense, this is good",
+      "summary_preview": "China fears that a weakened and unpredictable United States under Trump poses greater risks than American strength, as Washington's volatility and military interventionism threaten the stable global order on which China depends for trade, investment, and economic growth. Rather than viewing U.S. dec"
+    },
+    {
+      "id": "3296f5dc9b0548fe",
+      "title": "Trump Delay of Xi Talks Buys China Time to Game Out Iran War",
+      "source": "Bloomberg",
+      "status": "full_text",
+      "pub_date": "2026-03-17",
+      "body_len": 6019,
+      "summary_len": 294,
+      "body_preview": "President Donald Trump\u2019s request for a delay to his summit with Chinese leader Xi Jinping is a likely welcome development for Beijing, even as it threatens to inject new uncertainty into ties between the world\u2019s two largest economies.\n\nAs the war against Iran rages into its third week, Trump said Monday it was important for him to remain in Washington to oversee the military operations and that he\u2019s seeking to put off the high-profile meeting \u2014 currently scheduled for later in March \u2014 for about ",
+      "summary_preview": "Trump's delay of his summit with Xi Jinping to focus on the Iran war provides China with time to reassess the conflict's implications and prepare for negotiations, while the postponement underscores the fragility of recent US-China stabilization efforts amid broader geopolitical uncertainties."
+    },
+    {
+      "id": "75230002a78c597c",
+      "title": "Trump Says He Asked China to Delay Xi Summit Due to Iran War",
+      "source": "Bloomberg",
+      "status": "full_text",
+      "pub_date": "2026-03-16",
+      "body_len": 2924,
+      "summary_len": 416,
+      "body_preview": "President Donald Trump requested a delay to his summit with Chinese leader Xi Jinping for about a month, saying it was important for him to remain in Washington to oversee the Iran war.\n\n\u201cWe\u2019re working on that right now. We\u2019re speaking to China. I\u2019d love to, but because of the war, I want to be here,\u201d Trump said Monday during a White House event when asked about potentially rescheduling the high-profile summit. The meeting between the leaders of the world\u2019s two largest economies is currently set",
+      "summary_preview": "President Trump has requested a one-month delay to his planned summit with Chinese leader Xi Jinping, citing the need to remain in Washington to oversee the Iran war and the resulting energy crisis. While Treasury Secretary Bessent attributed the delay to logistics and the war effort's demands on Tr"
+    }
+  ],
+  "fa_stats": [
+    {
+      "status": "full_text",
+      "count": 55,
+      "avg_body": 6278.672727272728,
+      "avg_summary": 407.3636363636364,
+      "full_text_count": 24,
+      "medium_count": 31,
+      "short_count": 0
+    }
+  ]
+}
