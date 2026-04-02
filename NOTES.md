@@ -1,5 +1,5 @@
 # Meridian — Technical Notes
-Last updated: 1 April 2026 (Session 34 — article filtering, brief quality, chart backfill)
+Last updated: 2 April 2026 (Session 35 — permanent/manual themes, key_facts fix, theme consolidation)
 
 ## Overview
 Personal news aggregator. Flask API + SQLite backend running on Hetzner VPS (always-on).
@@ -66,139 +66,28 @@ One command from Mac Terminal:
 
 (deploy.sh: git add -A, commit, push, SSH pull on VPS, systemctl restart meridian)
 
-## Database (1 April 2026)
-Total: ~523 articles (Mac), ~520 articles (VPS)
-- Financial Times: 153 / The Economist: 257 / Foreign Affairs: 46 / Bloomberg: 38 / Other: ~26
-
----
-
-## Key Themes (KT) System
-
-### Current state (after Session 34 re-seed)
-- 10 themes, 521 tagged articles on VPS
-- Themes re-seeded with improved keyword prompt (specific discriminating terms)
-- key_facts: STILL BLANK — see "Pending: one more Reset Themes" below
-
-### Theme names (latest seed)
-1. Global Financial Markets Volatility
-2. US-Iran Military Conflict
-3. US Domestic Power and Governance
-4. European Security and Politics
-5. AI Development and Disruption
-6. Gulf Energy Markets Shock
-7. China Strategy and Technology
-8. Middle East Regional Dynamics
-9. Trump Trade War and Tariffs
-10. Ukraine and New Warfare
-
-### kt/seed pipeline (3-call architecture)
-- **Call 1** — Sonnet, 165 representative article titles → 10 themes (name, emoji, keywords,
-  overview, subtopics). max_tokens=3000, timeout=60s.
-- **Call 2** — Haiku, all articles in batches of 50 → article→theme assignments.
-- **Call 3** — Haiku, one theme at a time → key_facts (10 facts) + subtopic_details.
-  timeout=30s per theme, non-fatal if individual theme fails.
-
-### PENDING: one more Reset Themes needed
-Key Facts are still blank because the last re-seed ran against the old server code
-(before the Haiku per-theme fix was deployed). The fix is live now. Trigger
-Reset Themes one more time from the live site to populate key_facts.
-
-### getThemeArticles() matching logic (meridian.html)
-Three-layer filter, all word-boundary regex (\b):
-1. **Anchor gate** (hard block): `keywords[0]` must appear in title or summary.
-   Articles with no summary → excluded entirely (nothing to contribute to brief).
-2. **2-hit requirement**: ≥2 keywords must appear in title+summary combined.
-3. **Single-hit fallback**: anchor matches + corroborating tag/topic qualifies
-   (for well-tagged articles with brief summaries).
-
-Anchor keywords per theme (keywords[0]):
-- Iran War → "Iran" | Financial Markets → "markets" | Trump FP → "Trump"
-- AI → "AI" | Energy → "oil" | China → "China" | Europe → "Europe"
-- Trade War → "tariffs" | Private Credit → "private credit" | Crypto → "crypto"
-
-### Seeding prompt (server.py kt_generate + kt/seed Call 1)
-Explicitly requests specific discriminating terms: named entities, proper nouns,
-places, organisations. Bans generic terms like "war", "military", "economy",
-"geopolitics". Example given for Iran theme: Iran, IRGC, Hormuz, Revolutionary Guard,
-Khamenei, Strait, Tehran, Houthi, sanctions, ceasefire, airstrike, Persian Gulf.
-
----
-
-## Intelligence Brief Pipeline (✅ WORKING)
-
-### Overview
-- brief_pdf.py — standalone module, ReportLab + Pillow, generates A4 PDF
-- Single Sonnet call: text generated once, used for both modal display and PDF build
-- Full brief includes Economist charts (subtopic sections only); short brief is text only
-
-### User flow
-1. Click "Short Brief" or "Full Intelligence Brief" on any theme
-2. Modal opens with progress spinner — rotating step labels + elapsed seconds
-3. ~60-90s later text brief renders in modal (Executive Summary in amber panel)
-4. "⇓ Open as PDF" button top-right opens PDF in new tab
-5. PDF built from same text (no second Sonnet call), charts embedded, text justified
-
-### Article context (_build_article_context in brief_pdf.py)
-- Temporal bucketing: 4 equal time buckets × 15 articles = up to 60 (full brief)
-- Within each bucket: full_text articles first, then by summary length
-- Per-source cap: 5 per bucket for source diversity
-- Date parsing: handles ISO YYYY-MM-DD, "26 March 2026", "March 2026" etc.
-- Falls back to saved_at ms ÷ 86400000 if no pub_date
-
-### Context-debug endpoint
-- POST /api/kt/brief/context-debug — shows full bucket breakdown with dates, scores, sources
-- Useful for verifying article selection quality before generating briefs
-
----
-
-## Chart Image Processing (_crop_economist_chart in brief_pdf.py)
-
-### Top crop, bottom crop, whitening — see Session 31 notes (unchanged)
-
-### Chart selection rules
-- No charts in: Executive Summary, Overview, Cross-cutting Themes, Strategic Implications,
-  Watch List, Key Developments, Source Notes
-- Cross-brief similarity dedup: >50% description token overlap → rejected
-- Solo charts (only 1 qualifies for a section) → 0 charts shown (never unpaired)
-- Budget: up to 2 per section, global cap 14 charts per brief
-
-### Why some briefs have fewer charts than others
-- Charts are pulled only from articles matched to the theme. Focused themes with tight
-  keyword matching (e.g. US-Iran Military Conflict) pull mostly FT/Foreign Affairs
-  analysis pieces which are text-heavy and chart-sparse.
-- Broader themes (e.g. Gulf Energy Markets Shock) pull more Economist data articles
-  which are chart-rich. The second PDF in Session 34 had 14 charts because it used
-  the old broader keyword set; the first had 2 because it used the tighter new set.
-- Fix: ensure energy/market keywords (oil, LNG, Hormuz) appear in Iran War theme so
-  relevant charted Economist articles are pulled in alongside the geopolitical analysis.
-
----
-
-## Flask Routes — Brief Pipeline
-- POST /api/kt/brief             — text brief (async), returns {ok, job_id}
-- GET  /api/kt/brief/status/<id> — poll {status, brief, error}
-- POST /api/kt/brief/pdf         — PDF job (async), accepts optional {text} pregenerated_text
-- GET  /api/kt/brief/pdf/status/<id>   — poll {status, ready, size, error}
-- GET  /api/kt/brief/pdf/download/<id> — serve completed PDF
-- POST /api/kt/brief/context-debug     — article bucket debug (dev tool)
-- POST /api/kt/seed              — full reseed (wipes + rebuilds)
-- GET  /api/kt/seed/status/<id>  — poll seed job
-
----
-
-## Economist Chart & Map Capture (Session 26 ✅)
-
-### DB state (1 April 2026)
-- Mac: 156 images, 86 articles with images (backfill running — 168 articles queued)
-- VPS: 156 images, mac_id dedup prevents duplicates
-
-### Image sync to VPS
-- POST /api/push-images — receives images from Mac, upserts on mac_id
-- wake_and_sync.sh pushes images on every sync
+## Database (2 April 2026)
+Total: ~531 articles (VPS)
+- Financial Times: ~155 / The Economist: ~260 / Foreign Affairs: ~52 / Bloomberg: ~38 / Other: ~26
 
 ---
 
 ## Autonomous Mode (Claude in Chrome + shell endpoint)
+
+### CRITICAL: Claude must ALWAYS run commands autonomously
+Claude has full access to run all terminal commands, patches, and deployments via:
+- **Filesystem MCP** — write patch scripts to ~/meridian-server/
+- **Shell bridge** — execute via window.shell() in Tab A (localhost)
+- **deploy.sh** — commit, push and deploy to VPS in one command
+
+**Claude must NEVER ask Alex to run commands in Terminal.** This includes:
+- Running patch scripts (always: filesystem:write_file → window.shell('python3 ~/meridian-server/tmp_*.py'))
+- Syntax checks (always: window.shell('python3 -m py_compile ~/meridian-server/server.py'))
+- Deploying (always: window.shell('cd ~/meridian-server && ./deploy.sh "message"'))
+- SSH commands to VPS (always: write script → window.shell with subprocess/ssh)
+- Checking logs (always: fetch via shell bridge, write to tmp file, read via Filesystem MCP)
+
+Alex is not present during execution. Complete all tasks end-to-end autonomously.
 
 ### Shell bridge
 ```js
@@ -221,11 +110,97 @@ window.shell = (cmd) => fetch('http://localhost:4242/api/dev/shell', {
 - Write patch scripts via filesystem:write_file → execute via window.shell()
 - VPS Python: write script → deploy.sh (never inline -c strings with nested quotes)
 - Shell endpoint filters keywords: base64-encode output or write to /tmp/ if needed
-- Line-number based patches are DANGEROUS — they insert without removing old block.
-  Always use string replacement (src.replace(OLD, NEW)) with exact text matching.
+- Line-number based patches are DANGEROUS — always use str.replace(OLD, NEW) with exact text
+- Always python3 -m py_compile server.py before deploying
+- After deploying, verify via live site tab (Tab B)
 
 ### Dangerous operations checklist
 Before any DELETE/UPDATE: SELECT preview first, state what will be affected, then execute.
+
+---
+
+## Key Themes (KT) System
+
+### Current state (after Session 35)
+- **8 themes** (changed from 10) — sorted by article count descending
+- Seed prompt enforces consolidation: no geographic theatre splits, no tech race splits
+- key_facts: populated via Haiku Call 3 (max_tokens fixed to 2500, timeout 45s)
+- 531 articles tagged on VPS
+
+### Theme grid design (Session 35)
+- **8 AI-generated themes** sorted by matched article count (most articles top-left)
+- **2 manual slots** (silver dashed border) — always shown at end of grid
+  - Click to open modal: name + keywords + emoji
+  - Stored in localStorage as `meridian_manual_themes`
+  - Auto-marked permanent on creation
+- **★ Permanent themes** (gold border + "PERMANENT" badge)
+  - Click ☆ star button on any AI theme card to make it permanent
+  - Stored in localStorage as `meridian_permanent_themes`
+  - Survive Reset Themes — listed in confirm dialog before reset
+  - Deselect ★ before reset to allow that theme to be freely regenerated
+- **Reset Themes confirm dialog** lists all permanent themes by name
+
+### kt/seed pipeline (3-call architecture)
+- **Call 1** — Sonnet: 165 representative titles → 8 themes (name, emoji, keywords, overview, subtopics)
+  max_tokens=3000, timeout=60s
+- **Call 2** — Haiku: all articles in batches of 50 → article→theme assignments
+- **Call 3** — Haiku: one theme at a time → key_facts + subtopic_details
+  max_tokens=2500, timeout=45s, non-fatal if individual theme fails
+
+### Seeding prompt rules (Call 1)
+- Requests exactly 8 themes
+- Consolidation rules: never split same geographic theatre, never split same tech race
+- Bans generic keywords: war, military, conflict, economy, geopolitics, policy, crisis, markets
+
+### getThemeArticles() matching logic (meridian.html)
+Three-layer filter, all word-boundary regex (\b):
+1. Anchor gate: keywords[0] must appear in title or summary
+2. 2-hit requirement: ≥2 keywords in title+summary combined
+3. Single-hit fallback: anchor + corroborating tag/topic
+
+---
+
+## Intelligence Brief Pipeline (✅ WORKING)
+
+### Overview
+- brief_pdf.py — standalone module, ReportLab + Pillow, generates A4 PDF
+- Single Sonnet call: text generated once, used for both modal display and PDF build
+- Full brief includes Economist charts; short brief is text only
+
+### Article context (_build_article_context in brief_pdf.py)
+- Temporal bucketing: 4 equal time buckets × 15 articles = up to 60 (full brief)
+- Within each bucket: full_text articles first, then by summary length
+- Per-source cap: 5 per bucket for source diversity
+
+### Chart selection rules
+- No charts in: Executive Summary, Overview, Cross-cutting Themes, Strategic Implications,
+  Watch List, Key Developments, Source Notes
+- Cross-brief similarity dedup: >50% description token overlap → rejected
+- Solo charts (only 1 qualifies) → 0 shown (never unpaired)
+- Budget: up to 2 per section, global cap 14 charts per brief
+
+---
+
+## Flask Routes — Brief Pipeline
+- POST /api/kt/brief             — text brief (async), returns {ok, job_id}
+- GET  /api/kt/brief/status/<id> — poll {status, brief, error}
+- POST /api/kt/brief/pdf         — PDF job, accepts optional {text} pregenerated_text
+- GET  /api/kt/brief/pdf/status/<id>   — poll
+- GET  /api/kt/brief/pdf/download/<id> — serve PDF
+- POST /api/kt/brief/context-debug     — article bucket debug
+- POST /api/kt/seed              — full reseed
+- GET  /api/kt/seed/status/<id>  — poll seed job
+
+---
+
+## Economist Chart & Map Capture (Session 26 ✅)
+
+### DB state (2 April 2026)
+- Mac: 156 images, 86 articles with images
+- VPS: synced via push-images on each wake_and_sync.sh run
+
+### Image sync to VPS
+- POST /api/push-images — receives images from Mac, upserts on mac_id
 
 ---
 
@@ -240,101 +215,64 @@ Before any DELETE/UPDATE: SELECT preview first, state what will be affected, the
 ---
 
 ## Next Steps (priority order)
-1. **Reset Themes one more time** — key_facts are blank, Haiku-per-theme fix is now
-   deployed. Trigger from live site: Key Themes → Reset Themes.
-2. **Key Facts section blank in theme panel** — after Reset Themes above this should
-   populate. If still blank after re-seed, debug Call 3 in kt/seed by checking VPS
-   log for "key_facts enrichment done" and inspecting DB directly.
-3. **Add energy/market keywords to Iran War theme** — "US-Iran Military Conflict" brief
-   has very few charts because tight keyword matching excludes energy/market Economist
-   articles (oil prices, LNG, Hormuz chokepoint) which go to "Gulf Energy Markets Shock"
-   instead. Fix: add "oil", "LNG", "Hormuz", "energy" to Iran War theme keywords so
-   charted energy articles are pulled into that brief too.
-4. **Sort theme articles by relevance, not date** — articles list in Key Themes detail
-   panel currently shows most recent first. Better UX: sort by a relevance score
-   (keyword hit count, summary length, full_text status) so the most substantive
-   articles surface first regardless of date.
-5. **Sub-topics review** — sub-topics currently appear as filter chips in the theme
-   panel but clicking them does nothing (no filtering implemented). Decide: either
-   implement sub-topic filtering of the article list, or remove the chips and use
-   sub-topics only as brief section headings (their current primary purpose in the
-   PDF). If keeping, sub-topic details (bullet points from kt/seed Call 3) could
-   expand on click.
-6. **Focused Intelligence Briefing from manual text input** — new feature: allow user
-   to paste or type their own topic/question as free text, with AI suggestions for
-   relevant articles from the library. Would generate a targeted brief not tied to
-   the 10 seeded themes. Design questions: where does it live in the UI (new tab or
-   within Key Themes)? Does it use the same brief pipeline or a simpler one-shot call?
-7. **Clean up tmp_ files** — many tmp_*.py, tmp_*.png accumulated across sessions.
-   Run: git rm tmp_*.py tmp_*.png *.png crop_*.png orig_*.png && git commit -m 'chore: remove tmp files'
-8. **Foreign Affairs paywall** — FA articles still truncating at ~1,400 chars.
+1. **Trigger Reset Themes** on live site — current themes have key_facts=0 (fixed in this session,
+   needs one more reset with new max_tokens=2500 to populate)
+2. **AI theme split persists** — "US-China Tech and Trade War" + "Western AI Industry and Investment"
+   still appearing as two themes despite consolidation rule. May need to name them explicitly
+   in the prompt as a must-merge example.
+3. **Sort theme articles by relevance** — article list in theme detail panel shows most recent first;
+   better UX: sort by keyword hit count + summary length so most substantive articles surface first.
+4. **Sub-topics filtering** — chips in theme panel do nothing; decide: implement filtering or remove
+   and use subtopics only as brief section headings.
+5. **Focused Intelligence Briefing** — free-text input for ad-hoc topic briefs not tied to 8 themes.
+6. **Clean up tmp_ files** — many tmp_*.py, tmp_*.txt accumulated across sessions.
+   Run via shell bridge: cd ~/meridian-server && git rm --ignore-unmatch tmp_*.py tmp_*.txt tmp_*.png && git commit -m "chore: remove tmp files"
+7. **Foreign Affairs paywall** — FA articles still truncating at ~1,400 chars.
    Investigate fa_profile/ cookie freshness, try re-login via Playwright.
 
 ---
 
 ## Build History
 
-### 1 April 2026 (Session 34 — article filtering & brief quality)
+### 2 April 2026 (Session 35 — theme consolidation, permanent/manual themes)
 
-**getThemeArticles() — tighter keyword matching**
-- Word-boundary regex (\bkeyword\b) prevents "war" matching "software"
-- Anchor gate: keywords[0] must appear in title or summary (hard block)
-- 2-hit requirement: ≥2 keywords in title+summary for articles with summaries
-- Title-only articles (no summary) excluded entirely — no content for brief context
-- Single-hit + tag fallback for well-tagged articles with brief summaries
+**Theme count: 10 → 8**
+- Seed prompt updated to request exactly 8 themes
+- Consolidation rules added: no geographic theatre splits, no tech race splits
+- Consumer/luxury only gets theme if article volume justifies it
+- Tighter ban on generic keywords
 
-**Seeding prompt improvements**
-- Now requests 12-16 specific discriminating keywords (named entities, proper nouns)
-- Explicitly bans generic terms like "war", "military", "economy", "geopolitics"
-- Re-seeded: 10 new themes with specific anchors (Iran, Trump, China, AI, oil, etc.)
+**key_facts fix**
+- Root cause: max_tokens=1500 was truncating Haiku JSON mid-response
+- Fix: max_tokens 1500 → 2500, timeout 30 → 45s for Call 3
+- Hardcoded "/10" references fixed to use len(themes) dynamically
+- Duplicate call_anthropic bug (resp1 called twice) also fixed
 
-**kt/seed 3-call architecture (timeout fix)**
-- Call 1 reverted to themes-only (fast, 60s): name/emoji/keywords/overview/subtopics
-- Call 2: Haiku batches article→theme assignment (unchanged)
-- Call 3: Haiku per-theme key_facts generation (new) — one theme at a time, 30s each
-  Fixes the "read operation timed out" error from trying to do all 10 in one Sonnet call
-
-**key_facts pipeline**
-- Root cause: kt/seed was a 2-call system; key_facts were supposed to be generated
-  "later" but that second pass was never implemented, leaving key_facts = []
-- Fix: Call 3 generates key_facts + subtopic_details per theme using Haiku
-- key_facts still blank after latest seed because it ran before the fix deployed.
-  Pending one more Reset Themes.
-
-**Chart investigation**
-- Backfill triggered for 168 Economist articles missing charts; most are text-only
-  opinion/analysis pieces with no figures — expected to yield few new charts
-- Root cause of chart-sparse briefs: tight theme keywords exclude energy/market
-  articles (which have the most charts) from the Iran War theme
-
-**VPS outage (server offline)**
-- Caused by a line-number patch that inserted new theme_prompt block without removing
-  old fragment → duplicate unclosed paren → SyntaxError on startup
-- Fixed by tmp_fix_dupe.py which detected both occurrences and removed the corrupt first one
-- Learning: NEVER use line-number insertion patches. Always use str.replace(OLD, NEW).
+**Permanent + Manual theme grid**
+- Themes sorted by matched article count descending (most articles top-left)
+- ★ star button on each AI theme card — click to mark permanent (gold border)
+- Permanent themes stored in localStorage as `meridian_permanent_themes`
+- 2 manual slots always visible at end of grid (silver dashed border)
+- Manual theme modal: name + keywords + emoji
+- Manual themes stored in localStorage as `meridian_manual_themes`
+- Reset Themes confirm dialog lists permanent themes by name
+- Previous "pinned topics" row replaced by this card-level system
 
 **Commits this session**
-- 7692abd  fix: tighter keyword matching in getThemeArticles
-- eddd4cd7 fix: specific discriminating keywords in seed prompt, 2+ content hits
-- cc5a16e2 feat: anchor keyword gate — keywords[0] must appear in title/summary
-- 302296bb fix: exclude title-only articles from getThemeArticles
-- 76ad609  fix: kt/seed includes key_facts + subtopic_details (caused timeout)
-- [fix]    fix: remove duplicate theme_prompt fragment causing SyntaxError on VPS
-- [fix]    fix: split kt/seed Call 3 — Haiku per theme, 30s timeout, non-fatal
-- [fix]    fix: key_facts via Haiku one theme at a time — no timeout
+- 14383d41  feat: seed 8 consolidated themes with anti-overlap rules; fix duplicate resp1
+- ad080d49  feat: pinned topics row on Key Themes; fix key_facts max_tokens 1500->2500
+- [current] feat: permanent/manual theme grid, sorted by article count, gold/silver cards
 
-### 1 April 2026 (Session 33 — temporal bucketing & seed quality)
-- _build_article_context: 4 time buckets × 15 articles, full_text first, source cap
-- Date parsing cascade: ISO, "26 March 2026", "March 2026", etc.
-- Context-debug endpoint added
-- Seed prompt updated to request specific discriminating keywords
+### 1 April 2026 (Session 34 — article filtering & brief quality)
+- getThemeArticles() tighter keyword matching (word-boundary regex, anchor gate, 2-hit requirement)
+- kt/seed 3-call architecture with Haiku per-theme key_facts
+- Seeding prompt requests specific discriminating keywords, bans generic terms
+- VPS SyntaxError recovery (duplicate theme_prompt fragment)
 
 ### 1 April 2026 (Sessions 29-31 — brief PDF pipeline)
 - Single Sonnet call architecture, unified prompt, richer article context
 - Chart image processing: top/bottom crop, whitening, figure captions
 - PDF layout: maps full-width, charts paired half-width
-- pdfJobId null race condition fixed (window._pdfJobId)
-- sw.js fixed, cache v5, nginx no-cache headers
 
 ### Earlier sessions (26-28)
 - Economist chart capture, insight enrichment, article_images sync Mac→VPS
@@ -351,4 +289,4 @@ Before any DELETE/UPDATE: SELECT preview first, state what will be affected, the
 You are helping me build Meridian, my personal news aggregator. Please read my technical notes from the Filesystem MCP at /Users/alexdakers/meridian-server/NOTES.md and review them. Then run the session start health check.
 ---
 
-Note for Claude: Read NOTES.md via Filesystem MCP (NOT GitHub URL — blocked). Check Flask via shell endpoint before proceeding. Never restart Flask via the shell endpoint.
+Note for Claude: Read NOTES.md via Filesystem MCP (NOT GitHub URL — blocked). Run all commands autonomously via shell bridge — NEVER ask Alex to run Terminal commands. Check Flask via shell endpoint before proceeding. Never restart Flask via the shell endpoint.
