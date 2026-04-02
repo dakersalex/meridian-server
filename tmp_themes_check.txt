@@ -1,268 +1,32 @@
-COLS: ['name', 'emoji', 'keywords', 'overview', 'key_facts', 'subtopics', 'subtopic_details', 'article_count', 'last_updated']
-[
-  {
-    "name": "Iran War Military Conflict",
-    "emoji": "\u2694\ufe0f",
-    "keywords": [
-      "Iran",
-      "Hormuz",
-      "Trump",
-      "IRGC",
-      "Khamenei",
-      "Gulf",
-      "drone swarms",
-      "quagmire",
-      "escalation",
-      "nuclear",
-      "strikes",
-      "assassination",
-      "regime",
-      "Tehran"
-    ],
-    "kf_count": 10,
-    "kf_sample": [
-      {
-        "title": "US Strikes on Iranian Military Targets",
-        "body": "The **United States** conducted multiple direct military strikes against **Iranian Revolutionary Guard Corps (IRGC)** facilities and leadership. These operations marked a significant escalation in direct US-Iran hostilities in the region."
-      },
-      {
-        "title": "Assassination of General Qasem Soleimani",
-        "body": "**General Qasem Soleimani**, commander of the **IRGC Quds Force**, was killed in a **US airstrike** near Baghdad. His death triggered immediate Iranian threats of retaliation and regional destabilization."
-      }
-    ]
-  },
-  {
-    "name": "Strait of Hormuz Energy Crisis",
-    "emoji": "\ud83d\udee2\ufe0f",
-    "keywords": [
-      "Strait of Hormuz",
-      "oil",
-      "LNG",
-      "Qatar",
-      "Oman",
-      "crude",
-      "energy shock",
-      "tankers",
-      "Persian Gulf",
-      "North Sea",
-      "Russian crude",
-      "barrels",
-      "petrostate",
-      "refinery"
-    ],
-    "kf_count": 0,
-    "kf_sample": []
-  },
-  {
-    "name": "Trump Trade Policy Turbulence",
-    "emoji": "\ud83d\udd27",
-    "keywords": [
-      "Trump",
-      "tariffs",
-      "China",
-      "trade war",
-      "midterms",
-      "protectionism",
-      "sanctions",
-      "decoupling",
-      "supply chain",
-      "retaliatory",
-      "trade fight",
-      "coercion",
-      "economic warfare",
-      "Cuba"
-    ],
-    "kf_count": 10,
-    "kf_sample": [
-      {
-        "title": "Tariff escalation between US and China",
-        "body": "The US has imposed **multiple rounds of tariffs** on Chinese goods, with China retaliating in kind. This tit-for-tat escalation has created sustained uncertainty in global trade markets."
-      },
-      {
-        "title": "Economic tools weaponized in geopolitics",
-        "body": "Tariffs, sanctions, and trade restrictions have become primary instruments of foreign policy rather than purely commercial tools. This represents a fundamental shift in how major powers compete globally."
-      }
-    ]
-  },
-  {
-    "name": "China AI Technology Competition",
-    "emoji": "\ud83e\udd16",
-    "keywords": [
-      "DeepSeek",
-      "China",
-      "Nvidia",
-      "AI supremacy",
-      "rare earths",
-      "talent race",
-      "Google",
-      "Microsoft",
-      "OpenAI",
-      "tech economy",
-      "2030",
-      "semiconductors",
-      "DeepMind",
-      "copycat"
-    ],
-    "kf_count": 10,
-    "kf_sample": [
-      {
-        "title": "DeepSeek's AI Breakthrough",
-        "body": "DeepSeek has achieved significant AI capabilities that rival Western models, demonstrating **China's rapid advancement** in large language model development and challenging US technological dominance."
-      },
-      {
-        "title": "US-China AI Talent Competition",
-        "body": "Both nations are competing intensely for **top AI researchers and engineers**, with China attracting talent through competitive salaries and research opportunities while the US maintains advantages in institutional prestige."
-      }
-    ]
-  },
-  {
-    "name": "Global Financial Markets Stress",
-    "emoji": "\ud83d\udcc9",
-    "keywords": [
-      "stockmarket",
-      "bonds",
-      "dollar",
-      "gold",
-      "Bitcoin",
-      "yen",
-      "rupee",
-      "Vanguard",
-      "passive investment",
-      "credit",
-      "currency risk",
-      "recession",
-      "bubble",
-      "convulsions"
-    ],
-    "kf_count": 0,
-    "kf_sample": []
-  },
-  {
-    "name": "Europe Strategic Autonomy Response",
-    "emoji": "\ud83c\uddea\ud83c\uddfa",
-    "keywords": [
-      "Europe",
-      "NATO",
-      "rearmament",
-      "preppers",
-      "Manhattan Project",
-      "Macron",
-      "Ukraine",
-      "Putin",
-      "post-war order",
-      "vassal",
-      "hegemon",
-      "start-ups",
-      "sovereignty",
-      "defence"
-    ],
-    "kf_count": 10,
-    "kf_sample": [
-      {
-        "title": "European Defence Spending Surge",
-        "body": "EU members are increasing military budgets to **NATO's 2% GDP target**, with Germany alone committing **\u20ac100 billion** in defence spending following Russia's invasion of Ukraine."
-      },
-      {
-        "title": "Trump's NATO Reliability Crisis",
-        "body": "Uncertainty over US commitment to Article 5 collective defense under Trump administration forces Europe to contemplate **independent deterrence** capabilities and reduced transatlantic dependence."
-      }
-    ]
-  },
-  {
-    "name": "AI Technology Industry Race",
-    "emoji": "\ud83d\udcbb",
-    "keywords": [
-      "Nvidia",
-      "Google",
-      "Microsoft",
-      "Meta",
-      "OpenAI",
-      "Amazon",
-      "DeepMind",
-      "Silicon Valley",
-      "big tech",
-      "kill chain",
-      "power consumption",
-      "white-collar jobs",
-      "smartphone",
-      "data centres"
-    ],
-    "kf_count": 0,
-    "kf_sample": []
-  },
-  {
-    "name": "Luxury Consumer Markets Divergence",
-    "emoji": "\ud83d\udc5c",
-    "keywords": [
-      "Herm\u00e8s",
-      "Louis Vuitton",
-      "Ferrari",
-      "LVMH",
-      "luxury",
-      "fragrance",
-      "Black Friday",
-      "Parisian",
-      "consumer spending",
-      "aspirational",
-      "brand hierarchy",
-      "oligopoly",
-      "high-net-worth",
-      "resilience"
-    ],
-    "kf_count": 0,
-    "kf_sample": []
-  },
-  {
-    "name": "US-China Geopolitical Rivalry",
-    "emoji": "\ud83c\udf0f",
-    "keywords": [
-      "Xi Jinping",
-      "Putin",
-      "MBS",
-      "Taiwan",
-      "South China Sea",
-      "Southeast Asia",
-      "rare earths",
-      "decoupling",
-      "EVs",
-      "Belt and Road",
-      "Karl Marx",
-      "Hong Kong",
-      "Li Ka-shing",
-      "authoritarian"
-    ],
-    "kf_count": 0,
-    "kf_sample": []
-  },
-  {
-    "name": "Demographic Economic Challenges",
-    "emoji": "\ud83d\udc65",
-    "keywords": [
-      "fertility rates",
-      "population decline",
-      "emigration",
-      "gender roles",
-      "Britain",
-      "Bank of England",
-      "recession",
-      "super-rich",
-      "inequality",
-      "social contract",
-      "budget",
-      "public health",
-      "ageing",
-      "Parkrun"
-    ],
-    "kf_count": 10,
-    "kf_sample": [
-      {
-        "title": "Fertility Collapse Across West",
-        "body": "Western fertility rates have fallen below **replacement level (2.1 children per woman)** in most developed nations. Gender role shifts and economic uncertainty are cited as primary drivers of declining birth rates."
-      },
-      {
-        "title": "Mass Emigration From West",
-        "body": "Significant numbers of skilled workers and professionals are leaving Western countries for opportunities elsewhere. This **brain drain** threatens economic competitiveness and tax bases in origin countries."
-      }
-    ]
-  }
-]
+105:                   ' overview TEXT DEFAULT "", key_facts TEXT DEFAULT "[]",'
+240:            "max_tokens": 1000,
+426:                        "max_tokens": 120,
+515:                "max_tokens": 80,
+851:                        score_data = call_anthropic({"model": "claude-haiku-4-5-20251001", "max_tokens": 800,
+1733:                "max_tokens": 2000,
+1794:                                "max_tokens": 500,
+1822:                            "max_tokens": 1000,
+1880:                    "max_tokens": 1000,
+2123:            "max_tokens": 1000,
+2281:                    "max_tokens": 2000,
+2556:                "key_facts (array of 10 objects each with title and body; use **bold** markdown for key figures/stats in body), subtopics (5-7 strings), "
+2563:                "max_tokens": 8000,
+2611:            max_tokens = 1500 if brief_type == "short" else 4000
+2882:                "Do NOT include key_facts or subtopic_details — generated separately.\n\n"
+2914:                    "max_tokens": 2000,
+2950:                        "(name, emoji, keywords, overview, key_facts, subtopics, subtopic_details, article_count, last_updated) "
+2957:                            json.dumps(t.get("key_facts", [])),
+2968:            # ── Call 3: Generate key_facts + subtopic_details per theme (Haiku, one at a time) ──
+2969:            _kt_seed_jobs[job_id]["progress"] = "Generating key facts for each theme..."
+2973:                    _kt_seed_jobs[job_id]["progress"] = f"Generating key facts ({ti+1}/10): {t['name'][:40]}..."
+2975:                    kf_prompt = (
+2976:                        "Generate key_facts and subtopic_details for this intelligence theme.\n\n"
+2981:                        "- key_facts: array of exactly 10 objects, each with 'title' (short label, "
+2988:                        "max_tokens": 1500,
+2989:                        "messages": [{"role": "user", "content": kf_prompt}]
+2996:                    kf = kf_item.get("key_facts", [])
+3000:                            "UPDATE kt_themes SET key_facts=?, subtopic_details=? WHERE name=?",
+3005:                    log.warning(f"kt/seed: key_facts failed for '{t['name']}' (non-fatal): {kf_err}")
+3006:            log.info(f"kt/seed: key_facts enrichment done for {kf_ok}/10 themes")
+3042:        for field in ("keywords", "key_facts", "subtopics"):
+3113:                    "max_tokens": 1000,

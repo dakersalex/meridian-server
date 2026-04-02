@@ -2970,7 +2970,7 @@ def kt_seed():
             kf_ok = 0
             for ti, t in enumerate(themes):
                 try:
-                    _kt_seed_jobs[job_id]["progress"] = f"Generating key facts ({ti+1}/10): {t['name'][:40]}..."
+                    _kt_seed_jobs[job_id]["progress"] = f"Generating key facts ({ti+1}/{len(themes)}): {t['name'][:40]}..."
                     subs = t.get("subtopics", [])
                     kf_prompt = (
                         "Generate key_facts and subtopic_details for this intelligence theme.\n\n"
@@ -2985,9 +2985,9 @@ def kt_seed():
                     )
                     kf_resp = call_anthropic({
                         "model": "claude-haiku-4-5-20251001",
-                        "max_tokens": 1500,
+                        "max_tokens": 2500,
                         "messages": [{"role": "user", "content": kf_prompt}]
-                    }, timeout=30, retries=1)
+                    }, timeout=45, retries=1)
                     kf_raw = kf_resp["content"][0]["text"].strip()
                     if kf_raw.startswith("```"):
                         kf_raw = kf_raw.split("\n", 1)[1] if "\n" in kf_raw else kf_raw
@@ -3003,7 +3003,7 @@ def kt_seed():
                     kf_ok += 1
                 except Exception as kf_err:
                     log.warning(f"kt/seed: key_facts failed for '{t['name']}' (non-fatal): {kf_err}")
-            log.info(f"kt/seed: key_facts enrichment done for {kf_ok}/10 themes")
+            log.info(f"kt/seed: key_facts enrichment done for {kf_ok}/{len(themes)} themes")
 
             log.info(f"kt/seed: done -- {len(themes)} themes, {len(assignments)} assignments")
             _kt_seed_jobs[job_id] = {
