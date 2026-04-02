@@ -1,5 +1,5 @@
 # Meridian — Technical Notes
-Last updated: 2 April 2026 (Session 35 — permanent/manual themes, key_facts fix, theme consolidation)
+Last updated: 2 April 2026 (Session 35 — FA fix, Economist backfill, theme crash fix, tmp cleanup)
 
 ## Overview
 Personal news aggregator. Flask API + SQLite backend running on Hetzner VPS (always-on).
@@ -39,6 +39,7 @@ Frontend served via nginx with HTTPS. Accessible from anywhere at https://meridi
 - ~/meridian-server/cookies.json       — Publication session cookies
 - ~/meridian-server/brief_pdf.py       — Intelligence brief PDF generation module
 - ~/meridian-server/newsletter_sync.py — iCloud IMAP newsletter poller
+- ~/meridian-server/wake_and_sync.sh   — Mac sync + VPS push script (runs on wake)
 - ~/meridian-server/extension/         — Chrome extension v1.3
 - ~/meridian-server/logs/              — Server and sync logs
 - ~/Library/LaunchAgents/com.alexdakers.meridian.plist       — Auto-start Flask (Mac)
@@ -61,14 +62,13 @@ Restart nginx: systemctl reload nginx
 View logs: cat /opt/meridian-server/meridian.log | tail -50
 
 ## Deploying Code Updates
-One command from Mac Terminal:
+One command from Mac (via shell bridge — Claude runs this autonomously):
   cd ~/meridian-server && ./deploy.sh "description"
-
-(deploy.sh: git add -A, commit, push, SSH pull on VPS, systemctl restart meridian)
+(git add -A, commit, push, SSH pull on VPS, systemctl restart meridian)
 
 ## Database (2 April 2026)
-Total: ~531 articles (VPS)
-- Financial Times: ~155 / The Economist: ~260 / Foreign Affairs: ~52 / Bloomberg: ~38 / Other: ~26
+- Mac: ~531 articles total. Economist: 258 full_text. FA: 52 total, 41 full_text (avg 7,930 chars).
+- VPS: 495 full_text articles pushed from Mac (backfill complete). Economist gap resolved.
 
 ---
 
@@ -81,15 +81,15 @@ Claude has full access to run all terminal commands, patches, and deployments vi
 - **deploy.sh** — commit, push and deploy to VPS in one command
 
 **Claude must NEVER ask Alex to run commands in Terminal.** This includes:
-- Running patch scripts (always: filesystem:write_file → window.shell('python3 ~/meridian-server/tmp_*.py'))
-- Syntax checks (always: window.shell('python3 -m py_compile ~/meridian-server/server.py'))
-- Deploying (always: window.shell('cd ~/meridian-server && ./deploy.sh "message"'))
-- SSH commands to VPS (always: write script → window.shell with subprocess/ssh)
-- Checking logs (always: fetch via shell bridge, write to tmp file, read via Filesystem MCP)
+- Running patch scripts (filesystem:write_file → window.shell('python3 ~/meridian-server/tmp_*.py'))
+- Syntax checks (window.shell('python3 -m py_compile ~/meridian-server/server.py'))
+- Deploying (window.shell('cd ~/meridian-server && ./deploy.sh "message"'))
+- SSH/VPS commands (write script → scp to VPS → ssh to run it)
+- Checking logs (fetch via shell bridge → write to ~/meridian-server/tmp_*.txt → read via Filesystem MCP)
 
 Alex is not present during execution. Complete all tasks end-to-end autonomously.
 
-### Shell bridge
+### Shell bridge (re-inject at start of each JS block)
 ```js
 window.shell = (cmd) => fetch('http://localhost:4242/api/dev/shell', {
   method:'POST', headers:{'Content-Type':'application/json'},
@@ -104,103 +104,112 @@ window.shell = (cmd) => fetch('http://localhost:4242/api/dev/shell', {
 - Tab B (meridianreader.com/meridian.html): live site verification
 - TabIds change every session — always call tabs_context_mcp first
 
-### NEVER restart Flask via shell endpoint — it kills itself mid-request
+### NEVER restart Flask via shell endpoint — kills itself mid-request
 
 ### Key patterns
 - Write patch scripts via filesystem:write_file → execute via window.shell()
-- VPS Python: write script → deploy.sh (never inline -c strings with nested quotes)
-- Shell endpoint filters keywords: base64-encode output or write to /tmp/ if needed
-- Line-number based patches are DANGEROUS — always use str.replace(OLD, NEW) with exact text
+- VPS operations: write script locally → scp to VPS → ssh to run it
+- Shell endpoint filters some keywords — write output to ~/meridian-server/tmp_*.txt, read via Filesystem MCP
+- Line-number patches are DANGEROUS — always use str.replace(OLD, NEW) with exact text
 - Always python3 -m py_compile server.py before deploying
 - After deploying, verify via live site tab (Tab B)
+- Tmp files: always clean up with git rm tmp_*.py tmp_*.txt after sessions
 
 ### Dangerous operations checklist
-Before any DELETE/UPDATE: SELECT preview first, state what will be affected, then execute.
+Before any DELETE/UPDATE on DB: SELECT preview first, confirm what will be affected, then execute.
 
 ---
 
 ## Key Themes (KT) System
 
-### Current state (after Session 35)
-- **8 themes** (changed from 10) — sorted by article count descending
-- Seed prompt enforces consolidation: no geographic theatre splits, no tech race splits
-- key_facts: populated via Haiku Call 3 (max_tokens fixed to 2500, timeout 45s)
-- 531 articles tagged on VPS
+### Current state (2 April 2026)
+- **8 themes** on VPS, sorted by article count descending
+- key_facts: ⚠️ still 0 on all themes (max_tokens fix deployed but seed ran before it)
+  → Trigger one more Reset Themes on live site at start of next session
+- 531 articles tagged
+
+### kt_themes dedup bug — FIXED
+- `kt_themes` uses `name` as PRIMARY KEY — re-seeds with slightly different names accumulate rows
+- Fixed: `/api/kt/themes` now filters by `MAX(last_updated)` so only latest seed is returned
+- If accumulation ever happens again: delete stale rows on VPS by timestamp (keep latest batch)
 
 ### Theme grid design (Session 35)
 - **8 AI-generated themes** sorted by matched article count (most articles top-left)
-- **2 manual slots** (silver dashed border) — always shown at end of grid
-  - Click to open modal: name + keywords + emoji
-  - Stored in localStorage as `meridian_manual_themes`
+- **2 manual slots** (silver dashed border) — modal with name + keywords + emoji
+  - Stored in localStorage: `meridian_manual_themes`
   - Auto-marked permanent on creation
 - **★ Permanent themes** (gold border + "PERMANENT" badge)
-  - Click ☆ star button on any AI theme card to make it permanent
-  - Stored in localStorage as `meridian_permanent_themes`
-  - Survive Reset Themes — listed in confirm dialog before reset
-  - Deselect ★ before reset to allow that theme to be freely regenerated
-- **Reset Themes confirm dialog** lists all permanent themes by name
+  - Click ☆ star to make permanent; stored in localStorage: `meridian_permanent_themes`
+  - Survive Reset Themes — listed in confirm dialog
+  - Un-star before reset to allow free regeneration
+- **Reset Themes confirm** lists permanent themes by name
 
 ### kt/seed pipeline (3-call architecture)
-- **Call 1** — Sonnet: 165 representative titles → 8 themes (name, emoji, keywords, overview, subtopics)
-  max_tokens=3000, timeout=60s
-- **Call 2** — Haiku: all articles in batches of 50 → article→theme assignments
-- **Call 3** — Haiku: one theme at a time → key_facts + subtopic_details
-  max_tokens=2500, timeout=45s, non-fatal if individual theme fails
+- **Call 1** — Sonnet: 165 representative titles → 8 themes. max_tokens=3000, timeout=60s
+- **Call 2** — Haiku: batches of 50 → article→theme assignments
+- **Call 3** — Haiku per theme → key_facts + subtopic_details. max_tokens=2500, timeout=45s
 
-### Seeding prompt rules (Call 1)
+### Seeding prompt (Call 1)
 - Requests exactly 8 themes
-- Consolidation rules: never split same geographic theatre, never split same tech race
-- Bans generic keywords: war, military, conflict, economy, geopolitics, policy, crisis, markets
-
-### getThemeArticles() matching logic (meridian.html)
-Three-layer filter, all word-boundary regex (\b):
-1. Anchor gate: keywords[0] must appear in title or summary
-2. 2-hit requirement: ≥2 keywords in title+summary combined
-3. Single-hit fallback: anchor + corroborating tag/topic
+- Consolidation rules: never split same geographic theatre or tech race
+- Bans generic keywords: war, military, conflict, economy, geopolitics, policy, crisis
 
 ---
 
 ## Intelligence Brief Pipeline (✅ WORKING)
 
 ### Overview
-- brief_pdf.py — standalone module, ReportLab + Pillow, generates A4 PDF
-- Single Sonnet call: text generated once, used for both modal display and PDF build
+- brief_pdf.py — ReportLab + Pillow, generates A4 PDF
+- Single Sonnet call: text used for both modal display and PDF build
 - Full brief includes Economist charts; short brief is text only
 
-### Article context (_build_article_context in brief_pdf.py)
-- Temporal bucketing: 4 equal time buckets × 15 articles = up to 60 (full brief)
-- Within each bucket: full_text articles first, then by summary length
-- Per-source cap: 5 per bucket for source diversity
+### Article context
+- Temporal bucketing: 4 buckets × 15 articles = up to 60 (full brief)
+- full_text articles first, then by summary length; per-source cap 5 per bucket
 
 ### Chart selection rules
-- No charts in: Executive Summary, Overview, Cross-cutting Themes, Strategic Implications,
-  Watch List, Key Developments, Source Notes
-- Cross-brief similarity dedup: >50% description token overlap → rejected
-- Solo charts (only 1 qualifies) → 0 shown (never unpaired)
-- Budget: up to 2 per section, global cap 14 charts per brief
+- No charts in: Executive Summary, Overview, Cross-cutting Themes, Strategic Implications etc.
+- Cross-brief similarity dedup: >50% token overlap → rejected
+- Solo charts → 0 shown; budget: up to 2 per section, global cap 14 per brief
 
 ---
 
-## Flask Routes — Brief Pipeline
-- POST /api/kt/brief             — text brief (async), returns {ok, job_id}
-- GET  /api/kt/brief/status/<id> — poll {status, brief, error}
-- POST /api/kt/brief/pdf         — PDF job, accepts optional {text} pregenerated_text
-- GET  /api/kt/brief/pdf/status/<id>   — poll
-- GET  /api/kt/brief/pdf/download/<id> — serve PDF
-- POST /api/kt/brief/context-debug     — article bucket debug
-- POST /api/kt/seed              — full reseed
-- GET  /api/kt/seed/status/<id>  — poll seed job
+## Foreign Affairs — FIXED (Session 35)
+
+### Root cause
+- `fetch_fa_article_text` used wrong CSS selector (`div.article-body p`)
+- Correct selector (confirmed via Playwright April 2026): `div.article__body-content p`
+- Old selector returned no text → body stored as AI-generated fullSummary (~2,500 chars)
+
+### Fix applied
+- Selector updated in server.py: `div.article__body-content p` (primary)
+  then `div.article__body p`, `div.article-body p`, `main p` as fallbacks
+- Re-enrichment ran: 41/51 FA articles now have raw text (avg 7,930 chars, was 2,500)
+- 10 articles skipped — genuinely paywalled at a stricter tier (no text returned by selector)
+
+### FA session status
+- Session IS authenticated (has_my_account=True in page content)
+- Drupal session cookie `SSESS8d72...` valid until 2026-05-23
+- No re-login needed currently
+
+---
+
+## Economist — FIXED (Session 35)
+
+### Root cause of VPS gap (14 full_text vs 258 on Mac)
+- `wake_and_sync.sh` push script used a 3-hour lookback window
+- Older personal bookmarks enriched >3hrs ago were never pushed
+
+### Fix applied
+- `wake_and_sync.sh` now pushes ALL `full_text` articles on every sync (no time window)
+- Batches of 50 with 0.3s sleep — safe to run every sync, VPS skips richer existing records
+- One-time backfill push: 495 articles → VPS (was 14 Economist full_text)
 
 ---
 
 ## Economist Chart & Map Capture (Session 26 ✅)
-
-### DB state (2 April 2026)
 - Mac: 156 images, 86 articles with images
 - VPS: synced via push-images on each wake_and_sync.sh run
-
-### Image sync to VPS
-- POST /api/push-images — receives images from Mac, upserts on mac_id
 
 ---
 
@@ -215,68 +224,67 @@ Three-layer filter, all word-boundary regex (\b):
 ---
 
 ## Next Steps (priority order)
-1. **Trigger Reset Themes** on live site — current themes have key_facts=0 (fixed in this session,
-   needs one more reset with new max_tokens=2500 to populate)
-2. **AI theme split persists** — "US-China Tech and Trade War" + "Western AI Industry and Investment"
-   still appearing as two themes despite consolidation rule. May need to name them explicitly
-   in the prompt as a must-merge example.
-3. **Sort theme articles by relevance** — article list in theme detail panel shows most recent first;
-   better UX: sort by keyword hit count + summary length so most substantive articles surface first.
-4. **Sub-topics filtering** — chips in theme panel do nothing; decide: implement filtering or remove
-   and use subtopics only as brief section headings.
-5. **Focused Intelligence Briefing** — free-text input for ad-hoc topic briefs not tied to 8 themes.
-6. **Clean up tmp_ files** — many tmp_*.py, tmp_*.txt accumulated across sessions.
-   Run via shell bridge: cd ~/meridian-server && git rm --ignore-unmatch tmp_*.py tmp_*.txt tmp_*.png && git commit -m "chore: remove tmp files"
-7. **Foreign Affairs paywall** — FA articles still truncating at ~1,400 chars.
-   Investigate fa_profile/ cookie freshness, try re-login via Playwright.
+1. **Trigger Reset Themes on live site** — key_facts still blank (fix deployed, needs one more seed)
+2. **AI theme split persists** — "AI Race US China Tech" is broadly correct but watch for further
+   splitting on next seed. Add to consolidation rules if needed.
+3. **Sort theme articles by relevance** — theme detail panel shows most recent first; sort by
+   keyword hit count + summary length so most substantive articles surface first.
+4. **Sub-topics filtering** — chips in theme panel clickable but do nothing; decide: implement
+   filtering or remove and use subtopics only as brief section headings.
+5. **Focused Intelligence Briefing** — free-text input for ad-hoc topic briefs.
+6. **FA paywalled articles (10 remaining)** — investigate whether these are a different FA tier
+   or need a different selector. Could try waiting longer after page load or scrolling to trigger
+   content rendering.
 
 ---
 
 ## Build History
 
-### 2 April 2026 (Session 35 — theme consolidation, permanent/manual themes)
+### 2 April 2026 (Session 35 — FA fix, backfill, theme crash fix)
 
-**Theme count: 10 → 8**
-- Seed prompt updated to request exactly 8 themes
-- Consolidation rules added: no geographic theatre splits, no tech race splits
-- Consumer/luxury only gets theme if article volume justifies it
-- Tighter ban on generic keywords
+**FA selector fix**
+- Wrong selector `div.article-body p` → correct `div.article__body-content p`
+- 41/51 FA articles re-enriched with raw text (avg 7,930 chars, was 2,500)
+- FA session confirmed authenticated via Playwright inspection
 
-**key_facts fix**
-- Root cause: max_tokens=1500 was truncating Haiku JSON mid-response
-- Fix: max_tokens 1500 → 2500, timeout 30 → 45s for Call 3
-- Hardcoded "/10" references fixed to use len(themes) dynamically
-- Duplicate call_anthropic bug (resp1 called twice) also fixed
+**Economist VPS backfill**
+- wake_and_sync.sh push window removed — now pushes all full_text every sync
+- 495 articles pushed to VPS in one-time backfill
 
-**Permanent + Manual theme grid**
-- Themes sorted by matched article count descending (most articles top-left)
-- ★ star button on each AI theme card — click to mark permanent (gold border)
-- Permanent themes stored in localStorage as `meridian_permanent_themes`
-- 2 manual slots always visible at end of grid (silver dashed border)
-- Manual theme modal: name + keywords + emoji
-- Manual themes stored in localStorage as `meridian_manual_themes`
-- Reset Themes confirm dialog lists permanent themes by name
-- Previous "pinned topics" row replaced by this card-level system
+**Key Themes crash fix**
+- JS crash: `Cannot read properties of undefined (reading 'keywords')`
+- Root cause: two seed runs accumulated 16 rows in kt_themes (name-as-PK doesn't dedup)
+- Fix 1: `/api/kt/themes` now filters by MAX(last_updated)
+- Fix 2: null guard in renderThemeGrid filters themes missing name/keywords
+- Stale 8 rows deleted directly from VPS DB
+
+**Permanent/manual theme grid**
+- 8 AI themes sorted by article count descending
+- ☆/★ star button on each card for permanent status (gold border)
+- 2 silver dashed manual slots with modal editor
+- Both survive Reset Themes via localStorage
+
+**Tmp file cleanup**
+- All tmp_*.py, tmp_*.txt files removed from repo
 
 **Commits this session**
-- 14383d41  feat: seed 8 consolidated themes with anti-overlap rules; fix duplicate resp1
-- ad080d49  feat: pinned topics row on Key Themes; fix key_facts max_tokens 1500->2500
-- [current] feat: permanent/manual theme grid, sorted by article count, gold/silver cards
+- fix: kt/themes returns only latest seed; null guard in renderThemeGrid
+- fix: FA selector article__body-content; wake_and_sync push all full_text
+- feat: permanent/manual theme grid, sorted by article count, gold/silver cards
+- docs: session 35 notes — autonomous execution rule, permanent/manual themes
+- chore: remove all tmp_ files; FA re-enrichment complete
 
-### 1 April 2026 (Session 34 — article filtering & brief quality)
-- getThemeArticles() tighter keyword matching (word-boundary regex, anchor gate, 2-hit requirement)
+### 1 April 2026 (Session 34)
+- getThemeArticles() tighter keyword matching
 - kt/seed 3-call architecture with Haiku per-theme key_facts
-- Seeding prompt requests specific discriminating keywords, bans generic terms
-- VPS SyntaxError recovery (duplicate theme_prompt fragment)
+- VPS SyntaxError recovery
 
-### 1 April 2026 (Sessions 29-31 — brief PDF pipeline)
-- Single Sonnet call architecture, unified prompt, richer article context
-- Chart image processing: top/bottom crop, whitening, figure captions
-- PDF layout: maps full-width, charts paired half-width
+### 1 April 2026 (Sessions 29-31)
+- Intelligence brief PDF pipeline
+- Chart image processing and PDF layout
 
 ### Earlier sessions (26-28)
 - Economist chart capture, insight enrichment, article_images sync Mac→VPS
-- KT themes initial implementation
 
 ---
 
@@ -289,4 +297,6 @@ Three-layer filter, all word-boundary regex (\b):
 You are helping me build Meridian, my personal news aggregator. Please read my technical notes from the Filesystem MCP at /Users/alexdakers/meridian-server/NOTES.md and review them. Then run the session start health check.
 ---
 
-Note for Claude: Read NOTES.md via Filesystem MCP (NOT GitHub URL — blocked). Run all commands autonomously via shell bridge — NEVER ask Alex to run Terminal commands. Check Flask via shell endpoint before proceeding. Never restart Flask via the shell endpoint.
+Note for Claude: Read NOTES.md via Filesystem MCP (NOT GitHub URL — blocked).
+NEVER ask Alex to run Terminal commands — run everything autonomously via shell bridge.
+Never restart Flask via the shell endpoint.
