@@ -332,6 +332,17 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
 
 .activity-label { font-weight: 500; color: var(--ink-2); margin-right: 4px; }
 .activity-source { display: flex; align-items: center; gap: 6px; }
+/* Activity pills for info strip */
+.activity-pill {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 11px; padding: 2px 8px; border-radius: 20px;
+  border: 1px solid var(--rule); white-space: nowrap; flex-shrink: 0;
+}
+.activity-pill-zero { background: var(--paper-2); color: var(--ink-3); }
+.activity-pill-active { background: #f5ede4; color: var(--accent); border-color: #e8c9a8; }
+/* My saves vs AI card distinction */
+.article-card.ai-pick { background: var(--paper); border-left: 3px solid var(--accent); }
+.featured-card.ai-pick { background: var(--paper); border-left: 3px solid var(--accent); }
 .activity-new { 
   background: #e8f5e4; color: #2d6b45; 
   padding: 1px 6px; border-radius: 8px; 
@@ -365,78 +376,59 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
 .activity-warning { color: #c47838; font-weight: 500; }
 
 /* ── Folder tab switcher ── */
+/* ── 2D nav: dot + background on active ── */
 #folder-switcher {
-  background: var(--paper-2);
-  padding: 8px 20px 0;
+  background: var(--paper);
+  padding: 8px 20px;
   display: flex;
-  align-items: flex-end;
-  border-bottom: 2.5px solid var(--ink);
-  position: relative;
+  align-items: center;
+  border-bottom: 1px solid var(--rule);
+  gap: 2px;
   z-index: 10;
+  position: relative;
 }
+#folder-switcher-logo {
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: -0.3px;
+  color: var(--accent);
+  padding-right: 20px;
+  margin-right: 6px;
+  border-right: 1px solid var(--rule);
+  line-height: 1;
+}
+#folder-switcher-logo span { color: var(--ink); }
 .folder-tab {
-  height: 30px;
-  padding: 0 20px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 14px;
+  border-radius: 6px;
   font-size: 12px;
   font-weight: 500;
   font-family: 'IBM Plex Sans', sans-serif;
-  border: 1.5px solid var(--ink);
-  border-bottom: none;
-  border-radius: 5px 5px 0 0;
+  border: none;
+  background: none;
+  color: var(--ink-3);
   cursor: pointer;
-  display: flex;
-  align-items: center;
-  letter-spacing: 0.3px;
-  margin-bottom: -2.5px;
-  transition: filter 0.15s;
+  letter-spacing: 0.2px;
+  transition: background 0.12s, color 0.12s;
+  white-space: nowrap;
 }
-.folder-tab-newsfeed {
-  background: var(--accent);
-  color: var(--paper);
-  height: 34px;
-  z-index: 3;
-  position: relative;
-  border-bottom: 2.5px solid var(--accent);
-  box-shadow: -2px -3px 5px rgba(0,0,0,0.18), 2px -3px 5px rgba(0,0,0,0.10);
+.folder-tab:hover { background: var(--paper-2); color: var(--ink); }
+.folder-tab .nav-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--rule); flex-shrink: 0;
+  transition: background 0.12s;
 }
-.folder-tab-themes {
-  background: var(--paper-3);
-  color: var(--ink-3);
-  height: 28px;
-  z-index: 1;
-  position: relative;
-  margin-left: 2px;
-  border-bottom: none;
-  box-shadow: 1px -2px 3px rgba(0,0,0,0.08);
+.folder-tab.active {
+  background: var(--paper-2);
+  color: var(--ink);
 }
-.folder-tab-themes.active {
-  background: var(--accent);
-  color: var(--paper);
-  height: 34px;
-  z-index: 3;
-  border-bottom: 2.5px solid var(--accent);
-  box-shadow: -2px -3px 5px rgba(0,0,0,0.18), 2px -3px 5px rgba(0,0,0,0.10);
-}
-
-/* ── Briefing Generator tab ── */
-.folder-tab-briefing {
-  background: var(--paper-3);
-  color: var(--ink-3);
-  height: 28px;
-  z-index: 1;
-  position: relative;
-  margin-left: 2px;
-  border-bottom: none;
-  box-shadow: 1px -2px 3px rgba(0,0,0,0.08);
-}
-.folder-tab-briefing.active {
-  background: var(--accent);
-  color: var(--paper);
-  height: 34px;
-  z-index: 3;
-  border-bottom: 2.5px solid var(--accent);
-  box-shadow: -2px -3px 5px rgba(0,0,0,0.18), 2px -3px 5px rgba(0,0,0,0.10);
-}
+.folder-tab.active .nav-dot { background: var(--accent); }
+.folder-tab-newsfeed {}
+.folder-tab-themes {}
+.folder-tab-briefing {}
 
 /* ── Briefing Generator view ── */
 #briefing-view {
@@ -648,14 +640,7 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
   border-top: 1px solid var(--rule);
   margin: 28px 0;
 }
-.folder-tab-newsfeed.inactive {
-  background: var(--paper-3);
-  color: var(--ink-3);
-  height: 28px;
-  z-index: 1;
-  border-bottom: none;
-  box-shadow: 1px -2px 3px rgba(0,0,0,0.08);
-}
+/* inactive state removed — using .active class instead */
 .folder-spacer { flex: 1; }
 
 /* ── Key Themes view ── */
@@ -1356,22 +1341,19 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
   </div>
 </div>
 <div id="folder-switcher">
-  <button class="folder-tab folder-tab-newsfeed" id="tab-newsfeed" onclick="switchMode('newsfeed')">News Feed</button>
-  <button class="folder-tab folder-tab-themes" id="tab-themes" onclick="switchMode('themes')">Key Themes</button>
-  <button class="folder-tab folder-tab-briefing" id="tab-briefing" onclick="switchMode('briefing')">Briefing Generator</button>
-  <div class="folder-spacer"></div>
-</div>
-<div class="server-bar">
-  <div class="server-status">
-    <div class="status-dot" id="status-dot"></div>
-    <span id="status-text">Checking server…</span>
+  <div id="folder-switcher-logo">Meri<span>dian</span></div>
+  <button class="folder-tab folder-tab-newsfeed active" id="tab-newsfeed" onclick="switchMode('newsfeed')"><span class="nav-dot"></span>News Feed</button>
+  <button class="folder-tab folder-tab-themes" id="tab-themes" onclick="switchMode('themes')"><span class="nav-dot"></span>Key Themes</button>
+  <button class="folder-tab folder-tab-briefing" id="tab-briefing" onclick="switchMode('briefing')"><span class="nav-dot"></span>Briefing Generator</button>
+  <div style="margin-left:auto;display:flex;align-items:center;gap:12px">
+    <div class="server-status">
+      <div class="status-dot" id="status-dot"></div>
+      <span id="status-text" style="font-size:11px;color:var(--ink-3)">Checking server…</span>
+    </div>
+    <span class="last-sync" id="last-sync-label" style="font-size:11px;color:var(--ink-3)"></span>
+    <button class="btn btn-dark" onclick="openAIPanel()" style="background:var(--accent);font-size:11px;padding:5px 14px">✦ AI Analysis</button>
+    <button class="btn btn-dark mobile-sync-btn" onclick="syncAll()" style="display:none;background:var(--accent);font-size:11px;padding:4px 10px">🔄 Sync</button>
   </div>
-  <div class="sync-sources">
-
-    <span class="last-sync" id="last-sync-label"></span><button class="btn btn-dark" onclick="openAIPanel()" style="margin-left:auto;background:var(--accent);font-size:12px;padding:5px 14px">✦ AI Analysis</button>
-    <button class="btn btn-dark mobile-sync-btn" onclick="syncAll()" style="display:none;background:var(--accent);font-size:11px;padding:4px 10px;margin-left:6px">🔄 Sync</button>
-  </div>
-
 </div>
 <div class="main-nav" id="main-nav">
   <button class="nav-tab active" onclick="setView('feed',this)">Feed <span class="nav-count" id="count-feed">0</span></button>
@@ -1403,24 +1385,20 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
     <option value="ai">AI picks</option>
   </select>
 </div>
-<div id="tally-bar" style="display:flex;align-items:center;gap:10px;padding:5px 20px;background:var(--paper-2);border-bottom:1px solid var(--rule);font-size:11px;color:var(--ink-3)">
-  <span style="font-weight:500;color:var(--ink-2)">My saves:</span>
-  <span style="font-weight:600;color:var(--ink)"><span id="tally-saves">–</span> <span id="tally-saves-pct" style="font-weight:400;color:var(--ink-3)"></span></span>
-  <span style="color:var(--rule)">·</span>
-  <span style="font-weight:500;color:var(--ink-2)">AI picks:</span>
-  <span style="font-weight:600;color:var(--accent)"><span id="tally-ai">–</span> <span id="tally-ai-pct" style="font-weight:400;color:var(--ink-3)"></span></span>
-  <span style="display:none" id="tally-total">0</span>
-</div>
-<div class="activity-bar" id="activity-bar" style="display:flex;align-items:center;gap:12px;padding:7px 20px;background:var(--paper-2);border-bottom:1px solid var(--rule);font-size:11px;flex-wrap:wrap">
-  <span class="activity-label">Last 24h:</span>
-  <span class="activity-source"><span style="color:#0d4a8a;font-weight:500">FT</span> <span class="activity-new" id="act-ft">+0</span></span>
-  <span class="activity-source"><span style="color:#8b1a1a;font-weight:500">Economist</span> <span class="activity-new" id="act-eco">+0</span></span>
-  <span class="activity-source"><span style="color:#1e4d8c;font-weight:500">FA</span> <span class="activity-new" id="act-fa">+0</span></span>
-  <span class="activity-source"><span style="color:#555;font-weight:500">Bloomberg</span> <span class="activity-new" id="act-bbg">+0</span></span>
-  <span class="activity-source"><span style="color:#2d6b45;font-weight:500">FP</span> <span class="activity-new" id="act-fp">+0</span></span>
+<div id="info-strip" style="display:flex;align-items:center;gap:10px;padding:6px 20px;background:var(--paper-2);border-bottom:1px solid var(--rule);font-size:11px;flex-wrap:nowrap">
+  <span style="color:var(--ink-2);white-space:nowrap">My saves: <strong style="color:var(--ink);font-weight:600"><span id="tally-saves">–</span></strong> <span id="tally-saves-pct" style="color:var(--ink-3)"></span></span>
+  <div style="width:1px;height:12px;background:var(--rule);flex-shrink:0"></div>
+  <span style="color:var(--ink-2);white-space:nowrap">AI picks: <strong style="color:var(--accent);font-weight:600"><span id="tally-ai">–</span></strong> <span id="tally-ai-pct" style="color:var(--ink-3)"></span></span>
+  <div style="width:1px;height:12px;background:var(--rule);flex-shrink:0"></div>
+  <span style="font-weight:500;color:var(--ink-2);white-space:nowrap">24h:</span>
+  <span id="act-ft-pill" class="activity-pill activity-pill-zero"><span style="color:#0d4a8a;font-weight:500">FT</span> <span id="act-ft">–</span></span>
+  <span id="act-eco-pill" class="activity-pill activity-pill-zero"><span style="color:#8b1a1a;font-weight:500">Economist</span> <span id="act-eco">–</span></span>
+  <span id="act-fa-pill" class="activity-pill activity-pill-zero"><span style="color:#1e4d8c;font-weight:500">FA</span> <span id="act-fa">–</span></span>
+  <span id="act-bbg-pill" class="activity-pill activity-pill-zero"><span style="color:#555;font-weight:500">Bloomberg</span> <span id="act-bbg">–</span></span>
+  <span id="act-fp-pill" class="activity-pill activity-pill-zero"><span style="color:#2d6b45;font-weight:500">FP</span> <span id="act-fp">–</span></span>
   <span class="activity-warning" id="act-warning" style="display:none">⚠ FT sync found 0 articles</span>
-  <span class="activity-sync-time" id="act-sync-time"></span>
-  <div style="margin-left:auto;display:flex;gap:4px">
+  <span style="display:none" id="tally-total">0</span>
+  <div style="margin-left:auto;display:flex;gap:6px;flex-shrink:0">
     <button class="btn btn-dark" onclick="syncAll()" id="sync-all-btn" style="font-size:10px;padding:3px 9px;background:var(--accent)">🔄 Sync all</button>
     <button class="btn btn-outline" onclick="clipBloomberg()" id="clip-bbg-btn" style="font-size:10px;padding:3px 7px;display:none">📎 Clip Bloomberg</button>
   </div>
@@ -2017,10 +1995,10 @@ function renderFeed(){
     const isFA=a.source==='Foreign Affairs';
     const sug=pending&&pending!=='__dismissed__'?`<div class="ai-suggestion" onclick="event.stopPropagation()"><span class="ai-suggestion-text">AI suggests: <strong>📁 ${pending}</strong></span><div class="suggestion-actions"><button class="sug-btn sug-confirm" onclick="assignFolder('${a.id}','${pending}')">✓ Confirm</button></div><button class="sug-dismiss" onclick="dismissSuggestion('${a.id}')">×</button></div>`:'';
     const faBadge=isFA?'<span class="fa-badge">Foreign Affairs</span>':'';
-    const autoPill=a.auto_saved?'<span style="font-size:10px;padding:2px 7px;border-radius:10px;background:var(--accent);color:#fff;font-weight:600;margin-left:6px">✦ Auto</span>':'';
-    const autoStyle=a.auto_saved?';background:var(--paper-2)':'';
-    if(i===0){html+=`<div class="featured-card" style="position:relative;padding-top:20px${autoStyle}" data-id="${a.id}" onclick="openDetail('${a.id}')"><div class="featured-label">Latest · ${a.source}</div><button onclick="event.stopPropagation();deleteArticle('${a.id}')" style="position:absolute;top:2px;right:6px;background:none;border:1px solid var(--rule);color:var(--ink-3);cursor:pointer;font-size:10px;padding:1px 4px;opacity:0.4;line-height:1;border-radius:2px" title="Delete">✕</button><div class="article-meta" style="margin-top:0px"><span class="source-label">${a.source}</span>${autoPill}<span class="article-date-label" style="margin-left:auto">${formatPubDate(a)}</span><span class="status-badge ${a.status==='full_text'?'full-text':'title-only'}" style="margin-left:8px">${a.status==='full_text'?'Full text':'Title only'}</span></div><div class="article-meta" style="margin-top:3px">${a.topic?`<span class="topic-pill ${topicClass(a.topic)}" style="${topicStyle(a.topic)}">${a.topic}</span>`:''}</div><div style="position:absolute;top:8px;right:8px"></div><div class="featured-title">${a.title}</div><div class="featured-summary">${a.summary}</div>${folderName?`<div style="margin-top:8px"><span class="folder-badge">📁 ${folderName}</span></div>`:''}${sug}</div>`;}
-    else{html+=`<div class="article-card" style="position:relative;padding-top:20px${autoStyle}" data-id="${a.id}" onclick="openDetail('${a.id}')"><button onclick="event.stopPropagation();deleteArticle('${a.id}')" style="position:absolute;top:2px;right:6px;background:none;border:1px solid var(--rule);color:var(--ink-3);cursor:pointer;font-size:10px;padding:1px 4px;opacity:0.4;line-height:1;border-radius:2px" title="Delete">✕</button><div class="article-meta" style="margin-top:0px"><span class="source-label">${a.source}</span>${autoPill}<span class="article-date-label" style="margin-left:auto">${formatPubDate(a)}</span><span class="status-badge ${a.status==='full_text'?'full-text':'title-only'}" style="margin-left:8px">${a.status==='full_text'?'Full text':'Title only'}</span></div><div class="article-meta" style="margin-top:3px">${a.topic?`<span class="topic-pill ${topicClass(a.topic)}" style="${topicStyle(a.topic)}">${a.topic}</span>`:''}</div><div style="position:absolute;top:8px;right:8px"></div><div class="article-title">${a.title}${a.url?'<a href="'+a.url+'" target="_blank" onclick="event.stopPropagation()" style="font-size:11px;color:var(--ink-3);text-decoration:none;margin-left:5px">↗</a>':''}</div><div class="article-summary">${a.summary}</div><div class="article-footer"><div class="article-tags">${(a.tags||[]).map(t=>`<span class="tag">${t}</span>`).join('')}</div>${folderName?`<span class="folder-badge">📁 ${folderName}</span>`:''}</div>${sug}</div>`;}
+    const autoPill=a.auto_saved?'<span style="font-size:10px;padding:2px 7px;border-radius:10px;background:var(--accent);color:#fff;font-weight:500;letter-spacing:0.3px;margin-left:6px">✦ AI pick</span>':'<span style="font-size:10px;padding:2px 7px;border-radius:10px;background:var(--paper-3);color:var(--ink-3);font-weight:500;letter-spacing:0.3px;margin-left:6px;border:1px solid var(--rule)">My save</span>';
+    const autoStyle=a.auto_saved?'':'';
+    if(i===0){html+=`<div class="featured-card${a.auto_saved?' ai-pick':''}" style="position:relative;padding-top:20px" data-id="${a.id}" onclick="openDetail('${a.id}')"><div class="featured-label">Latest · ${a.source}</div><button onclick="event.stopPropagation();deleteArticle('${a.id}')" style="position:absolute;top:2px;right:6px;background:none;border:1px solid var(--rule);color:var(--ink-3);cursor:pointer;font-size:10px;padding:1px 4px;opacity:0.4;line-height:1;border-radius:2px" title="Delete">✕</button><div class="article-meta" style="margin-top:0px"><span class="source-label">${a.source}</span>${autoPill}<span class="article-date-label" style="margin-left:auto">${formatPubDate(a)}</span><span class="status-badge ${a.status==='full_text'?'full-text':'title-only'}" style="margin-left:8px">${a.status==='full_text'?'Full text':'Title only'}</span></div><div class="article-meta" style="margin-top:3px">${a.topic?`<span class="topic-pill ${topicClass(a.topic)}" style="${topicStyle(a.topic)}">${a.topic}</span>`:''}</div><div style="position:absolute;top:8px;right:8px"></div><div class="featured-title">${a.title}</div><div class="featured-summary">${a.summary}</div>${folderName?`<div style="margin-top:8px"><span class="folder-badge">📁 ${folderName}</span></div>`:''}${sug}</div>`;}
+    else{html+=`<div class="article-card${a.auto_saved?' ai-pick':''}" style="position:relative;padding-top:20px" data-id="${a.id}" onclick="openDetail('${a.id}')"><button onclick="event.stopPropagation();deleteArticle('${a.id}')" style="position:absolute;top:2px;right:6px;background:none;border:1px solid var(--rule);color:var(--ink-3);cursor:pointer;font-size:10px;padding:1px 4px;opacity:0.4;line-height:1;border-radius:2px" title="Delete">✕</button><div class="article-meta" style="margin-top:0px"><span class="source-label">${a.source}</span>${autoPill}<span class="article-date-label" style="margin-left:auto">${formatPubDate(a)}</span><span class="status-badge ${a.status==='full_text'?'full-text':'title-only'}" style="margin-left:8px">${a.status==='full_text'?'Full text':'Title only'}</span></div><div class="article-meta" style="margin-top:3px">${a.topic?`<span class="topic-pill ${topicClass(a.topic)}" style="${topicStyle(a.topic)}">${a.topic}</span>`:''}</div><div style="position:absolute;top:8px;right:8px"></div><div class="article-title">${a.title}${a.url?'<a href="'+a.url+'" target="_blank" onclick="event.stopPropagation()" style="font-size:11px;color:var(--ink-3);text-decoration:none;margin-left:5px">↗</a>':''}</div><div class="article-summary">${a.summary}</div><div class="article-footer"><div class="article-tags">${(a.tags||[]).map(t=>`<span class="tag">${t}</span>`).join('')}</div>${folderName?`<span class="folder-badge">📁 ${folderName}</span>`:''}</div>${sug}</div>`;}
   }
   el.innerHTML=html;
 }
@@ -3458,8 +3436,12 @@ async function updateActivityBar() {
     function setCount(id, n) {
       const el = document.getElementById(id);
       if (!el) return;
-      el.textContent = n === 0 ? '0 new' : '+' + n;
-      el.className = 'activity-new' + (n === 0 ? ' none' : '');
+      el.textContent = n === 0 ? '—' : '+' + n;
+      // Update the pill container class too
+      const pill = document.getElementById(id + '-pill');
+      if (pill) {
+        pill.className = n > 0 ? 'activity-pill activity-pill-active' : 'activity-pill activity-pill-zero';
+      }
     }
     setCount('act-ft',  recent['Financial Times'] || 0);
     setCount('act-eco', recent['The Economist']   || 0);
@@ -3509,8 +3491,7 @@ function switchMode(mode) {
   const themesEl   = document.getElementById('tab-themes');
   const ktView     = document.getElementById('key-themes-view');
   const mainNav    = document.getElementById('main-nav');
-  const tallyBar   = document.getElementById('tally-bar');
-  const actBar     = document.getElementById('activity-bar');
+  const infoStrip  = document.getElementById('info-strip');
   const feedHeader = document.getElementById('feed-header-outer');
   const mainLayout = document.querySelector('.main-layout');
   const mobileFilter = document.getElementById('mobile-filter-bar');
@@ -3518,42 +3499,36 @@ function switchMode(mode) {
   const briefingEl  = document.getElementById('tab-briefing');
   const briefingView = document.getElementById('briefing-view');
 
-  // Reset all tabs to inactive state
-  newsfeedEl.classList.remove('inactive');
-  themesEl.classList.remove('active');
-  if (briefingEl) briefingEl.classList.remove('active');
+  // Reset all tabs — remove active from all
+  [newsfeedEl, themesEl, briefingEl].forEach(el => { if (el) el.classList.remove('active'); });
 
   if (mode === 'themes') {
-    newsfeedEl.classList.add('inactive');
-    themesEl.classList.add('active');
+    if (themesEl) themesEl.classList.add('active');
     ktView.classList.add('visible');
     if (briefingView) briefingView.classList.remove('visible');
     if (mainLayout) mainLayout.style.display = 'none';
     if (feedHeader) feedHeader.style.display = 'none';
-    if (tallyBar)   tallyBar.style.display = 'none';
-    if (actBar)     actBar.style.display = 'none';
+    if (infoStrip)  infoStrip.style.display = 'none';
     if (mobileFilter) mobileFilter.style.display = 'none';
     mainNav.style.display = 'none';
     renderKeyThemes();
   } else if (mode === 'briefing') {
-    newsfeedEl.classList.add('inactive');
     if (briefingEl) briefingEl.classList.add('active');
     ktView.classList.remove('visible');
     if (briefingView) briefingView.classList.add('visible');
     if (mainLayout) mainLayout.style.display = 'none';
     if (feedHeader) feedHeader.style.display = 'none';
-    if (tallyBar)   tallyBar.style.display = 'none';
-    if (actBar)     actBar.style.display = 'none';
+    if (infoStrip)  infoStrip.style.display = 'none';
     if (mobileFilter) mobileFilter.style.display = 'none';
     mainNav.style.display = 'none';
     bgInit();
   } else {
+    if (newsfeedEl) newsfeedEl.classList.add('active');
     ktView.classList.remove('visible');
     if (briefingView) briefingView.classList.remove('visible');
     if (mainLayout) mainLayout.style.display = '';
     if (feedHeader) feedHeader.style.display = '';
-    if (tallyBar)   tallyBar.style.display = '';
-    if (actBar)     actBar.style.display = '';
+    if (infoStrip)  infoStrip.style.display = '';
     mainNav.style.display = '';
   }
 }
