@@ -2728,6 +2728,22 @@ def get_article_images(aid):
 
 
 
+
+@app.route("/api/brief/context", methods=["POST"])
+def brief_context():
+    """Build scored article context using the same logic as brief_pdf._build_article_context.
+    Accepts a list of articles and returns the pre-selected, formatted context string
+    so bgGenerate can share the same selection logic as the PDF brief pipeline."""
+    from brief_pdf import _build_article_context
+    data = request.json or {}
+    articles = data.get("articles", [])
+    brief_type = data.get("brief_type", "full")
+    if not articles:
+        return jsonify({"context": "", "count": 0})
+    context = _build_article_context(articles, brief_type)
+    count = len([a for a in articles if a.get("summary")])
+    return jsonify({"context": context, "count": count})
+
 @app.route("/api/images/recent", methods=["GET"])
 def images_recent():
     """Return the most recent N images as base64 for progress monitoring.
