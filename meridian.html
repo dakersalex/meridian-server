@@ -35,7 +35,7 @@
   }
 }
 body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color: var(--ink); min-height: 100vh; font-size: 14px; line-height: 1.6; }
-.masthead { border-bottom: 2px solid var(--ink); padding: 14px 20px 10px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+.masthead { border-bottom: 2px solid var(--ink); padding: 14px 20px 10px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; position: sticky; top: 0; z-index: 55; background: var(--paper); }
 .masthead-left { display: flex; align-items: baseline; gap: 12px; }
 .logo { font-family: 'Playfair Display', serif; font-size: 26px; font-weight: 600; letter-spacing: -0.5px; }
 .logo span { color: var(--accent); }
@@ -59,11 +59,11 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
 .source-sync-btn { font-size: 11px; padding: 3px 9px; background: none; border: 1px solid var(--rule); color: var(--ink-3); cursor: pointer; font-family: 'IBM Plex Sans', sans-serif; transition: all 0.15s; }
 .source-sync-btn:hover, .source-sync-btn.syncing { border-color: var(--accent); color: var(--accent); }
 .last-sync { font-size: 11px; color: var(--ink-3); }
-.main-nav { border-bottom: 1px solid var(--rule); padding: 0 20px; display: flex; align-items: center; gap: 0; overflow-x: auto; scrollbar-width: none; }
+.main-nav { border-bottom: 1px solid var(--rule); padding: 0 20px; display: flex; align-items: center; gap: 0; overflow-x: auto; scrollbar-width: none; position: sticky; top: 101px; z-index: 53; background: var(--paper); }
 .main-nav::-webkit-scrollbar { display: none; }
-.nav-tab { padding: 10px 14px; font-size: 12px; color: var(--ink-3); cursor: pointer; border-bottom: 2px solid transparent; white-space: nowrap; letter-spacing: 0.5px; text-transform: uppercase; transition: all 0.15s; background: none; border-top: none; border-left: none; border-right: none; font-family: 'IBM Plex Sans', sans-serif; display: flex; align-items: center; gap: 5px; }
+.nav-tab { padding: 8px 14px; font-size: 11px; color: var(--ink-3); cursor: pointer; border-bottom: 2px solid transparent; white-space: nowrap; letter-spacing: 0.6px; text-transform: uppercase; transition: all 0.15s; background: none; border-top: none; border-left: none; border-right: none; font-family: 'IBM Plex Sans', sans-serif; display: flex; align-items: center; gap: 5px; }
 .nav-tab:hover { color: var(--ink); }
-.nav-tab.active { color: var(--ink); font-weight: 500; border-bottom: 3px solid var(--accent); background: var(--accent-light); }
+.nav-tab.active { color: var(--ink); font-weight: 600; border-bottom: 3px solid var(--accent); background: none; }
 .nav-count { font-size: 10px; background: var(--paper-3); color: var(--ink-3); padding: 1px 5px; border-radius: 8px; }
 .nav-tab.active .nav-count { background: var(--accent-light); color: var(--accent); }
 .add-folder-btn { margin-left: auto; padding: 6px 12px; font-size: 11px; background: none; border: 1px dashed var(--rule); color: var(--ink-3); cursor: pointer; font-family: 'IBM Plex Sans', sans-serif; white-space: nowrap; transition: all 0.15s; }
@@ -223,7 +223,7 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
 .sug-btn { font-size: 11px; padding: 3px 10px; cursor: pointer; font-family: 'IBM Plex Sans', sans-serif; border-radius: 2px; }
 .sug-confirm { background: var(--accent); color: white; border: none; }
 .sug-dismiss { background: none; border: none; color: var(--ink-3); font-size: 14px; cursor: pointer; padding: 0; }
-.featured-card { background: var(--paper-2); border: 1px solid var(--rule); padding: 18px 20px; margin-bottom: 2px; cursor: pointer; transition: opacity 0.15s; }
+.featured-card { background: var(--paper-2); border: none; border-bottom: 1px solid var(--rule); padding: 18px 20px; margin-bottom: 2px; cursor: pointer; transition: opacity 0.15s; }
 .featured-card:hover { opacity: 0.8; }
 .featured-label { font-size: 10px; text-transform: uppercase; letter-spacing: 1.5px; font-weight: 500; color: var(--accent); margin-bottom: 6px; }
 .featured-title { font-family: 'Playfair Display', serif; font-size: 21px; font-weight: 600; line-height: 1.25; margin-bottom: 8px; }
@@ -341,8 +341,8 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
 .activity-pill-zero { background: var(--paper-2); color: var(--ink-3); }
 .activity-pill-active { background: #f5ede4; color: var(--accent); border-color: #e8c9a8; }
 /* My saves vs AI card distinction */
-.article-card.ai-pick { background: var(--paper); border-left: 3px solid var(--accent); }
-.featured-card.ai-pick { background: var(--paper); border-left: 3px solid var(--accent); }
+.article-card.ai-pick { background: var(--paper); }
+.featured-card.ai-pick { background: var(--paper); }
 .activity-new { 
   background: #e8f5e4; color: #2d6b45; 
   padding: 1px 6px; border-radius: 8px; 
@@ -384,8 +384,9 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
   align-items: center;
   border-bottom: 1px solid var(--rule);
   gap: 2px;
-  z-index: 10;
-  position: relative;
+  position: sticky;
+  top: 57px;
+  z-index: 54;
 }
 .folder-tab {
   display: flex;
@@ -393,14 +394,14 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
   gap: 7px;
   padding: 5px 14px;
   border-radius: 6px;
-  font-size: 12px;
-  font-weight: 500;
+  font-size: 13px;
+  font-weight: 600;
   font-family: 'IBM Plex Sans', sans-serif;
   border: none;
   background: none;
   color: var(--ink-3);
   cursor: pointer;
-  letter-spacing: 0.2px;
+  letter-spacing: 0.1px;
   transition: background 0.12s, color 0.12s;
   white-space: nowrap;
 }
@@ -1322,11 +1323,11 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
     <div class="logo">Meri<span>dian</span></div>
     <div class="tagline">Intelligence Aggregator</div>
   </div>
-  <div class="masthead-right">
-    <div class="date-line" id="date-display"></div>
+  <div class="masthead-right" style="flex-direction:column;align-items:flex-end;gap:2px">
+    <div class="date-line" id="date-display" style="font-size:13px;color:var(--ink-2)"></div>
+    <span id="last-sync-masthead" style="font-size:11px;color:var(--ink-3)"></span>
     <button class="btn btn-outline" onclick="openModal()" id="add-article-btn" style="display:none">+ Add Article</button>
     <button class="btn btn-outline" onclick="openInterviewModal()" id="add-interview-btn" style="display:none">+ Add Interview</button>
-
   </div>
 </div>
 <div id="folder-switcher">
@@ -1338,7 +1339,7 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
       <div class="status-dot" id="status-dot"></div>
       <span id="status-text" style="font-size:11px;color:var(--ink-3)">Checking server…</span>
     </div>
-    <span class="last-sync" id="last-sync-label" style="font-size:11px;color:var(--ink-3)"></span>
+    <span class="last-sync" id="last-sync-label" style="display:none"></span>
     <button class="btn btn-dark" onclick="openAIPanel()" style="background:var(--accent);font-size:11px;padding:5px 14px">✦ AI Analysis</button>
     <button class="btn btn-dark mobile-sync-btn" onclick="syncAll()" style="display:none;background:var(--accent);font-size:11px;padding:4px 10px">🔄 Sync</button>
   </div>
@@ -1350,13 +1351,6 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
   <button class="nav-tab" onclick="setView('interviews',this)">Interviews <span class="nav-count" id="count-interviews">0</span></button>
   <button class="nav-tab" onclick="setView('suggested',this)">Suggested <span class="nav-count" id="count-suggested">0</span></button>
   <div id="folder-tabs"></div>
-  <div style="margin-left:auto;display:flex;align-items:center;gap:10px;padding-right:4px">
-    <div style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--ink-3)">
-      <div class="status-dot" id="status-dot-nav"></div>
-      <span id="status-text-nav">Checking…</span>
-    </div>
-    <span id="last-sync-nav" style="font-size:11px;color:var(--ink-3)"></span>
-  </div>
 </div>
 <!-- Mobile filter bar: hidden on desktop, shown on mobile via CSS -->
 <div id="mobile-filter-bar" style="display:none">
@@ -1379,7 +1373,7 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
     <option value="ai">AI picks</option>
   </select>
 </div>
-<div id="info-strip" style="display:flex;align-items:center;gap:10px;padding:6px 20px;background:var(--paper-2);border-bottom:1px solid var(--rule);font-size:11px;flex-wrap:nowrap">
+<div id="info-strip" style="display:flex;align-items:center;gap:10px;padding:6px 20px;background:var(--paper-2);border-bottom:1px solid var(--rule);font-size:11px;flex-wrap:nowrap;position:sticky;top:137px;z-index:52;">
   <span style="color:var(--ink-2);white-space:nowrap">My saves: <strong style="color:var(--ink);font-weight:600"><span id="tally-saves">–</span></strong> <span id="tally-saves-pct" style="color:var(--ink-3)"></span></span>
   <div style="width:1px;height:12px;background:var(--rule);flex-shrink:0"></div>
   <span style="color:var(--ink-2);white-space:nowrap">AI picks: <strong style="color:var(--accent);font-weight:600"><span id="tally-ai">–</span></strong> <span id="tally-ai-pct" style="color:var(--ink-3)"></span></span>
@@ -1389,7 +1383,7 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
   <span id="act-eco-pill" class="activity-pill activity-pill-zero"><span style="color:#8b1a1a;font-weight:500">Economist</span> <span id="act-eco">–</span></span>
   <span id="act-fa-pill" class="activity-pill activity-pill-zero"><span style="color:#1e4d8c;font-weight:500">FA</span> <span id="act-fa">–</span></span>
   <span id="act-bbg-pill" class="activity-pill activity-pill-zero"><span style="color:#555;font-weight:500">Bloomberg</span> <span id="act-bbg">–</span></span>
-  <span id="act-fp-pill" class="activity-pill activity-pill-zero"><span style="color:#2d6b45;font-weight:500">FP</span> <span id="act-fp">–</span></span>
+  <span id="act-fp-pill" class="activity-pill activity-pill-zero"><span style="color:#2d6b45;font-weight:500">Foreign Policy</span> <span id="act-fp">–</span></span>
   <span class="activity-warning" id="act-warning" style="display:none">⚠ FT sync found 0 articles</span>
   <span style="display:none" id="tally-total">0</span>
   <div style="margin-left:auto;display:flex;gap:6px;flex-shrink:0">
@@ -1495,7 +1489,7 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
 </div>
 
 <!-- filter row — visually distinct from info strip above -->
-<div id="feed-header-outer" style="display:flex;align-items:center;gap:8px;padding:7px 20px;background:var(--paper);border-bottom:2px solid var(--rule);">
+<div id="feed-header-outer" style="display:flex;align-items:center;gap:8px;padding:7px 20px;background:var(--paper);border-bottom:2px solid var(--rule);position:sticky;top:174px;z-index:51;">
   <span style="font-size:10px;font-weight:500;letter-spacing:0.8px;text-transform:uppercase;color:var(--ink-3);margin-right:4px">Filter</span>
   <span class="feed-title" id="feed-title" style="display:none"></span>
   <select class="filter-select" id="status-filter" onchange="renderFeed()"><option value="all">All articles</option><option value="full_text">Full text only</option><option value="title_only">Title only</option></select>
@@ -1768,8 +1762,8 @@ function formatDate(ts){return new Date(ts).toLocaleDateString('en-GB',{day:'num
 function formatPubDate(a){if(a.pub_date&&a.pub_date!=='null'&&a.pub_date!==''){const d=new Date(a.pub_date);if(!isNaN(d))return d.toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'});return a.pub_date;}if(a.saved_at){const d=new Date(a.saved_at);if(!isNaN(d)&&d.getFullYear()>2000)return d.toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'});}return '';}
 
 async function checkServer(){
-  try{const r=await fetch(SERVER+'/api/health',{signal:AbortSignal.timeout(3000)});if(r.ok){serverOnline=true;document.getElementById('status-dot').className='status-dot connected';document.getElementById('status-text').textContent='meridianreader.com · connected';const nd=document.getElementById('status-dot-nav');if(nd)nd.className='status-dot connected';const nt=document.getElementById('status-text-nav');if(nt)nt.textContent='meridianreader.com · connected';return true;}}catch(e){}
-  serverOnline=false;document.getElementById('status-dot').className='status-dot error';document.getElementById('status-text').textContent='Server offline — check systemctl status meridian on VPS';const nd2=document.getElementById('status-dot-nav');if(nd2)nd2.className='status-dot error';const nt2=document.getElementById('status-text-nav');if(nt2)nt2.textContent='Server offline';return false;
+  try{const r=await fetch(SERVER+'/api/health',{signal:AbortSignal.timeout(3000)});if(r.ok){serverOnline=true;document.getElementById('status-dot').className='status-dot connected';document.getElementById('status-text').textContent='meridianreader.com · connected'return true;}}catch(e){}
+  serverOnline=false;document.getElementById('status-dot').className='status-dot error';document.getElementById('status-text').textContent='Server offline — check systemctl status meridian on VPS'return false;
 }
 
 async function loadFromServer(){
@@ -1782,7 +1776,7 @@ async function loadFromServer(){
     const needs=articles.filter(a=>!a.folder&&!pendingSuggestions[a.id]&&a.title);
     if(needs.length>0&&folders.length>0)suggestFoldersForArticles(needs.slice(0,20));
     saveAll();renderAll();
-    const navSync=document.getElementById('last-sync-nav');if(navSync)navSync.textContent=document.getElementById('last-sync-label').textContent;document.getElementById('last-sync-label').textContent='Synced '+new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
+    const syncText='Synced '+new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});document.getElementById('last-sync-label').textContent=syncText;const mSync=document.getElementById('last-sync-masthead');if(mSync)mSync.textContent=syncText;
     // Update newsletter count
     try {
       const nr = await fetch(SERVER+'/newsletters?limit=1');
@@ -2679,7 +2673,7 @@ async function sendAIMessage(){
   document.getElementById('download-btn').style.display='';
   }
 }
-document.getElementById('date-display').textContent=new Date().toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
+document.getElementById('date-display').textContent=new Date().toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long',year:'numeric'});const mSyncInit=document.getElementById('last-sync-masthead');if(mSyncInit)mSyncInit.textContent='';
 
 // Clear stale localStorage cache if article count mismatches
 (async()=>{
