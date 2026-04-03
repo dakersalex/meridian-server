@@ -456,9 +456,9 @@ def _build_article_context(articles, brief_type):
             excerpt = body[:BODY_EXCERPT].rsplit(' ', 1)[0]
             snippet += '\nEXCERPT: ' + excerpt + '…'
         parts.append(snippet)
-    return '\n\n---\n\n'.join(parts)
+    return '\n\n---\n\n'.join(parts), len(selected)
 
-def build_brief_pdf(theme, articles, brief_text, brief_type="full", db_path=None):
+def build_brief_pdf(theme, articles, brief_text, brief_type="full", db_path=None, selected_count=None):
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.units import cm
     from reportlab.lib.styles import ParagraphStyle
@@ -587,8 +587,10 @@ def build_brief_pdf(theme, articles, brief_text, brief_type="full", db_path=None
 
     story.append(Paragraph(f"{emoji}  {name.upper()} - INTELLIGENCE BRIEF", SE))
     story.append(Paragraph(name, ST))
+    if selected_count is None:
+        selected_count = len(articles)
     story.append(Paragraph(
-        f"Meridian Intelligence  .  {today}  .  {len(articles)} articles"
+        f"Meridian Intelligence  .  {today}  .  {selected_count} articles"
         f"  .  {len(sources)} sources", SM))
     story.append(HRFlowable(width="100%", thickness=2, color=AMBER, spaceAfter=20))
 
@@ -808,7 +810,8 @@ def start_pdf_job(job_id, theme, articles, brief_type, db_path, base_dir,
                 cp = Path(base_dir) / "credentials.json"
                 api_key = (json.loads(cp.read_text()).get("anthropic_api_key", "")
                            if cp.exists() else "")
-                ctx = _build_article_context(articles, brief_type)
+                ctx, _sel_count = _build_article_context(articles, brief_type)
+                selected_count = _sel_count
                 prompt = _build_prompt(theme.get("name", ""), theme.get("subtopics", []),
                                        ctx, brief_type)
                 mt = 1500 if brief_type == "short" else 4000

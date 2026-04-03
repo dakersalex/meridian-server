@@ -2624,7 +2624,7 @@ def kt_brief():
             from brief_pdf import _build_prompt, _build_article_context
             name = theme.get("name", "")
             subtopics = theme.get("subtopics", [])
-            art_context = _build_article_context(articles, brief_type)
+            art_context, art_count = _build_article_context(articles, brief_type)
             prompt = _build_prompt(name, subtopics, art_context, brief_type)
             max_tokens = 1500 if brief_type == "short" else 4000
 
