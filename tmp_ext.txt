@@ -1,0 +1,23 @@
+=== Extension files ===
+/Users/alexdakers/meridian-server/extension/popup.js
+/Users/alexdakers/meridian-server/extension/background.js
+/Users/alexdakers/meridian-server/extension/popup.html
+/Users/alexdakers/meridian-server/extension/manifest.json
+/Users/alexdakers/meridian-server/extension/content.js
+
+=== Bloomberg/scraper refs ===
+/Users/alexdakers/meridian-server/extension/popup.js:  'ft.com/myft/saved-articles':      { source: 'Financial Times', key: 'ft' },
+/Users/alexdakers/meridian-server/extension/popup.js:          saved_at: Date.now(), fetched_at: Date.now(), pub_date: '',
+/Users/alexdakers/meridian-server/extension/popup.js:          saved_at: Date.now(), fetched_at: Date.now(), pub_date: pubDate,
+/Users/alexdakers/meridian-server/extension/popup.js:        status.textContent = '✓ Saved new article';
+/Users/alexdakers/meridian-server/extension/background.js:  if (url.includes('bloomberg.com')) return 'Bloomberg';
+/Users/alexdakers/meridian-server/extension/background.js:// ── Auto-harvest FT cookies when FT saved articles page loads ──
+/Users/alexdakers/meridian-server/extension/background.js:const FT_SAVED_URL = 'ft.com/myft/saved-articles';
+/Users/alexdakers/meridian-server/extension/background.js:const ECONOMIST_SAVED_URL = 'economist.com/for-you/bookmarks';
+/Users/alexdakers/meridian-server/extension/background.js:  if (tab.url.includes(FT_SAVED_URL)) {
+/Users/alexdakers/meridian-server/extension/background.js:  if (tab.url.includes(ECONOMIST_SAVED_URL)) {
+/Users/alexdakers/meridian-server/extension/background.js:          saved_at: Date.now(),
+/Users/alexdakers/meridian-server/extension/background.js:      console.log('Auto-clip: saved new', title);
+/Users/alexdakers/meridian-server/extension/manifest.json:    "https://www.bloomberg.com/*",
+/Users/alexdakers/meridian-server/extension/manifest.json:        "https://www.bloomberg.com/*",
+/Users/alexdakers/meridian-server/extension/content.js:  } else if (url.includes('bloomberg.com')) {

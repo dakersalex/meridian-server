@@ -277,12 +277,15 @@ def fetch_ft_article_text(page, url):
                 txt = el.get_text(strip=True)
                 if txt:
                     pub_date = txt; break
-        # FT article body selectors
-        body_el = soup.select_one("div.article__content, div[class*='article-body'], div[class*='body-text']")
-        text = ""
-        if body_el:
-            paragraphs = body_el.find_all("p")
-            text = " ".join(p.get_text(strip=True) for p in paragraphs if len(p.get_text(strip=True)) > 30)
+        # FT article body selectors — updated for FT's current markup (o3/n-content classes)
+        paragraphs = (
+            soup.select("div.n-content-body p") or
+            soup.select("div[class*='n-content-body'] p") or
+            soup.select("div[class*='article__content'] p") or
+            soup.select("div[class*='article-body'] p") or
+            soup.select("div[class*='body-text'] p")
+        )
+        text = " ".join(p.get_text(strip=True) for p in paragraphs if len(p.get_text(strip=True)) > 30)
         return text, pub_date
     except Exception as e:
         log.warning(f"FT fetch text error for {url}: {e}")
@@ -2072,6 +2075,8 @@ def score_and_autosave_new_articles():
               AND saved_at >= ?
               AND title != ''
         """, (cutoff_ts,)).fetchall()
+        # Note: only FT/Economist scored here — FA/Bloomberg arrive via scraper/extension
+        # Non-core sources (CNN, CFR, FP etc) are never auto-saved to Feed, only Suggested
     candidates = [dict(r) for r in rows]
     if not candidates:
         log.info("score_and_autosave: no new FT/Economist articles in last 24h")
@@ -2177,8 +2182,12 @@ def auto_dismiss_old_suggested(days=30):
         log.info(f"Auto-dismiss: {dismissed} suggested articles older than {days} days dismissed")
     return dismissed
 
+# Core sources allowed in the main Feed via auto-save
+FEED_CORE_SOURCES = {'Financial Times', 'The Economist', 'Foreign Affairs', 'Bloomberg'}
+
 def run_agent():
-    """Auto-save high-scoring suggested articles to Feed."""
+    """Auto-save high-scoring suggested articles to Feed.
+    Only FT/Economist/FA/Bloomberg go to Feed — all other sources stay in Suggested."""
     with sqlite3.connect(DB_PATH) as cx:
         cx.row_factory = sqlite3.Row
         candidates = cx.execute(
@@ -2192,6 +2201,11 @@ def run_agent():
             with sqlite3.connect(DB_PATH) as cx:
                 cx.execute("UPDATE suggested_articles SET status='saved' WHERE id=?", (row["id"],))
             continue
+        # Non-core sources stay in Suggested — only core sources go to Feed
+        if row["source"] not in FEED_CORE_SOURCES:
+            log.info(f"Agent: '{row['title'][:50]}' from '{row['source']}' — non-core, keeping in Suggested only")
+            continue
+
         art = {
             "id": aid, "source": row["source"], "url": row["url"],
             "title": row["title"], "body": "", "summary": row.get("reason", ""),

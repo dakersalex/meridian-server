@@ -1,0 +1,132 @@
+agent_log columns: ['id', 'article_id', 'title', 'url', 'score', 'reason', 'saved_at']
+
+╔══════════════════════════════════════════════════════════════╗
+  FEED AUTO-SAVE ANALYSIS (last 100 agent log entries)
+╚══════════════════════════════════════════════════════════════╝
+
+── BY SOURCE ─────────────────────────────────────────────────
+Source                          Count  Avg Score   Min   Max
+------------------------------------------------------------
+Financial Times                    28        8.7     8    10
+Foreign Affairs                    13        8.8     8    10
+The Economist                       6        8.7     8     9
+unknown                             2        8.5     8     9
+Foreign Policy                      2        8.0     8     8
+CNN                                 2        8.0     8     8
+Washington Examiner                 1        8.0     8     8
+CEBRI Journal                       1        8.0     8     8
+Council on Foreign Relations        1        8.0     8     8
+Tax Foundation                      1        8.0     8     8
+J.P. Morgan                         1        8.0     8     8
+Atlantic Council                    1        8.0     8     8
+
+── SCORE DISTRIBUTION ────────────────────────────────────────
+  Score 10: 3 articles
+  Score 9: 29 articles
+  Score 8: 27 articles
+
+── ALL AUTO-SAVED SOURCES IN FEED ────────────────────────────
+  Financial Times                       28 articles
+  The Economist                         20 articles
+  Foreign Affairs                       13 articles
+  Foreign Policy                         2 articles
+  CNN                                    2 articles
+  Washington Examiner                    1 articles
+  Tax Foundation                         1 articles
+  J.P. Morgan                            1 articles
+  Council on Foreign Relations           1 articles
+  CEBRI Journal                          1 articles
+  Atlantic Council                       1 articles
+
+── RECENT NON-CORE AUTO-SAVES (not FT/Eco/FA/BBG) ───────────
+
+  [8] [Washington Examine] Trump tariffs and 'TACO': Why markets stopped reacting
+       Analysis of market reactions to tariff policy and geopolitical risks including Strait of H
+
+  [8] [CEBRI Journal] From Geoeconomics to Trump's Geopolitics
+       Analysis of how Trump's trade weaponization represents a shift from geoeconomics to geopol
+
+  [8] [Council on Foreign] Geopolitics of Trump Tariffs: How U.S. Trade Policy Has Shaken Al
+       CFR expert analysis on how Trump's tariffs affect relationships with key allies across reg
+
+  [8] [Tax Foundation] Tracking the Impact of the Trump Tariffs & Trade War
+       Comprehensive tracking of tariff implementation with economic impact analysis updated with
+
+  [8] [J.P. Morgan] US Tariffs: What's the Impact?
+       Current financial analysis of tariff impacts on markets and global economy with recent dat
+
+  [8] [Foreign Policy] Iran War: Will Trump Put Boots on the Ground?
+       Analysis of potential U.S. ground operations in Iran and military strategy implications
+
+  [8] [Foreign Policy] Trump's War on Iran is Unravelling U.S. Strategy in the Gulf
+       Analysis of how Iran war impacts U.S. Gulf strategy and regional alliances
+
+  [8] [CNN] Analysis: Trump's new red line could set the Iran war on a fatefu
+       Analysis of Trump's ultimatum over Strait of Hormuz and lack of clear strategy or endgame.
+
+  [8] [Atlantic Council] Trump is fighting two wars with Iran. He needs to win both.
+       Strategic analysis identifying military and economic fronts of Iran conflict and need for 
+
+  [8] [CNN] Analysis: If Trump's diplomacy fails, the Iran war could get much
+       Analysis of Trump's erratic diplomatic approach and risks of escalation if negotiations fa
+
+
+╔══════════════════════════════════════════════════════════════╗
+  BLOOMBERG ANALYSIS
+╚══════════════════════════════════════════════════════════════╝
+
+  Total Bloomberg:          38
+  Auto-saved (agent):       0
+  Your manual saves:        38
+
+── HOW BLOOMBERG CURRENTLY WORKS ─────────────────────────────
+  NO automated Playwright scraper — Bloomberg blocks headless browsers.
+  Bloomberg articles arrive via:
+    a) Agent web search (Sonnet scores, auto-saves if >=8)
+    b) Manual + Add Article
+  Your saved Bloomberg articles in the Bloomberg app are NOT
+  automatically synced — there is no bloomberg_scraper equivalent.
+
+  bloomberg_profile/ exists: True
+
+── YOUR MANUAL BBG SAVES (auto_saved=0) ──────────────────────
+  [2,763ch] Gold Tumbles as Powell’s Inflation Concerns Dash Easing Bets
+  [    0ch] Norway’s $2 Trillion Wealth Fund Is Sounding a Warning on Iran
+  [6,555ch] Trump Ditches Appeal for Help in Iran War, Slamming Allies
+  [5,954ch] SNB Is About to Reveal Its Resolve on Franc Strength
+  [4,941ch] AI and Power Looms: Stories About Job-Killing Tech Have a Way of Going
+  [5,128ch] Europe Stands Up to Donald Trump Threats Over Iran War Support
+  [9,974ch] Trump’s Tariffs Will Loom Large Over the Midterms, Whatever Happens in
+  [3,878ch] Oil Jump to Stir BOJ's Worry Over Risk of Inflation Overheating
+  [3,329ch] Stocks Stage Cautious Advance as Iran War Drags On: Markets Wrap
+  [2,769ch] Gold Wavers as Traders Weigh Inflation Risks, Oil-Supply Shock
+  [14,656ch] There's a Sweet Spot in Menswear Today. Todd Snyder Is Designing for I
+  [9,849ch] Traders Are Ditching Giant Hedge Funds to Set Their Own Terms
+  [5,444ch] Israel Says Strike Killed Iran's Larijani as War Intensifies
+  [2,964ch] UK Funds Snap Up Gilts in Bet That Markets Have BOE All Wrong
+  [5,866ch] Charities Face Projected $5.7 Billion Yearly Hit From Tax Change
+  [1,622ch] Swiss Back a New Wealth Tax on the Richest Residents in Poll
+  [7,230ch] Trump Sons Are Behind a $750 Million Push Into Drone Warfare
+  [3,556ch] Ex-Starbucks CEO Schultz Moves With Family Office to Miami
+  [8,859ch] UK Wealth Cracks Widen as Family Offices Start Scaling Back
+  [7,019ch] Iran War Chokepoints Begin to Cast Doubt on Global Chip Supply
+  [3,223ch] Finland’s Stubb Cautions NATO Allies to Heed Trump’s Hormuz Call
+  [6,019ch] Trump Delay of Xi Talks Buys China Time to Game Out Iran War
+  [2,924ch] Trump Says He Asked China to Delay Xi Summit Due to Iran War
+  [2,070ch] OpenAI in Talks for $10 Billion Joint Venture With PE Firms
+  [5,574ch] European Defense Stocks Stall as Investors Seek Earnings Proof - Bloom
+  [6,328ch] Best Stock Trade of 2025 Keeps Running, Question Is for How Long
+  [12,055ch] Hindsight Makes It Easy to Profit From Trump 2.0
+  [14,343ch] The Top Stories That Made Waves in 2025
+  [1,802ch] How the Powell Probe Could Blow Up Trump’s Fed Plans
+  [  605ch] How Iran’s Economic Protests Started — And How They Could End
+  [5,438ch] Citi Slumps as CEO Tempers Expectations on Regulatory Penalties
+  [5,446ch] London Apartments Are Cheap — For a Reason
+  [2,021ch] Swiss Voters Want ‘Wedding Penalty’ Tax to End, Poll Shows
+  [7,625ch] Rout Deepens on Wall Street as Tech, Crypto Slide: Markets Wrap
+  [5,275ch] War Cost Sinks Long-Term Government Bonds on Deficit Worries
+  [5,060ch] US Bonds Poised to Erase Year’s Gains as Oil Surge Deepens Slump
+  [9,487ch] Market Cracks Widen as War, AI and Credit Fears Collide at Once
+  [1,721ch] Dimon Says Exuberant Market Doesn’t Match ‘Fine’ Economy
+
+── RECENT AUTO BBG (agent picks) ─────────────────────────────
