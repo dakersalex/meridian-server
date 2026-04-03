@@ -1,5 +1,5 @@
 # Meridian — Technical Notes
-Last updated: 2 April 2026 (Session 35 — FA fix, Economist backfill, theme crash fix, tmp cleanup)
+Last updated: 3 April 2026 (Session 36 — article health check, body text fixes, feed cleanup)
 
 ## Overview
 Personal news aggregator. Flask API + SQLite backend running on Hetzner VPS (always-on).
@@ -66,9 +66,13 @@ One command from Mac (via shell bridge — Claude runs this autonomously):
   cd ~/meridian-server && ./deploy.sh "description"
 (git add -A, commit, push, SSH pull on VPS, systemctl restart meridian)
 
-## Database (2 April 2026)
-- Mac: ~531 articles total. Economist: 258 full_text. FA: 52 total, 41 full_text (avg 7,930 chars).
-- VPS: 495 full_text articles pushed from Mac (backfill complete). Economist gap resolved.
+## Database (3 April 2026)
+- Mac: 554 articles total
+- Economist: 268 articles, avg body 5,898 chars (real text — fixed this session)
+- Financial Times: 173 articles, avg body 3,837 chars (38 still AI summaries — see FT below)
+- Foreign Affairs: 57 articles, avg body 11,469 chars (56/57 full text — fixed)
+- Bloomberg: 38 articles, all manual clips via Chrome extension
+- VPS: 534 full_text articles pushed (backfill complete)
 
 ---
 
@@ -84,7 +88,7 @@ Claude has full access to run all terminal commands, patches, and deployments vi
 - Running patch scripts (filesystem:write_file → window.shell('python3 ~/meridian-server/tmp_*.py'))
 - Syntax checks (window.shell('python3 -m py_compile ~/meridian-server/server.py'))
 - Deploying (window.shell('cd ~/meridian-server && ./deploy.sh "message"'))
-- SSH/VPS commands (write script → scp to VPS → ssh to run it)
+- SSH/VPS commands (write script locally → scp to VPS → ssh to run it)
 - Checking logs (fetch via shell bridge → write to ~/meridian-server/tmp_*.txt → read via Filesystem MCP)
 
 Alex is not present during execution. Complete all tasks end-to-end autonomously.
@@ -114,102 +118,151 @@ window.shell = (cmd) => fetch('http://localhost:4242/api/dev/shell', {
 - Always python3 -m py_compile server.py before deploying
 - After deploying, verify via live site tab (Tab B)
 - Tmp files: always clean up with git rm tmp_*.py tmp_*.txt after sessions
+- ft_profile / economist_profile / fa_profile are used by launchd sync — never run Playwright
+  against them while sync service is active (profile lock causes 0-char results)
 
 ### Dangerous operations checklist
 Before any DELETE/UPDATE on DB: SELECT preview first, confirm what will be affected, then execute.
 
 ---
 
+## Article Body Text — Architecture (IMPORTANT)
+
+### Correct architecture (enforced from Session 36)
+- `body` = raw scraped article text from Playwright (5,000–20,000 chars for full articles)
+- `summary` = 2-3 sentence AI summary (Haiku) — used for Feed card previews + keyword matching
+- `status = 'full_text'` = body was successfully populated from Playwright
+
+### The fullSummary overwrite bug — FIXED
+- **Root cause**: `enrich_article_with_ai` was always overwriting `body` with AI `fullSummary`
+  (~2,000 chars), even when Playwright had already stored real article text (5,000+ chars)
+- **Why it happened**: `enrich_article_with_ai` was written before Playwright scrapers existed
+  (Sessions 1-3). When scrapers were added later, the overwrite was never removed
+- **Fix deployed (Session 36)**: `enrich_article_with_ai` now only writes to `body` if body
+  is currently empty (<200 chars). Raw scraped text is always preserved
+- **Impact**: Economist avg body 2,132→5,898 chars; FA avg 2,500→11,469 chars after re-enrichment
+
+### Re-enrichment completed
+- Economist: 266 articles re-enriched — avg 2,132 → 5,898 chars ✅
+- FA: 57 articles re-enriched — avg 2,500 → 11,469 chars ✅
+- FT: 38 articles still need re-enrichment — blocked by ft_profile lock (launchd conflict)
+  → These will self-correct on the next scheduled FT sync (05:40 or 11:40)
+  → FT session was confirmed authenticated; selector was also updated (see FT section below)
+
+---
+
+## Source-Specific Notes
+
+### Financial Times
+- Scraper: Playwright, `ft_profile/`, saved articles page + article text fetch
+- Selector (updated Session 36): `div.n-content-body p` (primary — FT changed CSS classes)
+  fallback: `div[class*='n-content-body'] p`, `div[class*='article__content'] p`
+- Session: expires periodically, requires manual re-login to ft_profile Chromium
+  Symptom: Playwright returns "Just a moment..." (Cloudflare) with 0 paragraphs
+- 38 FT articles have AI summaries as body — will be fixed on next sync
+
+### The Economist
+- Scraper: Playwright, `economist_profile/`, bookmarks + homepage agent picks
+- Selector: `p[data-component="paragraph"]` — confirmed working
+- headless=False required (Cloudflare detection)
+- Re-enrichment done — avg body 5,898 chars
+
+### Foreign Affairs
+- Scraper: Playwright, `fa_profile/`, saved articles page
+- TWO page templates — both now handled:
+  - New template: `div.article__body-content p`
+  - Old template: `section.rich-text p` (added Session 36 — was causing "paywalled" false positives)
+- Session: Drupal cookie `SSESS8d72...` valid until 2026-05-23
+- 56/57 articles full text, avg 11,469 chars
+
+### Bloomberg
+- NO automated scraper — Bloomberg bot detection kills headless Playwright on homepage
+- Bloomberg was previously attempted but removed due to bot detection
+- All 38 Bloomberg articles added via Chrome Extension v1.3 clip button
+- Workflow: open Bloomberg article in Chrome → click Meridian extension → "Clip Article"
+- Extension detects bloomberg.com, extracts full text from DOM in real logged-in session
+- No Bloomberg saved-articles sync — extension only clips individual open articles
+
+### Bloomberg Chrome Extension (extension/ folder)
+- Clip Article: scrapes current page DOM, sends to /api/articles (works for any source)
+- Sync Bookmarks: bulk import from FT/Economist saved pages (NOT Bloomberg)
+- Bloomberg is NOT in BOOKMARKS_PAGES — no bulk sync available
+- Recommended: continue individual article clipping as needed
+
+---
+
+## Feed Source Restriction (Session 36)
+
+Only FT/Economist/FA/Bloomberg articles are auto-saved to the main Feed (auto_saved=1).
+All other sources (CNN, CFR, Foreign Policy, Atlantic Council, etc.) remain in Suggested only
+regardless of relevance score. This keeps the Feed clean while preserving full analysis depth
+(Suggested articles are still used by briefs and AI Analysis).
+
+Implemented in server.py:
+- `FEED_CORE_SOURCES = {'Financial Times', 'The Economist', 'Foreign Affairs', 'Bloomberg'}`
+- `run_agent()` skips non-core sources — they stay in Suggested with status='new'
+- Current Feed: 64 auto-saved articles (FT:30, Economist:21, FA:13) — all core sources ✅
+
+---
+
 ## Key Themes (KT) System
 
-### Current state (2 April 2026)
-- **8 themes** on VPS, sorted by article count descending
-- key_facts: ⚠️ still 0 on all themes (max_tokens fix deployed but seed ran before it)
-  → Trigger one more Reset Themes on live site at start of next session
-- 531 articles tagged
+### Current state (3 April 2026)
+- 8 themes on VPS, sorted by article count descending
+- key_facts: ⚠️ STILL BLANK — fix deployed (max_tokens 1500→2500) but all seeds ran before it
+  → **Priority 1 next session: trigger Reset Themes on live site**
+- getThemeArticles() now accepts both theme object OR numeric index (signature fix Session 36)
 
 ### kt_themes dedup bug — FIXED
-- `kt_themes` uses `name` as PRIMARY KEY — re-seeds with slightly different names accumulate rows
-- Fixed: `/api/kt/themes` now filters by `MAX(last_updated)` so only latest seed is returned
-- If accumulation ever happens again: delete stale rows on VPS by timestamp (keep latest batch)
+- `/api/kt/themes` now filters by MAX(last_updated) — only latest seed returned
+- If 16-theme accumulation happens again: delete stale rows on VPS by comparing last_updated
 
-### Theme grid design (Session 35)
-- **8 AI-generated themes** sorted by matched article count (most articles top-left)
-- **2 manual slots** (silver dashed border) — modal with name + keywords + emoji
-  - Stored in localStorage: `meridian_manual_themes`
-  - Auto-marked permanent on creation
-- **★ Permanent themes** (gold border + "PERMANENT" badge)
-  - Click ☆ star to make permanent; stored in localStorage: `meridian_permanent_themes`
-  - Survive Reset Themes — listed in confirm dialog
-  - Un-star before reset to allow free regeneration
-- **Reset Themes confirm** lists permanent themes by name
+### Theme grid (Session 36)
+- 8 AI themes sorted by matched article count (most articles top-left)
+- ☆/★ star = permanent (gold border + badge), stored in localStorage `meridian_permanent_themes`
+- 2 silver dashed manual slots with name/keywords/emoji modal, localStorage `meridian_manual_themes`
+- Reset Themes confirm dialog lists permanent themes by name
 
-### kt/seed pipeline (3-call architecture)
-- **Call 1** — Sonnet: 165 representative titles → 8 themes. max_tokens=3000, timeout=60s
-- **Call 2** — Haiku: batches of 50 → article→theme assignments
-- **Call 3** — Haiku per theme → key_facts + subtopic_details. max_tokens=2500, timeout=45s
+### kt/seed pipeline
+- Call 1: Sonnet, 165 sample titles → 8 themes. max_tokens=3000, timeout=60s
+- Call 2: Haiku, batches of 50 → article→theme assignments
+- Call 3: Haiku per theme → key_facts + subtopic_details. max_tokens=2500, timeout=45s
 
-### Seeding prompt (Call 1)
-- Requests exactly 8 themes
-- Consolidation rules: never split same geographic theatre or tech race
-- Bans generic keywords: war, military, conflict, economy, geopolitics, policy, crisis
+---
+
+## Briefing Generator Tab (Session 36)
+
+New third tab alongside News Feed and Key Themes. Flow:
+1. Topic: All themes / Select a theme / Focused topic (+ Guidance textarea)
+2. Time period: All coverage / Last month / Last week / Last 24h
+3. Brief type: Short Brief / Full Intelligence Brief
+4. Live article count preview updates as selections change
+5. Generate button → existing kt-brief-modal with progress spinner
+
+JS SyntaxError bug: literal newlines in template strings in bgGenerate() — fixed.
+All three modes work: All themes uses AI Analysis pipeline; Select a theme uses
+downloadBriefPDF; Focused topic uses custom Sonnet call with filtered article context.
+
+---
+
+## Chart/Image System
+
+- 162 images (156 charts + 6 maps) across 88 Economist articles — all have AI insights
+- Charts only appear in downloaded PDF briefs (Full Intelligence Brief), not modal text
+- Capture guard: articles already in article_images are never re-captured
+- **173 Economist articles have no images yet** — pending chart backfill
+- **Priority: trigger POST /api/images/backfill on localhost** next session
+  (runs Playwright against economist_profile, ~30 min, costs ~$0.03-0.05 in Haiku vision calls)
+- After backfill completes: push images to VPS via wake_and_sync.sh
 
 ---
 
 ## Intelligence Brief Pipeline (✅ WORKING)
 
-### Overview
-- brief_pdf.py — ReportLab + Pillow, generates A4 PDF
-- Single Sonnet call: text used for both modal display and PDF build
-- Full brief includes Economist charts; short brief is text only
-
-### Article context
-- Temporal bucketing: 4 buckets × 15 articles = up to 60 (full brief)
-- full_text articles first, then by summary length; per-source cap 5 per bucket
-
-### Chart selection rules
-- No charts in: Executive Summary, Overview, Cross-cutting Themes, Strategic Implications etc.
-- Cross-brief similarity dedup: >50% token overlap → rejected
-- Solo charts → 0 shown; budget: up to 2 per section, global cap 14 per brief
-
----
-
-## Foreign Affairs — FIXED (Session 35)
-
-### Root cause
-- `fetch_fa_article_text` used wrong CSS selector (`div.article-body p`)
-- Correct selector (confirmed via Playwright April 2026): `div.article__body-content p`
-- Old selector returned no text → body stored as AI-generated fullSummary (~2,500 chars)
-
-### Fix applied
-- Selector updated in server.py: `div.article__body-content p` (primary)
-  then `div.article__body p`, `div.article-body p`, `main p` as fallbacks
-- Re-enrichment ran: 41/51 FA articles now have raw text (avg 7,930 chars, was 2,500)
-- 10 articles skipped — genuinely paywalled at a stricter tier (no text returned by selector)
-
-### FA session status
-- Session IS authenticated (has_my_account=True in page content)
-- Drupal session cookie `SSESS8d72...` valid until 2026-05-23
-- No re-login needed currently
-
----
-
-## Economist — FIXED (Session 35)
-
-### Root cause of VPS gap (14 full_text vs 258 on Mac)
-- `wake_and_sync.sh` push script used a 3-hour lookback window
-- Older personal bookmarks enriched >3hrs ago were never pushed
-
-### Fix applied
-- `wake_and_sync.sh` now pushes ALL `full_text` articles on every sync (no time window)
-- Batches of 50 with 0.3s sleep — safe to run every sync, VPS skips richer existing records
-- One-time backfill push: 495 articles → VPS (was 14 Economist full_text)
-
----
-
-## Economist Chart & Map Capture (Session 26 ✅)
-- Mac: 156 images, 86 articles with images
-- VPS: synced via push-images on each wake_and_sync.sh run
+- brief_pdf.py — ReportLab + Pillow, A4 PDF
+- Single Sonnet call: text used for both modal and PDF
+- Full brief: charts embedded; Short brief: text only
+- Temporal bucketing: 4 buckets × 15 articles, full_text first, per-source cap 5
 
 ---
 
@@ -219,72 +272,106 @@ Before any DELETE/UPDATE on DB: SELECT preview first, confirm what will be affec
 
 ## Schedule (Geneva/CEST)
 - 05:40 / 11:40 — Mac syncs FT + Economist + FA via Playwright
-- 05:50 / 11:50 — VPS scores, agent auto-saves 8+ to Feed
+- 05:50 / 11:50 — VPS scores, agent auto-saves 8+ to Feed (core sources only)
 
 ---
 
 ## Next Steps (priority order)
-1. **Trigger Reset Themes on live site** — key_facts still blank (fix deployed, needs one more seed)
-2. **AI theme split persists** — "AI Race US China Tech" is broadly correct but watch for further
-   splitting on next seed. Add to consolidation rules if needed.
-3. **Sort theme articles by relevance** — theme detail panel shows most recent first; sort by
-   keyword hit count + summary length so most substantive articles surface first.
-4. **Sub-topics filtering** — chips in theme panel clickable but do nothing; decide: implement
-   filtering or remove and use subtopics only as brief section headings.
-5. **Focused Intelligence Briefing** — free-text input for ad-hoc topic briefs.
-6. **FA paywalled articles (10 remaining)** — investigate whether these are a different FA tier
-   or need a different selector. Could try waiting longer after page load or scrolling to trigger
-   content rendering.
+
+1. **Trigger Reset Themes** on live site — key_facts still blank, max_tokens fix deployed
+   but no seed has run since. Go to meridianreader.com → Key Themes → Reset Themes.
+
+2. **Chart backfill** — trigger POST /api/images/backfill on localhost (not VPS — scrapers
+   run Mac-side). 173 Economist articles have no charts captured yet. ~30 min, ~$0.03.
+   After completion: run wake_and_sync.sh to push images to VPS.
+
+3. **FT 38 short articles** — will self-correct on next scheduled sync (05:40/11:40).
+   New FT selector `div.n-content-body p` deployed. enrich fix deployed. No manual action needed.
+
+4. **Clean up tmp_ files** — many accumulated this session. Run:
+   git rm --ignore-unmatch tmp_*.py tmp_*.txt tmp_*.png && git commit -m "chore: remove tmp files"
+
+5. **Trigger Reset Themes a second time if key_facts still blank** after #1 above.
+   Inspect VPS log for "key_facts enrichment done" to confirm Call 3 ran.
+
+6. **Sort theme articles by relevance** — detail panel shows most recent first; sort by
+   keyword hit count + summary length.
+
+7. **Sub-topics filtering** — chips do nothing; decide implement or remove.
+
+8. **Focused Intelligence Briefing** — Briefing Generator tab now has this as "Focused topic"
+   mode. Test and verify quality of output.
+
+9. **FA session renewal** — Drupal cookie expires 2026-05-23. Before that date, open
+   fa_profile Chromium and log in to foreignaffairs.com to refresh session.
+
+10. **Checking server retry loop** — frontend shows Checking server during the ~8-10s
+    Flask restart on every deploy. Add a JS retry loop (every 3s, up to 30s) so deploy
+    restarts are invisible rather than showing an empty feed.
+
+11. **ft_profile lock** — launchd sync owns ft_profile. Manual Playwright scripts run
+    concurrently get a temp cookie-less copy, returning 0 chars. Safe window for manual
+    FT Playwright work: outside 05:35-06:00 and 11:35-12:00. Or unload the sync plist:
+    launchctl unload ~/Library/LaunchAgents/com.alexdakers.meridian.sync.plist
+    (reload after with launchctl load)
 
 ---
 
 ## Build History
 
-### 2 April 2026 (Session 35 — FA fix, backfill, theme crash fix)
+### 3 April 2026 (Session 36 — article health, body text fixes, feed cleanup)
 
-**FA selector fix**
-- Wrong selector `div.article-body p` → correct `div.article__body-content p`
-- 41/51 FA articles re-enriched with raw text (avg 7,930 chars, was 2,500)
-- FA session confirmed authenticated via Playwright inspection
+**enrich_article_with_ai fullSummary overwrite bug — FIXED**
+- Root cause: built before Playwright scrapers existed; always overwrote body with AI prose
+- Fix: only writes to body if currently empty (<200 chars)
+- Impact: Economist avg body 2,132→5,898; FA avg 2,500→11,469 after re-enrichment
 
-**Economist VPS backfill**
-- wake_and_sync.sh push window removed — now pushes all full_text every sync
-- 495 articles pushed to VPS in one-time backfill
+**Economist re-enrichment** — 266 articles re-fetched via Playwright, real text stored
 
-**Key Themes crash fix**
-- JS crash: `Cannot read properties of undefined (reading 'keywords')`
-- Root cause: two seed runs accumulated 16 rows in kt_themes (name-as-PK doesn't dedup)
-- Fix 1: `/api/kt/themes` now filters by MAX(last_updated)
-- Fix 2: null guard in renderThemeGrid filters themes missing name/keywords
-- Stale 8 rows deleted directly from VPS DB
+**FA re-enrichment** — all 57 articles now full text
+- FA has two page templates: `div.article__body-content p` AND `section.rich-text p`
+- `section.rich-text` selector added — was causing false "paywalled" detection for 9 articles
+- Those 9 articles had 22,000-32,000 chars of available text; now correctly stored
 
-**Permanent/manual theme grid**
-- 8 AI themes sorted by article count descending
-- ☆/★ star button on each card for permanent status (gold border)
-- 2 silver dashed manual slots with modal editor
-- Both survive Reset Themes via localStorage
+**FT selector updated** — `div.n-content-body p` (FT changed CSS class names)
+- Old selectors returned 0 paragraphs; new selector confirmed returning 14+ per article
+- 38 FT articles still have AI summaries — will self-correct on next sync
 
-**Tmp file cleanup**
-- All tmp_*.py, tmp_*.txt files removed from repo
+**Feed source restriction**
+- Only FT/Economist/FA/Bloomberg auto-saved to Feed (FEED_CORE_SOURCES)
+- All other sources (CNN, CFR, FP, etc.) remain in Suggested only
+- Current: 64 auto-saved articles, all core sources
 
-**Commits this session**
-- fix: kt/themes returns only latest seed; null guard in renderThemeGrid
-- fix: FA selector article__body-content; wake_and_sync push all full_text
-- feat: permanent/manual theme grid, sorted by article count, gold/silver cards
-- docs: session 35 notes — autonomous execution rule, permanent/manual themes
-- chore: remove all tmp_ files; FA re-enrichment complete
+**Briefing Generator tab** (from Session 35, completed)
+- JS SyntaxError fixed (literal newlines in template strings)
+- All three brief modes working
 
-### 1 April 2026 (Session 34)
-- getThemeArticles() tighter keyword matching
-- kt/seed 3-call architecture with Haiku per-theme key_facts
-- VPS SyntaxError recovery
+**getThemeArticles() signature fix**
+- Function now accepts both theme object OR numeric index
+- Was crashing with `Cannot read properties of undefined (reading 'keywords')`
 
-### 1 April 2026 (Sessions 29-31)
-- Intelligence brief PDF pipeline
-- Chart image processing and PDF layout
+**"Checking server" on deploy explained**
+- Flask restarts for ~8-10s on every deploy.sh — not a real outage
+- A retry loop in the frontend would hide this; to be built if annoying
 
-### Earlier sessions (26-28)
-- Economist chart capture, insight enrichment, article_images sync Mac→VPS
+**Bloomberg clarified**
+- No automated scraper (bot detection too strong, previously attempted and removed)
+- All 38 Bloomberg articles added via Chrome Extension clip button
+- Correct workflow: open article → click extension → Clip Article
+
+**534 articles pushed to VPS**
+
+### 2 April 2026 (Session 35)
+- FA selector fix (article__body-content), section.rich-text added
+- Economist VPS backfill (push window removed)
+- Key Themes crash fix (kt/themes MAX last_updated, null guard)
+- Permanent/manual theme grid
+- Tmp cleanup
+
+### 1 April 2026 (Sessions 29-34)
+- Brief PDF pipeline, chart processing
+- KT system, seeding, key_facts
+- Article filtering improvements
 
 ---
 
