@@ -1405,13 +1405,11 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
 </div>
 <div id="tally-bar" style="display:flex;align-items:center;gap:10px;padding:5px 20px;background:var(--paper-2);border-bottom:1px solid var(--rule);font-size:11px;color:var(--ink-3)">
   <span style="font-weight:500;color:var(--ink-2)">My saves:</span>
-  <span id="tally-saves" style="font-weight:600;color:var(--ink)">–</span>
+  <span style="font-weight:600;color:var(--ink)"><span id="tally-saves">–</span> <span id="tally-saves-pct" style="font-weight:400;color:var(--ink-3)"></span></span>
   <span style="color:var(--rule)">·</span>
   <span style="font-weight:500;color:var(--ink-2)">AI picks:</span>
-  <span id="tally-ai" style="font-weight:600;color:var(--accent)">–</span>
-  <span style="color:var(--rule)">·</span>
-  <span style="font-weight:500;color:var(--ink-2)">Total:</span>
-  <span id="tally-total" style="font-weight:600;color:var(--ink)">–</span>
+  <span style="font-weight:600;color:var(--accent)"><span id="tally-ai">–</span> <span id="tally-ai-pct" style="font-weight:400;color:var(--ink-3)"></span></span>
+  <span style="display:none" id="tally-total">0</span>
 </div>
 <div class="activity-bar" id="activity-bar" style="display:flex;align-items:center;gap:12px;padding:7px 20px;background:var(--paper-2);border-bottom:1px solid var(--rule);font-size:11px;flex-wrap:wrap">
   <span class="activity-label">Last 24h:</span>
@@ -3440,9 +3438,14 @@ async function updateActivityBar() {
     const talSaves = document.getElementById('tally-saves');
     const talAI    = document.getElementById('tally-ai');
     const talTotal = document.getElementById('tally-total');
+    const talPct = (n) => allArts.length > 0 ? '(' + Math.round(n / allArts.length * 100) + '%)' : '';
     if (talSaves) talSaves.textContent = mySaves.toLocaleString();
     if (talAI)    talAI.textContent    = aiPicks.toLocaleString();
     if (talTotal) talTotal.textContent = allArts.length.toLocaleString();
+    const savePctEl = document.getElementById('tally-saves-pct');
+    const aiPctEl   = document.getElementById('tally-ai-pct');
+    if (savePctEl) savePctEl.textContent = talPct(mySaves);
+    if (aiPctEl)   aiPctEl.textContent   = talPct(aiPicks);
 
     // ── Activity bar: last 24h by source ──
     const recent = {};
