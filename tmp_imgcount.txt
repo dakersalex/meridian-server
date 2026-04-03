@@ -1,0 +1,1 @@
+{"economist_articles": 268, "with_images": 89, "without_images": 179, "total_images": 163}

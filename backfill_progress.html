@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Meridian — Chart Backfill Progress</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Georgia', serif; background: #f5f0e8; color: #2c2416; min-height: 100vh; padding: 32px 24px; }
+  h1 { font-size: 22px; font-weight: 700; letter-spacing: -0.3px; margin-bottom: 4px; }
+  .subtitle { font-size: 13px; color: #8a7355; margin-bottom: 28px; }
+
+  .stats-row { display: flex; gap: 16px; margin-bottom: 28px; flex-wrap: wrap; }
+  .stat-box { background: #fff; border: 1px solid #ddd5c0; padding: 16px 20px; flex: 1; min-width: 140px; }
+  .stat-label { font-size: 10px; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase; color: #8a7355; margin-bottom: 6px; }
+  .stat-value { font-size: 28px; font-weight: 700; color: #2c2416; line-height: 1; }
+  .stat-sub { font-size: 11px; color: #8a7355; margin-top: 4px; }
+
+  .progress-wrap { background: #e8e0d0; height: 8px; border-radius: 0; margin-bottom: 28px; overflow: hidden; }
+  .progress-bar { height: 100%; background: #b5451b; transition: width 0.6s ease; width: 0%; }
+
+  .status-line { font-size: 12px; color: #8a7355; margin-bottom: 28px; min-height: 18px; }
+  .status-line.running { color: #b5451b; }
+  .status-line.done { color: #2a6e3f; font-weight: 600; }
+
+  h2 { font-size: 12px; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase; color: #8a7355; margin-bottom: 14px; border-bottom: 1px solid #ddd5c0; padding-bottom: 8px; }
+
+  .images-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; }
+  .img-card { background: #fff; border: 1px solid #ddd5c0; overflow: hidden; }
+  .img-card img { width: 100%; display: block; }
+  .img-card .img-meta { padding: 10px 12px; }
+  .img-card .img-id { font-size: 10px; font-weight: 700; color: #b5451b; letter-spacing: 0.5px; margin-bottom: 3px; }
+  .img-card .img-desc { font-size: 11px; color: #5a4a35; line-height: 1.4; }
+  .img-card .img-time { font-size: 10px; color: #aaa; margin-top: 4px; }
+
+  .no-images { font-size: 13px; color: #8a7355; font-style: italic; }
+
+  .btn-start { background: #b5451b; color: #fff; border: none; padding: 10px 22px; font-size: 13px; font-family: inherit; cursor: pointer; font-weight: 600; letter-spacing: 0.3px; margin-bottom: 28px; }
+  .btn-start:hover { background: #963a17; }
+  .btn-start:disabled { background: #c8a98a; cursor: default; }
+</style>
+</head>
+<body>
+
+<h1>📊 Chart Backfill Progress</h1>
+<p class="subtitle">Economist articles — capturing charts &amp; maps via Playwright</p>
+
+<button class="btn-start" id="startBtn" onclick="startBackfill()">▶ Start Backfill</button>
+
+<div class="stats-row">
+  <div class="stat-box">
+    <div class="stat-label">Articles Done</div>
+    <div class="stat-value" id="statDone">—</div>
+    <div class="stat-sub" id="statTotal">of — articles</div>
+  </div>
+  <div class="stat-box">
+    <div class="stat-label">Images Captured</div>
+    <div class="stat-value" id="statCaptured">—</div>
+    <div class="stat-sub">this run</div>
+  </div>
+  <div class="stat-box">
+    <div class="stat-label">Total in DB</div>
+    <div class="stat-value" id="statTotal2">—</div>
+    <div class="stat-sub">all time</div>
+  </div>
+  <div class="stat-box">
+    <div class="stat-label">Est. Remaining</div>
+    <div class="stat-value" id="statEta">—</div>
+    <div class="stat-sub" id="statEtaSub">mins</div>
+  </div>
+</div>
+
+<div class="progress-wrap"><div class="progress-bar" id="progressBar"></div></div>
+<div class="status-line" id="statusLine">Idle — press Start Backfill to begin.</div>
+
+<h2>Recent Captures (every 5th image)</h2>
+<div class="images-grid" id="imagesGrid">
+  <div class="no-images">No images yet — start the backfill to see captures appear here.</div>
+</div>
+
+<script>
+const API = 'http://localhost:4242';
+let pollInterval = null;
+let startedAt = null;
+let lastDone = 0;
+
+async function startBackfill() {
+  const btn = document.getElementById('startBtn');
+  btn.disabled = true;
+  btn.textContent = '⏳ Starting...';
+  try {
+    const r = await fetch(API + '/api/images/backfill', { method: 'POST' });
+    const d = await r.json();
+    if (d.error) {
+      setStatus('Error: ' + d.error, '');
+      btn.disabled = false;
+      btn.textContent = '▶ Start Backfill';
+      return;
+    }
+    startedAt = Date.now();
+    btn.textContent = '⏳ Running...';
+    setStatus('Backfill started — polling every 5 seconds...', 'running');
+    startPolling();
+  } catch(e) {
+    setStatus('Failed to start: ' + e.message, '');
+    btn.disabled = false;
+    btn.textContent = '▶ Start Backfill';
+  }
+}
+
+function startPolling() {
+  poll();
+  pollInterval = setInterval(poll, 5000);
+}
+
+async function poll() {
+  try {
+    const [statusRes, imagesRes] = await Promise.all([
+      fetch(API + '/api/images/backfill/status').then(r => r.json()),
+      fetch(API + '/api/images/recent?limit=12&every_nth=5').then(r => r.json())
+    ]);
+    updateStats(statusRes);
+    updateImages(imagesRes);
+
+    if (!statusRes.running && statusRes.done > 0) {
+      clearInterval(pollInterval);
+      setStatus(`✅ Complete — ${statusRes.captured} images captured from ${statusRes.done} articles.`, 'done');
+      document.getElementById('startBtn').textContent = '✅ Done';
+    }
+  } catch(e) {
+    setStatus('Poll error: ' + e.message, '');
+  }
+}
+
+function updateStats(s) {
+  const done = s.done || 0;
+  const total = s.total || 0;
+  const captured = s.captured || 0;
+
+  document.getElementById('statDone').textContent = done;
+  document.getElementById('statTotal').textContent = 'of ' + (total || '—') + ' articles';
+  document.getElementById('statCaptured').textContent = captured;
+
+  // Progress bar
+  const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+  document.getElementById('progressBar').style.width = pct + '%';
+
+  // ETA
+  if (startedAt && done > 0 && total > 0) {
+    const elapsed = (Date.now() - startedAt) / 1000;
+    const rate = done / elapsed; // articles per second
+    const remaining = (total - done) / rate;
+    const mins = Math.ceil(remaining / 60);
+    document.getElementById('statEta').textContent = mins;
+    document.getElementById('statEtaSub').textContent = mins === 1 ? 'min remaining' : 'mins remaining';
+  } else {
+    document.getElementById('statEta').textContent = '—';
+  }
+
+  if (s.running) {
+    setStatus(`Running — ${done} of ${total} articles processed (${pct}%)...`, 'running');
+  }
+}
+
+function updateImages(data) {
+  document.getElementById('statTotal2').textContent = data.total || '—';
+  const grid = document.getElementById('imagesGrid');
+  const images = data.images || [];
+  if (images.length === 0) {
+    grid.innerHTML = '<div class="no-images">No images captured yet.</div>';
+    return;
+  }
+  grid.innerHTML = images.map(img => `
+    <div class="img-card">
+      ${img.image_b64
+        ? `<img src="data:image/png;base64,${img.image_b64}" alt="${img.description || ''}">`
+        : '<div style="height:120px;background:#f0ece4;display:flex;align-items:center;justify-content:center;font-size:11px;color:#aaa;">No image data</div>'}
+      <div class="img-meta">
+        <div class="img-id">IMG #${img.id}</div>
+        <div class="img-desc">${img.description || img.caption || 'No description'}</div>
+        <div class="img-time">${img.captured_at ? new Date(img.captured_at).toLocaleTimeString() : ''}</div>
+      </div>
+    </div>
+  `).join('');
+}
+
+function setStatus(msg, cls) {
+  const el = document.getElementById('statusLine');
+  el.textContent = msg;
+  el.className = 'status-line ' + (cls || '');
+}
+
+// Auto-poll status on load to see if a job is already running
+(async () => {
+  try {
+    const [s, imgs] = await Promise.all([
+      fetch(API + '/api/images/backfill/status').then(r => r.json()),
+      fetch(API + '/api/images/recent?limit=12&every_nth=5').then(r => r.json())
+    ]);
+    updateImages(imgs);
+    if (s.running) {
+      startedAt = s.started_at ? new Date(s.started_at).getTime() : Date.now();
+      document.getElementById('startBtn').disabled = true;
+      document.getElementById('startBtn').textContent = '⏳ Running...';
+      setStatus('Backfill already running — resuming polling...', 'running');
+      updateStats(s);
+      startPolling();
+    } else if (s.done > 0) {
+      updateStats(s);
+      setStatus(`Last run: ${s.captured} images captured from ${s.done} articles.`, 'done');
+    }
+  } catch(e) {}
+})();
+</script>
+</body>
+</html>

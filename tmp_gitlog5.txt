@@ -1,0 +1,2 @@
+1efb9286 fix: kt-fact-top padding-top 2px — more bottom buffer for 3-line titles
+ab96fecf fix: remove margin-top:auto from kt-fact-title so titles top-align under number

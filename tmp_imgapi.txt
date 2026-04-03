@@ -1,0 +1,5 @@
+550:@app.route("/api/images/enrich-insights", methods=["POST"])
+558:@app.route("/api/images/enrich-insights/status", methods=["GET"])
+2730:@app.route("/api/images/backfill", methods=["POST"])
+2734:    to avoid Cloudflare rate limits. Poll /api/images/backfill/status."""
+2805:@app.route("/api/images/backfill/status", methods=["GET"])

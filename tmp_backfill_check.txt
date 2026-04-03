@@ -1,0 +1,93 @@
+173:def call_anthropic(payload: dict, timeout: int = 30, retries: int = 2) -> dict:
+191:            with urllib.request.urlopen(req, timeout=timeout) as resp:
+197:                time.sleep(wait)
+264:        page.goto(url, wait_until="domcontentloaded", timeout=20000)
+265:        page.wait_for_timeout(2000)
+297:        page.goto(url, wait_until="domcontentloaded", timeout=25000)
+298:        page.wait_for_timeout(3000)
+322:        page.goto(url, wait_until="domcontentloaded", timeout=25000)
+323:        page.wait_for_timeout(3000)
+356:        page.goto(url, wait_until="domcontentloaded", timeout=20000)
+357:        page.wait_for_timeout(2000)
+393:        page.wait_for_timeout(1500)
+395:        page.wait_for_timeout(500)
+407:                caption_text = caption_el.inner_text(timeout=2000).strip()
+413:                fig.scroll_into_view_if_needed(timeout=3000)
+414:                page.wait_for_timeout(500)
+417:                png_bytes = fig.screenshot(timeout=10000)
+451:                    }, timeout=20)
+485:    Uses Haiku vision + article title/summary. Runs as async job after backfill completes,
+530:            }, timeout=20)
+542:        time.sleep(1)
+544:            time.sleep(10)
+568:_backfill_job = {"running": False, "total": 0, "done": 0, "captured": 0, "error": None, "started_at": None}
+623:                page.goto(self.SAVED_URL, wait_until="domcontentloaded", timeout=45000)
+624:                page.wait_for_timeout(4000)
+627:                    page.wait_for_timeout(90000)
+628:                    page.goto(self.SAVED_URL, wait_until="domcontentloaded", timeout=40000)
+629:                    page.wait_for_timeout(4000)
+706:                page.goto(self.SAVED_URL, wait_until="domcontentloaded", timeout=45000)
+707:                page.wait_for_timeout(4000)
+710:                    page.wait_for_timeout(90000)
+711:                    page.goto(self.SAVED_URL, wait_until="domcontentloaded", timeout=40000)
+712:                    page.wait_for_timeout(4000)
+792:                page.goto("https://www.economist.com", wait_until="domcontentloaded", timeout=45000)
+793:                page.wait_for_timeout(4000)
+807:                        page.wait_for_timeout(2000)
+937:                page.goto(self.SAVED_URL, wait_until="domcontentloaded", timeout=45000)
+938:                page.wait_for_timeout(4000)
+946:                        page.goto("https://www.foreignaffairs.com/login", wait_until="domcontentloaded", timeout=30000)
+947:                        page.wait_for_load_state("domcontentloaded", timeout=15000)
+954:                                if loc.is_visible(timeout=2000):
+966:                                if loc.is_visible(timeout=2000):
+993:                            page.wait_for_url(lambda u: "login" not in u and "sign-in" not in u, timeout=30000)
+1000:                        page.wait_for_timeout(120000)
+1001:                    page.goto(self.SAVED_URL, wait_until="domcontentloaded", timeout=40000)
+1002:                    page.wait_for_timeout(4000)
+1320:            with _ur.urlopen(req, timeout=20) as r:
+1403:        with urllib.request.urlopen(req, timeout=60) as resp:
+1492:        with urllib.request.urlopen(oembed_url, timeout=10) as r:
+1525:                page.goto("https://www.ft.com", wait_until="domcontentloaded", timeout=20000)
+1526:                page.wait_for_timeout(3000)
+1618:                        page.goto(url, wait_until="domcontentloaded", timeout=20000)
+1619:                        page.wait_for_timeout(3000)
+1665:    ft_thread.join(timeout=45)
+1666:    eco_thread.join(timeout=45)
+1752:                with urllib.request.urlopen(req2, timeout=60) as r:
+1790:                    time.sleep(5)  # avoid 429 after main web search
+1823:                    time.sleep(5)  # avoid 429 after pub_date lookup
+2012:        with urllib.request.urlopen(req, timeout=20) as r:
+2398:                            ), timeout=5)
+2411:        time.sleep(60)  # Check every minute
+2583:            }, timeout=180, retries=1)
+2635:            }, timeout=180, retries=1)
+2730:@app.route("/api/images/backfill", methods=["POST"])
+2731:def images_backfill():
+2733:    no images yet. Processes in batches of 10 with 2s sleep between batches
+2734:    to avoid Cloudflare rate limits. Poll /api/images/backfill/status."""
+2735:    global _backfill_job
+2736:    if _backfill_job["running"]:
+2740:        global _backfill_job
+2742:        _backfill_job = {"running": True, "total": 0, "done": 0, "captured": 0,
+2754:            _backfill_job["total"] = len(articles)
+2758:                _backfill_job["running"] = False
+2763:                _backfill_job["error"] = "economist_profile not found"
+2764:                _backfill_job["running"] = False
+2778:                            page.goto(url, wait_until="domcontentloaded", timeout=25000)
+2779:                            page.wait_for_timeout(2000)
+2781:                            _backfill_job["captured"] += n
+2782:                            _backfill_job["done"] = i + 1
+2786:                                log.info(f"Backfill: batch sleep 2s")
+2787:                                _time.sleep(2)
+2790:                            _backfill_job["done"] = i + 1
+2794:            log.info(f"Backfill: done — {_backfill_job['captured']} images from {_backfill_job['done']} articles")
+2797:            _backfill_job["error"] = str(e)
+2799:            _backfill_job["running"] = False
+2805:@app.route("/api/images/backfill/status", methods=["GET"])
+2806:def images_backfill_status():
+2807:    """Poll backfill job progress."""
+2814:        **_backfill_job,
+2913:            }, timeout=60, retries=2)
+2939:                }, timeout=30, retries=2)
+3013:                    }, timeout=45, retries=1)
+3141:                }, timeout=30)
