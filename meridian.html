@@ -14,7 +14,7 @@
 * { box-sizing: border-box; margin: 0; padding: 0; }
 :root {
   --ink: #1a1a1a; --ink-2: #4a4a4a; --ink-3: #8a8a8a;
-  --paper: #f5f2ec; --paper-2: #ede9e0; --paper-3: #e4dfd4;
+  --paper: #faf8f4; --paper-2: #f0ece3; --paper-3: #e4dfd4;
   --accent: #c4783a; --accent-light: #f5ede4;
   --rule: rgba(0,0,0,0.1);
   --blue: #1e4d8c; --blue-bg: #e8eef6;
@@ -35,7 +35,7 @@
   }
 }
 body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color: var(--ink); min-height: 100vh; font-size: 14px; line-height: 1.6; }
-.masthead { border-bottom: 2px solid var(--ink); padding: 14px 20px 10px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; position: sticky; top: 0; z-index: 55; background: var(--paper); }
+.masthead { border-bottom: 2px solid var(--ink); padding: 14px 20px 10px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; position: sticky; top: 0; z-index: 55; background: var(--paper-2); }
 .masthead-left { display: flex; align-items: baseline; gap: 12px; }
 .logo { font-family: 'Playfair Display', serif; font-size: 26px; font-weight: 600; letter-spacing: -0.5px; word-spacing: -2px; }
 .logo span { letter-spacing: -0.5px; }
@@ -60,7 +60,7 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
 .source-sync-btn { font-size: 11px; padding: 3px 9px; background: none; border: 1px solid var(--rule); color: var(--ink-3); cursor: pointer; font-family: 'IBM Plex Sans', sans-serif; transition: all 0.15s; }
 .source-sync-btn:hover, .source-sync-btn.syncing { border-color: var(--accent); color: var(--accent); }
 .last-sync { font-size: 11px; color: var(--ink-3); }
-.main-nav { border-bottom: 1px solid var(--rule); padding: 0 20px; display: flex; align-items: center; gap: 0; overflow-x: auto; scrollbar-width: none; position: sticky; top: 112px; z-index: 53; background: var(--paper); box-shadow: 0 1px 0 var(--rule); }
+.main-nav { border-bottom: 1px solid var(--rule); padding: 0 20px; display: flex; align-items: center; gap: 0; overflow-x: auto; scrollbar-width: none; position: sticky; top: 112px; z-index: 53; background: var(--paper-2); box-shadow: 0 1px 0 var(--rule); }
 .main-nav::-webkit-scrollbar { display: none; }
 .nav-tab { padding: 8px 14px; font-size: 11px; color: var(--ink-3); cursor: pointer; border-bottom: 2px solid transparent; white-space: nowrap; letter-spacing: 0.6px; text-transform: uppercase; transition: all 0.15s; background: none; border-top: none; border-left: none; border-right: none; font-family: 'IBM Plex Sans', sans-serif; display: flex; align-items: center; gap: 5px; }
 .nav-tab:hover { color: var(--ink); }
@@ -69,7 +69,7 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
 .nav-tab.active .nav-count { background: var(--accent-light); color: var(--accent); }
 .add-folder-btn { margin-left: auto; padding: 6px 12px; font-size: 11px; background: none; border: 1px dashed var(--rule); color: var(--ink-3); cursor: pointer; font-family: 'IBM Plex Sans', sans-serif; white-space: nowrap; transition: all 0.15s; }
 .add-folder-btn:hover { border-color: var(--accent); color: var(--accent); }
-.main-layout { display: grid; grid-template-columns: 1fr 260px; min-height: calc(100vh - 120px); background: #ffffff; }
+.main-layout { display: grid; grid-template-columns: 1fr 260px; min-height: calc(100vh - 120px); background: var(--paper); }
 @media (max-width: 1400px) and (pointer: coarse) {
   /* ── Layout ── */
   .main-layout { grid-template-columns: 1fr; }
@@ -182,7 +182,7 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
 
   body { -webkit-overflow-scrolling: touch; }
 }
-.feed-area { padding: 0 20px 20px; border-right: 1px solid var(--rule); background: #ffffff; }
+.feed-area { padding: 0 20px 20px; border-right: 1px solid var(--rule); background: var(--paper); }
 /* On desktop, feed-header sits above feed-area as a normal block */
 @media not all and (pointer: coarse) {
   #feed-header-outer { padding: 0 20px 10px; border-bottom: 1px solid var(--rule); margin-bottom: 0; }
@@ -193,8 +193,8 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
 .feed-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; padding-bottom: 10px; border-bottom: 1px solid var(--rule); }
 .feed-title { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--ink-3); font-weight: 500; }
 .feed-controls { display: flex; gap: 8px; align-items: center; }
-.filter-select { font-size: 11px; padding: 3px 8px; border: 1px solid rgba(0,0,0,0.25); background: #ffffff; color: var(--ink-2); font-family: 'IBM Plex Sans', sans-serif; cursor: pointer; font-weight: 500; }
-.article-card { padding: 0; margin-bottom: 0; border-bottom: 1px solid var(--rule); cursor: pointer; border-left: 3px solid transparent; transition: border-left-color 0.15s; background: #ffffff; }
+.filter-select { font-size: 11px; padding: 3px 8px; border: 1px solid rgba(0,0,0,0.25); background: var(--paper); color: var(--ink-2); font-family: 'IBM Plex Sans', sans-serif; cursor: pointer; font-weight: 500; }
+.article-card { padding: 0; margin-bottom: 0; border-bottom: 1px solid var(--rule); cursor: pointer; border-left: 3px solid transparent; transition: border-left-color 0.15s; background: var(--paper); }
 .card-inner { display: flex; gap: 16px; padding: 16px 20px 16px 17px; }
 .card-date-col { width: 44px; flex-shrink: 0; padding-top: 1px; text-align: left; }
 .card-date-day { font-size: 11px; font-weight: 500; color: var(--ink-3); line-height: 1.3; }
@@ -238,12 +238,12 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
 .sug-btn { font-size: 11px; padding: 3px 10px; cursor: pointer; font-family: 'IBM Plex Sans', sans-serif; border-radius: 2px; }
 .sug-confirm { background: var(--accent); color: white; border: none; }
 .sug-dismiss { background: none; border: none; color: var(--ink-3); font-size: 14px; cursor: pointer; padding: 0; }
-.featured-card { background: #ffffff; border: none; border-bottom: 1px solid var(--rule); padding: 0; margin-bottom: 2px; cursor: pointer; border-left: 3px solid transparent; transition: border-left-color 0.15s; }
+.featured-card { background: var(--paper); border: none; border-bottom: 1px solid var(--rule); padding: 0; margin-bottom: 2px; cursor: pointer; border-left: 3px solid transparent; transition: border-left-color 0.15s; }
 .featured-card:hover { border-left-color: var(--accent); }
 .featured-label { display: none; }
 .featured-title { font-family: 'Playfair Display', serif; font-size: 20px; font-weight: 400; line-height: 1.3; margin-bottom: 8px; color: var(--ink); }
 .featured-summary { font-size: 12px; color: var(--ink-2); line-height: 1.6; }
-.sidebar { padding: 16px; border-left: 1px solid var(--rule); position: sticky; top: 225px; height: calc(100vh - 225px); overflow-y: auto; align-self: start; background: #ffffff; }
+.sidebar { padding: 16px; border-left: 1px solid var(--rule); position: sticky; top: 225px; height: calc(100vh - 225px); overflow-y: auto; align-self: start; background: var(--paper); }
 .sidebar-section { margin-bottom: 20px; }
 .sidebar-heading { font-size: 10px; text-transform: uppercase; letter-spacing: 1.5px; font-weight: 500; color: var(--ink-3); border-bottom: 1px solid var(--rule); padding-bottom: 5px; margin-bottom: 10px; }
 .stat-row { display: flex; align-items: center; padding: 4px 0; font-size: 12px; }
@@ -393,7 +393,7 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
 /* ── Folder tab switcher ── */
 /* ── 2D nav: dot + background on active ── */
 #folder-switcher {
-  background: var(--paper);
+  background: var(--paper-2);
   padding: 8px 20px;
   display: flex;
   align-items: center;
@@ -1389,7 +1389,7 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
     <option value="ai">AI picks</option>
   </select>
 </div>
-<div id="info-strip" style="display:flex;align-items:center;gap:10px;padding:6px 20px;background:var(--paper);border-bottom:1px solid var(--rule);font-size:11px;flex-wrap:nowrap;position:sticky;top:147px;z-index:52;isolation:isolate;">
+<div id="info-strip" style="display:flex;align-items:center;gap:10px;padding:6px 20px;background:var(--paper-2);border-bottom:1px solid var(--rule);font-size:11px;flex-wrap:nowrap;position:sticky;top:147px;z-index:52;isolation:isolate;">
   <span style="color:var(--ink-2);white-space:nowrap">My saves: <strong style="color:var(--ink);font-weight:600"><span id="tally-saves">–</span></strong> <span id="tally-saves-pct" style="color:var(--ink-3)"></span></span>
   <div style="width:1px;height:12px;background:var(--rule);flex-shrink:0"></div>
   <span style="color:var(--ink-2);white-space:nowrap">AI picks: <strong style="color:var(--ink);font-weight:600"><span id="tally-ai">–</span></strong> <span id="tally-ai-pct" style="color:var(--ink-3)"></span></span>
@@ -1505,7 +1505,7 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
 </div>
 
 <!-- filter row — visually distinct from info strip above -->
-<div id="feed-header-outer" style="display:flex;align-items:center;gap:8px;padding:7px 20px;background:var(--paper);border-bottom:2px solid var(--rule);position:sticky;top:184px;z-index:51;isolation:isolate;">
+<div id="feed-header-outer" style="display:flex;align-items:center;gap:8px;padding:7px 20px;background:var(--paper-2);border-bottom:2px solid var(--rule);position:sticky;top:184px;z-index:51;isolation:isolate;">
   <span style="font-size:10px;font-weight:500;letter-spacing:0.8px;text-transform:uppercase;color:var(--ink-3);margin-right:4px">Filter</span>
   <span class="feed-title" id="feed-title" style="display:none"></span>
   <select class="filter-select" id="status-filter" onchange="renderFeed()"><option value="all">All articles</option><option value="full_text">Full text only</option><option value="title_only">Title only</option></select>
