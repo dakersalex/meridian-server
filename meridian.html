@@ -1354,10 +1354,12 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
   <button class="folder-tab folder-tab-newsfeed active" id="tab-newsfeed" onclick="switchMode('newsfeed')"><span class="nav-dot"></span>News Feed</button>
   <button class="folder-tab folder-tab-themes" id="tab-themes" onclick="switchMode('themes')"><span class="nav-dot"></span>Key Themes</button>
   <button class="folder-tab folder-tab-briefing" id="tab-briefing" onclick="switchMode('briefing')"><span class="nav-dot"></span>Briefing Generator</button>
-  <div style="margin-left:auto;display:flex;align-items:center;gap:12px">
+  <div style="margin-left:auto;display:flex;align-items:center;gap:8px">
     <span class="last-sync" id="last-sync-label" style="display:none"></span>
+    <button id="stats-toggle-btn" onclick="toggleStatsStrip()" style="font-size:11px;padding:4px 10px;background:transparent;border:1px solid rgba(0,0,0,0.2);color:var(--ink-2);border-radius:4px;cursor:pointer;font-family:inherit;display:flex;align-items:center;gap:5px;">📊 Stats</button>
+    <button class="btn btn-outline" onclick="clipBloomberg()" id="clip-bbg-btn" style="font-size:10px;padding:3px 7px;display:none">📎 Clip Bloomberg</button>
+    <button class="btn btn-dark" onclick="syncAll()" id="sync-all-btn" style="font-size:10px;padding:4px 10px;background:#d4976a;border:none;color:white;">🔄 Sync all</button>
     <button class="btn btn-dark" onclick="openAIPanel()" style="background:var(--accent);font-size:11px;padding:5px 14px">✦ AI Analysis</button>
-    <button class="btn btn-dark mobile-sync-btn" onclick="syncAll()" style="display:none;background:var(--accent);font-size:11px;padding:4px 10px">🔄 Sync</button>
   </div>
 </div>
 <div class="main-nav" id="main-nav">
@@ -1389,7 +1391,7 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
     <option value="ai">AI picks</option>
   </select>
 </div>
-<div id="info-strip" style="display:flex;align-items:center;gap:10px;padding:6px 20px;background:var(--paper-2);border-bottom:1px solid var(--rule);font-size:11px;flex-wrap:nowrap;position:sticky;top:147px;z-index:52;isolation:isolate;">
+<div id="info-strip" style="display:none;align-items:center;gap:10px;padding:6px 20px;background:var(--paper);border-bottom:1px solid var(--rule);font-size:11px;flex-wrap:nowrap;position:sticky;top:147px;z-index:52;isolation:isolate;">
   <span style="color:var(--ink-2);white-space:nowrap">My saves: <strong style="color:var(--ink);font-weight:600"><span id="tally-saves">–</span></strong> <span id="tally-saves-pct" style="color:var(--ink-3)"></span></span>
   <div style="width:1px;height:12px;background:var(--rule);flex-shrink:0"></div>
   <span style="color:var(--ink-2);white-space:nowrap">AI picks: <strong style="color:var(--ink);font-weight:600"><span id="tally-ai">–</span></strong> <span id="tally-ai-pct" style="color:var(--ink-3)"></span></span>
@@ -1402,10 +1404,6 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
   <span id="act-fp-pill" class="activity-pill activity-pill-zero"><span style="color:#2d6b45;font-weight:500">Foreign Policy</span> <span id="act-fp">–</span></span>
   <span class="activity-warning" id="act-warning" style="display:none">⚠ FT sync found 0 articles</span>
   <span style="display:none" id="tally-total">0</span>
-  <div style="margin-left:auto;display:flex;gap:6px;flex-shrink:0">
-    <button class="btn btn-dark" onclick="syncAll()" id="sync-all-btn" style="font-size:10px;padding:3px 9px;background:#d4976a;border:none;color:white;">🔄 Sync all</button>
-    <button class="btn btn-outline" onclick="clipBloomberg()" id="clip-bbg-btn" style="font-size:10px;padding:3px 7px;display:none">📎 Clip Bloomberg</button>
-  </div>
 </div>
 <!-- KEY THEMES VIEW -->
 <div id="key-themes-view">
@@ -2707,6 +2705,15 @@ document.getElementById('date-display').textContent=new Date().toLocaleDateStrin
     }
   }catch(e){}
 })();
+function toggleStatsStrip() {
+  const strip = document.getElementById('info-strip');
+  const btn = document.getElementById('stats-toggle-btn');
+  const isVisible = strip.style.display === 'flex';
+  strip.style.display = isVisible ? 'none' : 'flex';
+  btn.style.background = isVisible ? 'transparent' : 'var(--paper-3)';
+  btn.style.color = isVisible ? 'var(--ink-2)' : 'var(--ink)';
+  recalcStickyTops();
+}
 function recalcStickyTops() {
   const masthead = document.querySelector('.masthead');
   const fs = document.getElementById('folder-switcher');
@@ -2721,7 +2728,8 @@ function recalcStickyTops() {
   fs.style.top = (h0 - 1) + 'px';
   mn.style.top = (h0 + h1 - 2) + 'px';
   if (is_) is_.style.top = (h0 + h1 + h2 - 3) + 'px';
-  if (fh) fh.style.top = (h0 + h1 + h2 + h3 - 4) + 'px';
+  const h3actual = (is_ && is_.style.display !== 'none') ? h3 : 0;
+  if (fh) fh.style.top = (h0 + h1 + h2 + h3actual - 4) + 'px';
   // Sidebar sticks below all header rows
   const h4 = fh ? fh.offsetHeight : 0;
   const totalHeaderH = h0 + h1 + h2 + h3 + h4 - 4;
