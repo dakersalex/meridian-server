@@ -1391,29 +1391,32 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
     <option value="ai">AI picks</option>
   </select>
 </div>
-<div id="info-strip" style="display:none;align-items:flex-start;gap:0;padding:14px 24px;background:var(--paper);border-bottom:1px solid var(--rule);font-size:11px;flex-wrap:wrap;position:sticky;top:147px;z-index:52;isolation:isolate;">
-
-  <!-- hidden spans kept for JS compatibility -->
-  <span style="display:none" id="tally-saves">–</span>
-  <span style="display:none" id="tally-saves-pct"></span>
-  <span style="display:none" id="tally-ai">–</span>
-  <span style="display:none" id="tally-ai-pct"></span>
-  <span style="display:none" id="tally-total">0</span>
-  <span style="display:none" id="act-ft-pill" class="activity-pill activity-pill-zero"></span>
-  <span style="display:none" id="act-eco-pill" class="activity-pill activity-pill-zero"></span>
-  <span style="display:none" id="act-fa-pill" class="activity-pill activity-pill-zero"></span>
-  <span style="display:none" id="act-bbg-pill" class="activity-pill activity-pill-zero"></span>
-  <span style="display:none" id="act-fp-pill" class="activity-pill activity-pill-zero"></span>
-  <span style="display:none" id="act-ft">–</span>
-  <span style="display:none" id="act-eco">–</span>
-  <span style="display:none" id="act-fa">–</span>
-  <span style="display:none" id="act-bbg">–</span>
-  <span style="display:none" id="act-fp">–</span>
-  <span style="display:none" class="activity-warning" id="act-warning"></span>
-
-  <!-- ① Library numbers -->
-  <div style="margin-right:28px;flex-shrink:0;">
-    <div style="font-size:9px;font-weight:600;letter-spacing:1.2px;text-transform:uppercase;color:var(--ink-3);margin-bottom:8px;">Library</div>
+<div id="feed-header-outer" style="display:flex;align-items:center;gap:8px;padding:7px 20px;background:var(--paper-2);border-bottom:2px solid var(--rule);position:sticky;top:147px;z-index:52;isolation:isolate;">
+  <span style="font-size:10px;font-weight:500;letter-spacing:0.8px;text-transform:uppercase;color:var(--ink-3);margin-right:4px">Filter</span>
+  <span class="feed-title" id="feed-title" style="display:none"></span>
+  <select class="filter-select" id="status-filter" onchange="renderFeed()"><option value="all">All articles</option><option value="full_text">Full text only</option><option value="title_only">Title only</option></select>
+  <select class="filter-select" id="curation-filter" onchange="renderFeed()">
+    <option value="all">All curation</option>
+    <option value="saved">My saves</option>
+    <option value="ai">AI picks</option>
+  </select>
+  <select class="filter-select" id="source-filter" onchange="renderFeed()">
+    <option value="all">All sources</option>
+    <option value="Financial Times">FT</option>
+    <option value="The Economist">Economist</option>
+    <option value="Foreign Affairs">Foreign Affairs</option>
+    <option value="Bloomberg">Bloomberg</option>
+  </select>
+  <select class="filter-select" id="date-filter" onchange="renderFeed()">
+    <option value="180">Last 6 months</option>
+    <option value="30">Last 30 days</option>
+    <option value="7">Last 7 days</option>
+    <option value="365">Last year</option>
+    <option value="9999">All time</option>
+  </select>
+  <button class="btn btn-outline" onclick="selectAll()" style="font-size:11px;padding:4px 8px;display:none" id="select-all-btn">Select all</button>
+  <button class="btn btn-outline" onclick="deleteSelected()" style="font-size:11px;padding:4px 8px;display:none;border-color:var(--red);color:var(--red)" id="delete-selected-btn">Delete selected</button>
+</div>
     <div style="display:flex;gap:20px;align-items:flex-end;">
       <div><div id="stat-total" style="font-size:20px;font-weight:600;color:var(--ink);line-height:1;">–</div><div style="font-size:10px;color:var(--ink-3);margin-top:2px;">Total</div></div>
       <div><div id="stat-saves" style="font-size:20px;font-weight:600;color:var(--ink);line-height:1;">–</div><div style="font-size:10px;color:var(--ink-3);margin-top:2px;">My saves</div></div>
@@ -1572,32 +1575,29 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
 </div>
 
 <!-- filter row — visually distinct from info strip above -->
-<div id="feed-header-outer" style="display:flex;align-items:center;gap:8px;padding:7px 20px;background:var(--paper-2);border-bottom:2px solid var(--rule);position:sticky;top:184px;z-index:51;isolation:isolate;">
-  <span style="font-size:10px;font-weight:500;letter-spacing:0.8px;text-transform:uppercase;color:var(--ink-3);margin-right:4px">Filter</span>
-  <span class="feed-title" id="feed-title" style="display:none"></span>
-  <select class="filter-select" id="status-filter" onchange="renderFeed()"><option value="all">All articles</option><option value="full_text">Full text only</option><option value="title_only">Title only</option></select>
-  <select class="filter-select" id="curation-filter" onchange="renderFeed()">
-    <option value="all">All curation</option>
-    <option value="saved">My saves</option>
-    <option value="ai">AI picks</option>
-  </select>
-  <select class="filter-select" id="source-filter" onchange="renderFeed()">
-    <option value="all">All sources</option>
-    <option value="Financial Times">FT</option>
-    <option value="The Economist">Economist</option>
-    <option value="Foreign Affairs">Foreign Affairs</option>
-    <option value="Bloomberg">Bloomberg</option>
-  </select>
-  <select class="filter-select" id="date-filter" onchange="renderFeed()">
-    <option value="180">Last 6 months</option>
-    <option value="30">Last 30 days</option>
-    <option value="7">Last 7 days</option>
-    <option value="365">Last year</option>
-    <option value="9999">All time</option>
-  </select>
-  <button class="btn btn-outline" onclick="selectAll()" style="font-size:11px;padding:4px 8px;display:none" id="select-all-btn">Select all</button>
-  <button class="btn btn-outline" onclick="deleteSelected()" style="font-size:11px;padding:4px 8px;display:none;border-color:var(--red);color:var(--red)" id="delete-selected-btn">Delete selected</button>
-</div>
+<div id="info-strip" style="display:none;align-items:flex-start;gap:0;padding:14px 24px;background:var(--paper);border-bottom:1px solid var(--rule);font-size:11px;flex-wrap:wrap;position:sticky;top:147px;z-index:52;isolation:isolate;">
+
+  <!-- hidden spans kept for JS compatibility -->
+  <span style="display:none" id="tally-saves">–</span>
+  <span style="display:none" id="tally-saves-pct"></span>
+  <span style="display:none" id="tally-ai">–</span>
+  <span style="display:none" id="tally-ai-pct"></span>
+  <span style="display:none" id="tally-total">0</span>
+  <span style="display:none" id="act-ft-pill" class="activity-pill activity-pill-zero"></span>
+  <span style="display:none" id="act-eco-pill" class="activity-pill activity-pill-zero"></span>
+  <span style="display:none" id="act-fa-pill" class="activity-pill activity-pill-zero"></span>
+  <span style="display:none" id="act-bbg-pill" class="activity-pill activity-pill-zero"></span>
+  <span style="display:none" id="act-fp-pill" class="activity-pill activity-pill-zero"></span>
+  <span style="display:none" id="act-ft">–</span>
+  <span style="display:none" id="act-eco">–</span>
+  <span style="display:none" id="act-fa">–</span>
+  <span style="display:none" id="act-bbg">–</span>
+  <span style="display:none" id="act-fp">–</span>
+  <span style="display:none" class="activity-warning" id="act-warning"></span>
+
+  <!-- ① Library numbers -->
+  <div style="margin-right:28px;flex-shrink:0;">
+    <div style="font-size:9px;font-weight:600;letter-spacing:1.2px;text-transform:uppercase;color:var(--ink-3);margin-bottom:8px;">Library</div>
 <div class="main-layout">
   <div class="feed-area" id="feed-area">
     <div id="feed-counter" style="display:none"></div><div id="autoclip-progress" style="display:none;font-size:12px;color:var(--muted);margin-bottom:8px;padding:6px 8px;background:var(--surface);border-radius:4px;border:1px solid var(--border)"></div><div id="feed-content"></div>
@@ -2793,12 +2793,12 @@ function recalcStickyTops() {
   const h0 = masthead.offsetHeight;
   const h1 = fs.offsetHeight;
   const h2 = mn.offsetHeight;
-  const h3 = is_ ? is_.offsetHeight : 0;
+  const h3 = fh ? fh.offsetHeight : 0;
   fs.style.top = (h0 - 1) + 'px';
   mn.style.top = (h0 + h1 - 2) + 'px';
-  if (is_) is_.style.top = (h0 + h1 + h2 - 3) + 'px';
-  const h3actual = (is_ && is_.style.display !== 'none') ? h3 : 0;
-  if (fh) fh.style.top = (h0 + h1 + h2 + h3actual - 4) + 'px';
+  if (fh) fh.style.top = (h0 + h1 + h2 - 3) + 'px';
+  const h4actual = (is_ && is_.style.display !== 'none') ? is_.offsetHeight : 0;
+  if (is_) is_.style.top = (h0 + h1 + h2 + h3 - 4) + 'px';
   // Sidebar sticks below all header rows
   const h4 = fh ? fh.offsetHeight : 0;
   const totalHeaderH = h0 + h1 + h2 + h3 + h4 - 4;
