@@ -2732,20 +2732,20 @@ def get_article_images(aid):
 def images_recent():
     """Return the most recent N images as base64 for progress monitoring.
     Query params: limit (default 20), every_nth (default 5, returns every nth image by id)"""
-    import base64
+    import base64 as _b64
     limit = int(request.args.get("limit", 20))
     every_nth = int(request.args.get("every_nth", 5))
-    with get_db() as db:
-        rows = db.execute(
+    with sqlite3.connect(DB_PATH) as cx:
+        cx.row_factory = sqlite3.Row
+        rows = cx.execute(
             "SELECT id, article_id, caption, description, image_data, captured_at FROM article_images ORDER BY id DESC LIMIT ?",
             (limit * every_nth,)
         ).fetchall()
-        total = db.execute("SELECT COUNT(*) FROM article_images").fetchone()[0]
-    # Take every nth row so we show a sample
+        total = cx.execute("SELECT COUNT(*) FROM article_images").fetchone()[0]
     sampled = rows[::every_nth][:limit]
     result = []
     for row in sampled:
-        img_b64 = base64.b64encode(row["image_data"]).decode("utf-8") if row["image_data"] else None
+        img_b64 = _b64.b64encode(row["image_data"]).decode("utf-8") if row["image_data"] else None
         result.append({
             "id": row["id"],
             "article_id": row["article_id"],
