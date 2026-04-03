@@ -30,6 +30,11 @@ sleep 90
 echo "$(date): Triggering enrichment" >> "$LOG"
 curl -s -X POST "$API/api/enrich-title-only" >> "$LOG" 2>&1
 
+# Trigger newsletter sync from iCloud IMAP
+echo "$(date): Syncing newsletters from iCloud" >> "$LOG"
+curl -s -X POST "$API/api/newsletters/sync" >> "$LOG" 2>&1
+sleep 15
+
 # Push all full_text articles from Mac DB to VPS
 # Pushes ALL full_text (no time window) so VPS stays in sync permanently.
 # The VPS push-articles endpoint skips existing records with richer content, so this is safe to run every sync.
@@ -110,5 +115,67 @@ else:
             break
     print(f'push-images: {total_upserted} upserted of {len(images)} total')
 IMGEOF
+
+
+# Push newsletters from Mac DB to VPS
+echo "$(date): Pushing newsletters to VPS" >> "$LOG"
+python3 - << 'NLEOF' >> "$LOG" 2>&1
+import sqlite3, json, urllib.request, time
+DB = '/Users/alexdakers/meridian-server/meridian.db'
+VPS = 'https://meridianreader.com/api/push-newsletters'
+conn = sqlite3.connect(DB)
+conn.row_factory = sqlite3.Row
+rows = conn.execute(
+    'SELECT gmail_id, source, subject, body_html, body_text, received_at FROM newsletters ORDER BY received_at DESC'
+).fetchall()
+conn.close()
+if not rows:
+    print('push-newsletters: no newsletters to push')
+else:
+    newsletters = [dict(r) for r in rows]
+    total_upserted = 0; total_skipped = 0
+    batch_size = 20
+    for i in range(0, len(newsletters), batch_size):
+        batch = newsletters[i:i+batch_size]
+        payload = json.dumps({'newsletters': batch}).encode()
+        req = urllib.request.Request(VPS, data=payload, headers={'Content-Type':'application/json'}, method='POST')
+        try:
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                result = json.loads(resp.read())
+                total_upserted += result.get('upserted', 0)
+                total_skipped += result.get('skipped', 0)
+        except Exception as e:
+            print(f'push-newsletters batch error: {e}')
+        time.sleep(0.2)
+    print(f'push-newsletters: {total_upserted} upserted, {total_skipped} skipped of {len(newsletters)} total')
+NLEOF
+
+
+# Push interviews from Mac DB to VPS
+echo "$(date): Pushing interviews to VPS" >> "$LOG"
+python3 - << 'IVEOF' >> "$LOG" 2>&1
+import sqlite3, json, urllib.request
+DB = '/Users/alexdakers/meridian-server/meridian.db'
+VPS = 'https://meridianreader.com/api/push-interviews'
+conn = sqlite3.connect(DB)
+conn.row_factory = sqlite3.Row
+rows = conn.execute(
+    'SELECT id, title, url, source, published_date, added_date, duration_seconds, transcript, summary, status, thumbnail_url, speaker_bio FROM interviews'
+).fetchall()
+conn.close()
+if not rows:
+    print('push-interviews: no interviews to push')
+else:
+    interviews = [dict(r) for r in rows]
+    payload = json.dumps({'interviews': interviews}).encode()
+    req = urllib.request.Request(VPS, data=payload, headers={'Content-Type':'application/json'}, method='POST')
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            result = json.loads(resp.read())
+            print(f'push-interviews: {result.get("upserted",0)} upserted, {result.get("skipped",0)} skipped of {len(interviews)} total')
+    except Exception as e:
+        print(f'push-interviews error: {e}')
+IVEOF
+
 
 echo "$(date): Wake sync complete" >> "$LOG"
