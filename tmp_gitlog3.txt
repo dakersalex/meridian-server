@@ -1,2 +1,0 @@
-49782b00 fix: kt-fact-top gap 1px, padding 4px top — title sits immediately under number
-243999df fix: kt-fact-top top-align number+title with gap, reduce padding for 3-line breathing room

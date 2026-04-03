@@ -1,3 +1,0 @@
-243999df fix: kt-fact-top top-align number+title with gap, reduce padding for 3-line breathing room
-f16ed210 fix: kt-fact-top fixed height 68px with tighter top padding so content sits higher
-e50cbe03 fix: kt-fact-top min-height so 3-line titles dont overflow card boundary

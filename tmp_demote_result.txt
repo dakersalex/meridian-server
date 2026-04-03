@@ -1,6 +1,0 @@
-Demoted 0 non-core articles from auto_saved=1 to auto_saved=0:
-
-Remaining auto_saved=1: 64
-  Financial Times: 30
-  The Economist: 21
-  Foreign Affairs: 13

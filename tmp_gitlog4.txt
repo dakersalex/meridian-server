@@ -1,2 +1,0 @@
-ab96fecf fix: remove margin-top:auto from kt-fact-title so titles top-align under number
-49782b00 fix: kt-fact-top gap 1px, padding 4px top — title sits immediately under number

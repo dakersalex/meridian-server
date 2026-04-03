@@ -1,6 +1,0 @@
-3335:    typeof getThemeArticles === 'function' ? getThemeArticles(theme) : []
-3338:  // Re-sort by matched article count (getThemeArticles may differ from stored article_count)
-3402:    const realArts = typeof getThemeArticles === 'function' ? getThemeArticles(realTheme) : [];
-3597:  const themeArts = getThemeArticles(ktSelectedIdx);
-3622:function getThemeArticles(idx) {
-3792:  const themeArts = getThemeArticles(themeIdx);
