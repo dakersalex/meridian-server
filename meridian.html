@@ -2699,10 +2699,10 @@ function recalcStickyTops() {
   const h1 = fs.offsetHeight;
   const h2 = mn.offsetHeight;
   const h3 = is_ ? is_.offsetHeight : 0;
-  fs.style.top = h0 + 'px';
-  mn.style.top = (h0 + h1) + 'px';
-  if (is_) is_.style.top = (h0 + h1 + h2) + 'px';
-  if (fh) fh.style.top = (h0 + h1 + h2 + h3) + 'px';
+  fs.style.top = (h0 - 1) + 'px';
+  mn.style.top = (h0 + h1 - 2) + 'px';
+  if (is_) is_.style.top = (h0 + h1 + h2 - 3) + 'px';
+  if (fh) fh.style.top = (h0 + h1 + h2 + h3 - 4) + 'px';
 }
 recalcStickyTops();
 window.addEventListener('resize', recalcStickyTops);
