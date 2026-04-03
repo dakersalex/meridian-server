@@ -195,7 +195,7 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
 .filter-select { font-size: 11px; padding: 3px 8px; border: 1px solid var(--rule); background: var(--paper); color: var(--ink-2); font-family: 'IBM Plex Sans', sans-serif; cursor: pointer; }
 .article-card { padding: 16px 0; margin-bottom: 2px; border-bottom: 1px solid var(--rule); cursor: pointer; transition: opacity 0.15s; }
 .article-card:hover { opacity: 0.75; }
-.article-meta { display: flex; align-items: center; gap: 7px; margin-bottom: 5px; flex-wrap: wrap; }
+.article-meta { display: flex; align-items: center; gap: 5px; margin-bottom: 7px; flex-wrap: wrap; }
 .topic-pill { font-size: 10px; font-weight: 500; padding: 2px 7px; text-transform: uppercase; letter-spacing: 0.8px; border-radius: 2px; }
 .pill-Economics { background: var(--blue-bg); color: var(--blue); }
 .pill-Markets { background: var(--green-bg); color: var(--green); }
@@ -207,13 +207,13 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
 .recency-badge { font-size: 10px; padding: 2px 6px; border-radius: 2px; font-weight: 500; }
 .badge-new { background: #e8f5e4; color: #2d6b45; }
 .badge-recent { background: var(--accent-light); color: var(--accent); }
-.source-label { font-size: 11px; color: var(--ink-3); }
+.source-label { font-size: 11px; font-weight: 500; color: var(--ink-2); }
 .article-date-label { font-size: 11px; color: var(--ink-3); margin-left: auto; }
-.article-title { font-family: 'Playfair Display', serif; font-size: 17px; font-weight: 500; line-height: 1.35; margin-bottom: 5px; }
-.article-summary { font-size: 13px; color: var(--ink-2); line-height: 1.6; margin-bottom: 6px; }
+.article-title { font-family: 'Playfair Display', serif; font-size: 17px; font-weight: 400; line-height: 1.3; margin-bottom: 5px; color: var(--ink); }
+.article-summary { font-size: 12px; color: var(--ink-2); line-height: 1.6; margin-bottom: 8px; }
 .article-footer { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .article-tags { display: flex; gap: 5px; flex-wrap: wrap; flex: 1; }
-.tag { font-size: 10px; color: var(--ink-3); border: 1px solid var(--rule); padding: 1px 5px; }
+.tag { font-size: 10px; color: var(--ink-3); border: 0.5px solid var(--rule); padding: 1px 5px; border-radius: 2px; }
 .folder-badge { font-size: 10px; padding: 2px 7px; background: var(--accent-light); color: var(--accent); border-radius: 2px; cursor: pointer; }
 .fa-badge { font-size: 10px; padding: 2px 7px; background: var(--blue-bg); color: var(--blue); border-radius: 2px; }
 .ai-suggestion { background: var(--accent-light); border: 1px solid rgba(196,120,58,0.2); padding: 8px 12px; margin: 6px 0; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; border-radius: 2px; }
@@ -225,9 +225,9 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
 .sug-dismiss { background: none; border: none; color: var(--ink-3); font-size: 14px; cursor: pointer; padding: 0; }
 .featured-card { background: var(--paper-2); border: none; border-bottom: 1px solid var(--rule); padding: 16px 0; margin-bottom: 2px; cursor: pointer; transition: opacity 0.15s; }
 .featured-card:hover { opacity: 0.8; }
-.featured-label { font-size: 10px; text-transform: uppercase; letter-spacing: 1.5px; font-weight: 500; color: var(--accent); margin-bottom: 6px; }
-.featured-title { font-family: 'Playfair Display', serif; font-size: 21px; font-weight: 600; line-height: 1.25; margin-bottom: 8px; }
-.featured-summary { font-size: 13px; color: var(--ink-2); line-height: 1.7; }
+.featured-label { display: none; }
+.featured-title { font-family: 'Playfair Display', serif; font-size: 20px; font-weight: 400; line-height: 1.3; margin-bottom: 8px; color: var(--ink); }
+.featured-summary { font-size: 12px; color: var(--ink-2); line-height: 1.6; }
 .sidebar { padding: 16px; border-left: 1px solid var(--rule); position: sticky; top: 225px; height: calc(100vh - 225px); overflow-y: auto; align-self: start; }
 .sidebar-section { margin-bottom: 20px; }
 .sidebar-heading { font-size: 10px; text-transform: uppercase; letter-spacing: 1.5px; font-weight: 500; color: var(--ink-3); border-bottom: 1px solid var(--rule); padding-bottom: 5px; margin-bottom: 10px; }
@@ -1983,10 +1983,10 @@ function renderFeed(){
     const isFA=a.source==='Foreign Affairs';
     const sug=pending&&pending!=='__dismissed__'?`<div class="ai-suggestion" onclick="event.stopPropagation()"><span class="ai-suggestion-text">AI suggests: <strong>📁 ${pending}</strong></span><div class="suggestion-actions"><button class="sug-btn sug-confirm" onclick="assignFolder('${a.id}','${pending}')">✓ Confirm</button></div><button class="sug-dismiss" onclick="dismissSuggestion('${a.id}')">×</button></div>`:'';
     const faBadge=isFA?'<span class="fa-badge">Foreign Affairs</span>':'';
-    const autoPill=a.auto_saved?'<span style="font-size:10px;padding:2px 7px;border-radius:10px;background:var(--accent);color:#fff;font-weight:500;letter-spacing:0.3px;margin-left:6px">✦ AI pick</span>':'<span style="font-size:10px;padding:2px 7px;border-radius:10px;background:var(--paper-3);color:var(--ink-3);font-weight:500;letter-spacing:0.3px;margin-left:6px;border:1px solid var(--rule)">My save</span>';
-    const autoStyle=a.auto_saved?'':'';
-    if(i===0){html+=`<div class="featured-card${a.auto_saved?' ai-pick':''}" style="position:relative;padding-top:20px" data-id="${a.id}" onclick="openDetail('${a.id}')"><div class="featured-label">Latest · ${a.source}</div><button onclick="event.stopPropagation();deleteArticle('${a.id}')" style="position:absolute;top:2px;right:6px;background:none;border:1px solid var(--rule);color:var(--ink-3);cursor:pointer;font-size:10px;padding:1px 4px;opacity:0.4;line-height:1;border-radius:2px" title="Delete">✕</button><div class="article-meta" style="margin-top:0px"><span class="source-label">${a.source}</span>${autoPill}<span class="article-date-label" style="margin-left:auto">${formatPubDate(a)}</span><span class="status-badge ${a.status==='full_text'?'full-text':'title-only'}" style="margin-left:8px">${a.status==='full_text'?'Full text':'Title only'}</span></div><div class="article-meta" style="margin-top:3px">${a.topic?`<span class="topic-pill ${topicClass(a.topic)}" style="${topicStyle(a.topic)}">${a.topic}</span>`:''}</div><div style="position:absolute;top:8px;right:8px"></div><div class="featured-title">${a.title}</div><div class="featured-summary">${a.summary}</div>${folderName?`<div style="margin-top:8px"><span class="folder-badge">📁 ${folderName}</span></div>`:''}${sug}</div>`;}
-    else{html+=`<div class="article-card${a.auto_saved?' ai-pick':''}" style="position:relative;padding-top:20px" data-id="${a.id}" onclick="openDetail('${a.id}')"><button onclick="event.stopPropagation();deleteArticle('${a.id}')" style="position:absolute;top:2px;right:6px;background:none;border:1px solid var(--rule);color:var(--ink-3);cursor:pointer;font-size:10px;padding:1px 4px;opacity:0.4;line-height:1;border-radius:2px" title="Delete">✕</button><div class="article-meta" style="margin-top:0px"><span class="source-label">${a.source}</span>${autoPill}<span class="article-date-label" style="margin-left:auto">${formatPubDate(a)}</span><span class="status-badge ${a.status==='full_text'?'full-text':'title-only'}" style="margin-left:8px">${a.status==='full_text'?'Full text':'Title only'}</span></div><div class="article-meta" style="margin-top:3px">${a.topic?`<span class="topic-pill ${topicClass(a.topic)}" style="${topicStyle(a.topic)}">${a.topic}</span>`:''}</div><div style="position:absolute;top:8px;right:8px"></div><div class="article-title">${a.title}${a.url?'<a href="'+a.url+'" target="_blank" onclick="event.stopPropagation()" style="font-size:11px;color:var(--ink-3);text-decoration:none;margin-left:5px">↗</a>':''}</div><div class="article-summary">${a.summary}</div><div class="article-footer"><div class="article-tags">${(a.tags||[]).map(t=>`<span class="tag">${t}</span>`).join('')}</div>${folderName?`<span class="folder-badge">📁 ${folderName}</span>`:''}</div>${sug}</div>`;}
+    const autoPill=a.auto_saved?'<span style="font-size:11px;color:var(--ink-3);font-style:italic;opacity:0.75">ai</span>':'';
+    const autoStyle='';
+    if(i===0){html+=`<div class="featured-card${a.auto_saved?' ai-pick':''}" style="position:relative;padding-top:18px" data-id="${a.id}" onclick="openDetail('${a.id}')"><button onclick="event.stopPropagation();deleteArticle('${a.id}')" style="position:absolute;top:4px;right:6px;background:none;border:none;color:var(--ink-3);cursor:pointer;font-size:11px;padding:2px 4px;opacity:0.3;line-height:1" title="Delete">✕</button><div class="article-meta"><span class="source-label">${a.source}</span><span style="color:var(--rule);font-size:11px">·</span>${a.topic?`<span style="font-size:11px;color:var(--accent)">${a.topic}</span>`+`<span style="color:var(--rule);font-size:11px">·</span>`:''} ${autoPill}<span class="article-date-label" style="margin-left:auto;font-size:11px;color:var(--ink-3)">${formatPubDate(a)}</span><span class="status-badge ${a.status==='full_text'?'full-text':'title-only'}" style="margin-left:6px">${a.status==='full_text'?'Full text':'Title only'}</span></div><div class="featured-title">${a.title}</div><div class="featured-summary">${a.summary}</div>${folderName?`<div style="margin-top:8px"><span class="folder-badge">📁 ${folderName}</span></div>`:''}${sug}</div>`;}
+    else{html+=`<div class="article-card${a.auto_saved?' ai-pick':''}" style="position:relative;padding-top:16px" data-id="${a.id}" onclick="openDetail('${a.id}')"><button onclick="event.stopPropagation();deleteArticle('${a.id}')" style="position:absolute;top:4px;right:6px;background:none;border:none;color:var(--ink-3);cursor:pointer;font-size:11px;padding:2px 4px;opacity:0.3;line-height:1" title="Delete">✕</button><div class="article-meta"><span class="source-label">${a.source}</span><span style="color:var(--rule);font-size:11px">·</span>${a.topic?`<span style="font-size:11px;color:var(--accent)">${a.topic}</span>`+`<span style="color:var(--rule);font-size:11px">·</span>`:''} ${autoPill}<span class="article-date-label" style="margin-left:auto;font-size:11px;color:var(--ink-3)">${formatPubDate(a)}</span><span class="status-badge ${a.status==='full_text'?'full-text':'title-only'}" style="margin-left:6px">${a.status==='full_text'?'Full text':'Title only'}</span></div><div class="article-title">${a.title}${a.url?'<a href="'+a.url+'" target="_blank" onclick="event.stopPropagation()" style="font-size:11px;color:var(--ink-3);text-decoration:none;margin-left:5px">↗</a>':''}</div><div class="article-summary">${a.summary}</div><div class="article-footer"><div class="article-tags">${(a.tags||[]).map(t=>`<span class="tag">${t}</span>`).join('')}</div>${folderName?`<span class="folder-badge">📁 ${folderName}</span>`:''}</div>${sug}</div>`;}
   }
   el.innerHTML=html;
 }
