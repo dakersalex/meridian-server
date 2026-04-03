@@ -3517,10 +3517,10 @@ function switchMode(mode) {
     if (newsfeedEl) newsfeedEl.classList.add('active');
     ktView.classList.remove('visible');
     if (briefingView) briefingView.classList.remove('visible');
-    if (mainLayout) mainLayout.style.display = '';
-    if (feedHeader) feedHeader.style.display = '';
-    if (infoStrip)  infoStrip.style.display = '';
-    mainNav.style.display = '';
+    if (mainLayout) mainLayout.style.display = 'grid';
+    if (feedHeader) feedHeader.style.display = 'flex';
+    if (infoStrip)  infoStrip.style.display = 'flex';
+    mainNav.style.display = 'flex';
   }
 }
 
