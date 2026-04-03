@@ -387,17 +387,6 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
   z-index: 10;
   position: relative;
 }
-#folder-switcher-logo {
-  font-size: 15px;
-  font-weight: 500;
-  letter-spacing: -0.3px;
-  color: var(--accent);
-  padding-right: 20px;
-  margin-right: 6px;
-  border-right: 1px solid var(--rule);
-  line-height: 1;
-}
-#folder-switcher-logo span { color: var(--ink); }
 .folder-tab {
   display: flex;
   align-items: center;
@@ -1341,7 +1330,6 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
   </div>
 </div>
 <div id="folder-switcher">
-  <div id="folder-switcher-logo">Meri<span>dian</span></div>
   <button class="folder-tab folder-tab-newsfeed active" id="tab-newsfeed" onclick="switchMode('newsfeed')"><span class="nav-dot"></span>News Feed</button>
   <button class="folder-tab folder-tab-themes" id="tab-themes" onclick="switchMode('themes')"><span class="nav-dot"></span>Key Themes</button>
   <button class="folder-tab folder-tab-briefing" id="tab-briefing" onclick="switchMode('briefing')"><span class="nav-dot"></span>Briefing Generator</button>
