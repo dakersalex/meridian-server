@@ -1,0 +1,3 @@
+f16ed210 fix: kt-fact-top fixed height 68px with tighter top padding so content sits higher
+e50cbe03 fix: kt-fact-top min-height so 3-line titles dont overflow card boundary
+c26c3b7d docs: session 36 notes — body text fixes, feed restriction, FT profile lock, retry loop
