@@ -1,5 +1,5 @@
 # Meridian — Technical Notes
-Last updated: 3 April 2026 (Session 37 — brief improvements, FT enrichment, key facts UI)
+Last updated: 3 April 2026 (Session 38 — 2D nav redesign, sync pipeline, source panel fixes)
 
 ## Overview
 Personal news aggregator. Flask API + SQLite backend running on Hetzner VPS (always-on).
@@ -76,18 +76,44 @@ One command from Mac (via shell bridge — Claude runs this autonomously):
 (git add -A, commit, push, SSH pull on VPS, systemctl restart meridian)
 
 ## Database (3 April 2026 — VPS)
-| Source | Total | Full text | Has summary | Avg body | Avg summary |
-|---|---|---|---|---|---|
-| The Economist | 268 | 262 (98%) | 262 (98%) | 6,033 chars | 453 chars |
-| Financial Times | 173 | 169 (98%) | 172 (99%) | 4,350 chars | 388 chars |
-| Foreign Affairs | 64 | 57 (89%) | 62 (97%) | 11,470 chars | 443 chars |
-| Bloomberg | 38 | 37 (97%) | 36 (95%) | 5,659 chars | 369 chars |
+| Source | Total | Full text | Has summary |
+|---|---|---|---|
+| The Economist | 269 | 263 | ~263 |
+| Financial Times | 176 | 171 | ~172 |
+| Foreign Affairs | 66 | 57 | ~62 |
+| Bloomberg | 38 | 37 | ~36 |
+| Other | 41 | — | — |
+| **Total** | **590** | **538** | — |
 
 Notes:
-- FT: 29 articles had full_text but no summary — fixed Session 37 via VPS enrichment script
-- FA: 7 articles without full_text are harder paywall tier — body not scrapable
-- FA: 5 articles have summary but not full_text status — minor inconsistency, harmless
-- Economist: 6 title_only articles — likely bookmarked but not yet scraped
+- VPS total: 590 articles, 538 full text (as of session 38)
+- Mac DB: 560 articles (VPS agent generates its own auto-saves not pushed back to Mac)
+- Newsletters: 60 on both Mac and VPS (synced session 38)
+
+---
+
+## Sync Architecture (IMPORTANT)
+
+### Mac → VPS (wake_and_sync.sh)
+1. Trigger Playwright scrapers (FT, Economist, FA)
+2. Wait 90s for completion
+3. Trigger AI enrichment of title-only articles
+4. Trigger newsletter IMAP sync from iCloud
+5. Push full_text articles to VPS via /api/push-articles
+6. Push chart images to VPS via /api/push-images
+7. Push newsletters to VPS via /api/push-newsletters
+8. Push interviews to VPS via /api/push-interviews
+
+### VPS-only data (never pushed to Mac)
+- suggested_articles — VPS agent generates and saves high-scoring articles
+- kt_themes — seeded on VPS via Haiku/Sonnet
+- article_theme_tags — VPS assigns during KT seeding
+- agent_log — VPS scoring records
+
+### Mac-only data
+- Local meridian.db (560 articles) — source of truth for ingestion
+- Playwright browser profiles (ft_profile/, economist_profile/, fa_profile/)
+- Chrome Extension clips (synced to Mac Flask, then pushed to VPS)
 
 ---
 
@@ -99,14 +125,7 @@ Claude has full access to run all terminal commands, patches, and deployments vi
 - **Shell bridge** — execute via window.shell() in Tab A (localhost)
 - **deploy.sh** — commit, push and deploy to VPS in one command
 
-**Claude must NEVER ask Alex to run Terminal commands.** This includes:
-- Running patch scripts (filesystem:write_file → window.shell('python3 ~/meridian-server/tmp_*.py'))
-- Syntax checks (window.shell('python3 -m py_compile ~/meridian-server/server.py'))
-- Deploying (window.shell('cd ~/meridian-server && ./deploy.sh "message"'))
-- SSH/VPS commands (write script locally → scp to VPS → ssh to run it)
-- Checking logs (fetch via shell bridge → write to ~/meridian-server/logs/*.txt → read via Filesystem MCP)
-
-Alex is not present during execution. Complete all tasks end-to-end autonomously.
+**Claude must NEVER ask Alex to run Terminal commands.**
 
 ### Shell bridge (re-inject at start of each JS block)
 ```js
@@ -128,34 +147,53 @@ window.shell = (cmd) => fetch('http://localhost:4242/api/dev/shell', {
 ### Key patterns
 - Write patch scripts via filesystem:write_file → execute via window.shell()
 - VPS operations: scp script to VPS → ssh to run it → tail result file
-- Shell endpoint filters some keywords — write output to ~/meridian-server/logs/*.txt, read via Filesystem MCP
+- Shell endpoint filters some keywords — write output to ~/meridian-server/logs/*.txt
 - Line-number patches are DANGEROUS — always use str.replace(OLD, NEW) with exact text
 - Always python3 -m py_compile server.py before deploying
 - After deploying, verify via live site tab (Tab B)
 - Tmp files: always clean up after sessions
-- ft_profile / economist_profile / fa_profile are used by launchd sync — never run Playwright
-  against them while sync service is active (profile lock causes 0-char results)
 
 ### VPS Python scripts
 - Always use venv: `source /opt/meridian-server/venv/bin/activate`
 - enrich_article_with_ai() updates the art dict in-place but does NOT write to DB
-  Must manually UPDATE articles SET summary=? after calling it
-- /api/enrich/<aid> route — was broken (cx.description scoping bug), fixed Session 37
+- /api/enrich/<aid> route — fixed session 37 (cx.description scoping bug)
 
 ### Dangerous operations checklist
-Before any DELETE/UPDATE on DB: SELECT preview first, confirm what will be affected, then execute.
+Before any DELETE/UPDATE on DB: SELECT preview first, confirm, then execute.
 
 ---
 
-## Article Body Text — Architecture (IMPORTANT)
+## Article Body Text — Architecture
 
-### Correct architecture (enforced from Session 36)
-- `body` = raw scraped article text from Playwright (5,000–20,000 chars for full articles)
-- `summary` = 2-3 sentence AI summary (Haiku) — used for Feed card previews + keyword matching
-- `status = 'full_text'` = body was successfully populated from Playwright
+### Correct architecture
+- `body` = raw scraped article text (5,000–20,000 chars for full articles)
+- `summary` = 2-3 sentence AI summary (Haiku) — used for Feed previews + keyword matching
+- `status = 'full_text'` = body successfully populated from Playwright
 
-### The fullSummary overwrite bug — FIXED (Session 36)
-- `enrich_article_with_ai` now only writes to `body` if currently empty (<200 chars)
+---
+
+## UI Design (Session 38)
+
+### 2D Navigation (dot + background)
+- `#folder-switcher`: Meridian logo | News Feed · Key Themes · Briefing Generator | server status + AI Analysis
+- Active tab: `background: var(--paper-2)` tray + amber dot (`.nav-dot` turns `var(--accent)`)
+- Inactive tabs: muted text + gray dot, hover shows background tray
+- `switchMode()`: removes `.active` from all tabs, adds to the selected one
+- Info strip, sub-nav, feed header hidden when switching to Themes or Briefing
+
+### Info strip (merged tally + activity)
+- `#info-strip`: My saves n (n%) | AI picks n (n%) | 24h: [source pills] | Sync all | Clip Bloomberg
+- Activity pills: `.activity-pill-active` (amber tint) when n>0, `.activity-pill-zero` (neutral) when 0
+- `flex-wrap: nowrap` — always one line at full browser width
+
+### Article card distinction
+- AI picks: `✦ AI pick` amber filled badge + `.ai-pick` class → `border-left: 3px solid var(--accent)`
+- My saves: `My save` neutral pill (paper-3 bg, rule border), no left border accent
+- Class applied inline in renderFeed() template strings
+
+### Sources panel
+- Top 6 sources listed individually + `Other: n` row for remainder
+- Total row = `articles.length` (all articles, not just shown sources)
 
 ---
 
@@ -163,26 +201,20 @@ Before any DELETE/UPDATE on DB: SELECT preview first, confirm what will be affec
 
 ### Financial Times
 - Scraper: Playwright, `ft_profile/`, saved articles page + article text fetch
-- Selector (updated Session 36): `div.n-content-body p` (primary)
-  fallback: `div[class*='n-content-body'] p`, `div[class*='article__content'] p`
 - Session: expires periodically, requires manual re-login to ft_profile Chromium
-- 29 articles enriched with summaries Session 37 (were full_text but missing summary)
 
 ### The Economist
 - Scraper: Playwright, `economist_profile/`, bookmarks + homepage agent picks
-- Selector: `p[data-component="paragraph"]` — confirmed working
 - headless=False required (Cloudflare detection)
 
 ### Foreign Affairs
 - Scraper: Playwright, `fa_profile/`, saved articles page
-- TWO page templates: `div.article__body-content p` + `section.rich-text p`
 - Session: Drupal cookie valid until 2026-05-23
-- AI theme: FA correctly has minimal presence (~4 articles) — FA covers AI as geopolitics,
-  not tech. Only "America Is Losing the Innovation Race" scores strongly on AI keywords.
 
 ### Bloomberg
 - NO automated scraper — Bloomberg bot detection kills headless Playwright
 - All articles added via Chrome Extension v1.3 clip button
+- Option in source filter dropdown added session 38
 
 ---
 
@@ -196,69 +228,29 @@ Only FT/Economist/FA/Bloomberg auto-saved to Feed. Others stay in Suggested.
 
 ### Current state (3 April 2026)
 - 8 themes on VPS, sorted by article count descending
-- key_facts: ✅ 10 facts per theme across all 8 themes
-- Theme article counts: Iran War 177, Financial Markets 146, Trump/US Politics 115,
-  Energy Markets 61, AI Race 59, Demographics 57, Europe 52, US-China Trade 50
-
-### Theme grid (Session 37)
-- kt-fact-top: padding 2px 12px 6px, height 68px, flex-start, gap 1px, overflow hidden
-- kt-fact-title: no margin-top (removed auto — was causing bottom-anchoring)
-- All 10 key fact cards uniform height, number+title top-aligned
+- key_facts: 10 facts per theme across all 8 themes ✅
 
 ### kt/seed pipeline
 - Call 1: Sonnet → 8 themes. Call 2: Haiku → article assignments. Call 3: Haiku → key_facts
-- Article assignment is AI-based (Haiku), NOT a keyword threshold — results stored implicitly
-- KT theme article counts are re-derived at query time from keyword scoring
 
 ---
 
 ## Intelligence Brief Pipeline
 
 ### Article selection (redesigned Session 37)
-- **Old**: 4 equal-count buckets × 15 articles, source cap 5/bucket = max 60 articles to Sonnet
-- **New** (`_build_article_context` in brief_pdf.py):
-  - All candidates scored: `(full_text bonus + summary length) × recency multiplier`
-  - Recency: ×1.5 last 7 days, ×1.2 last 30 days, ×1.0 older
-  - Temporal anchor: 10% of n, min 3 max 10 — oldest-third articles guaranteed in
-  - No source cap — proportional representation by quality
-  - Cap: 150 articles max (irrelevant at current corpus sizes ≤59/theme)
-  - Short and Full briefs use IDENTICAL article input — difference is output only
-  - Same logic shared via `/api/brief/context` endpoint for bgGenerate modes
-
-### Brief header (fixed Session 37)
-- Now shows actual articles fed to Sonnet (selected_count), not full pool size
-- Old header showed pool size (e.g. 53) even though Sonnet only saw 40
-- `build_brief_pdf` signature: `selected_count=None` parameter added
-
-### /api/enrich/<aid> route (fixed Session 37)
-- Was broken: `cx.description` used outside `with` block → 500 error
-- Fix: uses `cx.row_factory = sqlite3.Row` inside context, writes summary back explicitly
-
-### bgGenerate (All themes / Focused topic)
-- Now calls `/api/brief/context` server-side for article selection
-- Shares same scoring/anchor logic as PDF pipeline
-- Previously: naive `filteredArts.slice(0, maxArts)` with no scoring
-
-### /api/brief/context endpoint (new Session 37)
-- POST {articles, brief_type} → returns {context: str, count: int}
-- Uses `_build_article_context` from brief_pdf.py
+- Score: `(full_text bonus + summary length) × recency multiplier`
+- Recency: ×1.5 last 7 days, ×1.2 last 30 days, ×1.0 older
+- Temporal anchor: 10% of n, min 3 max 10 — oldest-third articles guaranteed
+- No source cap — proportional representation
+- Short and Full briefs use identical article input
 
 ---
 
 ## Chart/Image System
-
-- 163 images across 89 Economist articles — confirmed ceiling (Session 37 backfill)
-- All 173 remaining articles processed: genuinely text-only, no chart figures
+- 163 images across 89 Economist articles — confirmed ceiling (session 37 backfill)
 - Do not re-run backfill on existing articles
 
-### Backfill progress page
-- ~/meridian-server/backfill_progress.html → http://localhost:8080/backfill_progress.html
-- /api/images/recent endpoint: returns last N images as base64 (sqlite3.connect pattern)
-
 ---
-
-## Service Worker
-- sw.js cache version: meridian-v5
 
 ## Schedule (Geneva/CEST)
 - 05:40 / 11:40 — Mac syncs FT + Economist + FA via Playwright
@@ -273,62 +265,56 @@ Only FT/Economist/FA/Bloomberg auto-saved to Feed. Others stay in Suggested.
 
 2. **Sub-topics filtering** — filter chips do nothing; decide implement or remove.
 
-3. **Checking server retry loop** — frontend shows "Checking server" during Flask restart
-   (~8-10s). Add JS retry loop (every 3s, up to 30s) so deploy restarts are invisible.
+3. **Checking server retry loop** — frontend shows "Checking server" during Flask restart.
+   Add JS retry loop (every 3s, up to 30s).
 
 4. **FA session renewal** — Drupal cookie expires 2026-05-23.
 
-5. **Brief quality review** — compare brief #18 (old algo) vs #19 (new algo) on AI theme.
-   Key improvement: 40→53 articles to Sonnet, no source cap, recency weighting.
+5. **Points of Return gap** — latest newsletter is 2 Apr; check if forwarding rule lapsed
+   or Bloomberg changed sender. Trigger manual sync to investigate.
 
-6. **ft_profile lock** — safe window for manual FT Playwright: outside 05:35-06:00 / 11:35-12:00.
-
-7. **Economist title_only (6 articles)** — likely bookmarked but not scraped. Will self-correct
-   on next sync if articles are still accessible.
+6. **NOTES.md** — updated end of session 38.
 
 ---
 
 ## Build History
 
-### 3 April 2026 (Session 37 — brief improvements, enrichment, UI fixes)
+### 3 April 2026 (Session 38 — UI redesign, sync pipeline, source panel)
 
-**Key fact card UI fixes**
-- Removed `margin-top: auto` from `.kt-fact-title` — was anchoring titles to bottom
-- `.kt-fact-top`: padding 2px 12px 6px, height 68px fixed, justify-content flex-start, gap 1px
-- All 10 cards uniform height, number+title top-aligned
+**2D nav design**
+- Replaced folder-tab CSS with dot+background pattern
+- `#folder-switcher` now contains logo + nav items + server status + AI Analysis
+- Active tab: amber dot + background tray; inactive: gray dot + muted text
+- `switchMode()` refactored to use `.active` class uniformly
 
-**Chart backfill — exhausted**
-- All 173 remaining Economist articles processed: 0 new images (genuinely text-only)
-- 163 images / 89 articles is confirmed ceiling
+**Info strip**
+- Merged tally-bar + activity-bar into single `#info-strip`
+- Activity pills: amber when source has new articles, neutral gray when zero
+- Sync all + Clip Bloomberg always on right, never wraps
 
-**Brief article selection — complete redesign**
-- Score-based with recency multiplier replacing equal-count bucket system
-- No source cap, temporal anchor, shared logic for all brief types
-- Short and Full briefs now use same articles — output length is the only difference
-- bgGenerate now uses server-side /api/brief/context instead of naive slice
+**Article card distinction**
+- `✦ AI pick` amber badge + amber left border for auto-saved articles
+- `My save` neutral pill for manually clipped articles
 
-**Brief header fix**
-- Shows actual articles fed to Sonnet, not full input pool
-- Old: "53 articles" even when Sonnet only saw 40
+**Sources panel**
+- Top 6 + Other row; Total = articles.length (590), consistent with tally
 
-**FT 29-article summary enrichment**
-- 29 FT full_text articles had no summaries on VPS
-- Enriched via VPS script using Haiku — all 29 saved ✅
-- FT now 99% summary coverage
+**Tally bar**
+- Percentages shown: My saves 482 (82%) · AI picks 108 (18%)
 
-**/api/enrich/<aid> route fixed**
-- cx.description scoping bug caused 500 errors
-- Now uses sqlite3.Row, properly writes summary back to DB
+**Newsletter + interview sync**
+- `wake_and_sync.sh` now pushes newsletters and interviews to VPS after every sync
+- `/api/push-newsletters` and `/api/push-interviews` endpoints added
+- Backfilled 50 missing newsletters to VPS (10 → 60)
 
-**FA AI theme investigation**
-- FA correctly has minimal AI theme presence (4 articles)
-- FA covers AI as geopolitics/security, not technology
-- Only "America Is Losing the Innovation Race" scores strongly on AI keywords
+**Bloomberg source filter**
+- Added to source filter dropdown (was missing)
 
-**New files/routes**
-- /api/brief/context — shared article selection for all brief modes
-- /api/images/recent — base64 image fetch for monitoring
-- backfill_progress.html — chart backfill progress page
+### 3 April 2026 (Session 37 — brief improvements, FT enrichment, key facts UI)
+- Brief article selection redesigned (score-based, recency multiplier, temporal anchor)
+- FT 29-article enrichment — all enriched via VPS Haiku calls
+- /api/enrich/<aid> fixed (cx.description scoping bug)
+- Chart backfill exhausted — 163/89 is confirmed ceiling
 
 ### 3 April 2026 (Session 36)
 - enrich overwrite bug fixed, Economist + FA re-enrichment
