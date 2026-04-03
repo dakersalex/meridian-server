@@ -1,6 +1,6 @@
 #!/bin/bash
+# Detached Flask restart — safe to run via shell endpoint
 sleep 1
-pkill -f server.py 2>/dev/null
+launchctl unload ~/Library/LaunchAgents/com.alexdakers.meridian.plist 2>/dev/null
 sleep 2
-cd /Users/alexdakers/meridian-server
-python3 server.py >> logs/server.log 2>&1 &
+launchctl load ~/Library/LaunchAgents/com.alexdakers.meridian.plist

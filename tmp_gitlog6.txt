@@ -1,0 +1,2 @@
+04548eef feat: add /api/images/recent endpoint + backfill progress page
+1efb9286 fix: kt-fact-top padding-top 2px — more bottom buffer for 3-line titles

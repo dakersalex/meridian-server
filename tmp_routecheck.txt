@@ -1,0 +1,1 @@
+2731:@app.route("/api/images/recent", methods=["GET"])

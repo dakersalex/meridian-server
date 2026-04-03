@@ -2740,6 +2740,7 @@ def images_recent():
             "SELECT id, article_id, caption, description, image_data, captured_at FROM article_images ORDER BY id DESC LIMIT ?",
             (limit * every_nth,)
         ).fetchall()
+        total = db.execute("SELECT COUNT(*) FROM article_images").fetchone()[0]
     # Take every nth row so we show a sample
     sampled = rows[::every_nth][:limit]
     result = []
@@ -2753,7 +2754,6 @@ def images_recent():
             "image_b64": img_b64,
             "captured_at": row["captured_at"],
         })
-    total = db_query_one("SELECT COUNT(*) as n FROM article_images")["n"]
     return jsonify({"images": result, "total": total})
 
 @app.route("/api/images/backfill", methods=["POST"])
