@@ -1,0 +1,4 @@
+1113:.kt-fact-num {
+1119:.kt-fact-title {
+3833:        <div class="kt-fact-num">${String(i+1).padStart(2,'0')}</div>
+3834:        <div class="kt-fact-title">${f.title || f}</div>
