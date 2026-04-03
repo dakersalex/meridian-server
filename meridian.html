@@ -37,7 +37,8 @@
 body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color: var(--ink); min-height: 100vh; font-size: 14px; line-height: 1.6; }
 .masthead { border-bottom: 2px solid var(--ink); padding: 14px 20px 10px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; position: sticky; top: 0; z-index: 55; background: var(--paper); }
 .masthead-left { display: flex; align-items: baseline; gap: 12px; }
-.logo { font-family: 'Playfair Display', serif; font-size: 26px; font-weight: 600; letter-spacing: -0.5px; }
+.logo { font-family: 'Playfair Display', serif; font-size: 26px; font-weight: 600; letter-spacing: -0.5px; word-spacing: -2px; }
+.logo span { letter-spacing: -0.5px; }
 .logo span { color: var(--accent); }
 .tagline { font-size: 11px; color: var(--ink-3); text-transform: uppercase; letter-spacing: 1.5px; }
 .masthead-right { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
@@ -181,7 +182,7 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
 
   body { -webkit-overflow-scrolling: touch; }
 }
-.feed-area { padding: 0 20px 20px; border-right: 1px solid var(--rule); }
+.feed-area { padding: 0 20px 20px; border-right: 1px solid var(--rule); background: #ffffff; }
 /* On desktop, feed-header sits above feed-area as a normal block */
 @media not all and (pointer: coarse) {
   #feed-header-outer { padding: 0 20px 10px; border-bottom: 1px solid var(--rule); margin-bottom: 0; }
@@ -192,7 +193,7 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
 .feed-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; padding-bottom: 10px; border-bottom: 1px solid var(--rule); }
 .feed-title { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--ink-3); font-weight: 500; }
 .feed-controls { display: flex; gap: 8px; align-items: center; }
-.filter-select { font-size: 11px; padding: 3px 8px; border: 1px solid var(--rule); background: var(--paper); color: var(--ink-2); font-family: 'IBM Plex Sans', sans-serif; cursor: pointer; }
+.filter-select { font-size: 11px; padding: 3px 8px; border: 1px solid rgba(0,0,0,0.25); background: #ffffff; color: var(--ink-2); font-family: 'IBM Plex Sans', sans-serif; cursor: pointer; font-weight: 500; }
 .article-card { padding: 0; margin-bottom: 2px; border-bottom: 1px solid var(--rule); cursor: pointer; border-left: 3px solid transparent; transition: border-left-color 0.15s; }
 .card-inner { display: flex; gap: 16px; padding: 16px 20px 16px 17px; }
 .card-date-col { width: 44px; flex-shrink: 0; padding-top: 1px; text-align: left; }
@@ -1340,12 +1341,10 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
   </div>
   <div class="masthead-right" style="flex-direction:column;align-items:flex-end;gap:2px">
     <div class="date-line" id="date-display" style="font-size:13px;color:var(--ink-2)"></div>
-    <div style="display:flex;align-items:center;gap:6px">
-      <span id="last-sync-masthead" style="font-size:11px;color:var(--ink-3)"></span>
-      <div class="server-status" style="font-size:11px">
-        <div class="status-dot" id="status-dot"></div>
-        <span id="status-text" style="font-size:11px;color:var(--ink-3)">Checking…</span>
-      </div>
+    <div style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--ink-3)">
+      <span id="last-sync-masthead"></span>
+      <div class="status-dot" id="status-dot"></div>
+      <span id="status-text">Checking…</span>
     </div>
     <button class="btn btn-outline" onclick="openModal()" id="add-article-btn" style="display:none">+ Add Article</button>
     <button class="btn btn-outline" onclick="openInterviewModal()" id="add-interview-btn" style="display:none">+ Add Interview</button>
@@ -1393,7 +1392,7 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
 <div id="info-strip" style="display:flex;align-items:center;gap:10px;padding:6px 20px;background:var(--paper-2);border-bottom:1px solid var(--rule);font-size:11px;flex-wrap:nowrap;position:sticky;top:147px;z-index:52;isolation:isolate;">
   <span style="color:var(--ink-2);white-space:nowrap">My saves: <strong style="color:var(--ink);font-weight:600"><span id="tally-saves">–</span></strong> <span id="tally-saves-pct" style="color:var(--ink-3)"></span></span>
   <div style="width:1px;height:12px;background:var(--rule);flex-shrink:0"></div>
-  <span style="color:var(--ink-2);white-space:nowrap">AI picks: <strong style="color:var(--accent);font-weight:600"><span id="tally-ai">–</span></strong> <span id="tally-ai-pct" style="color:var(--ink-3)"></span></span>
+  <span style="color:var(--ink-2);white-space:nowrap">AI picks: <strong style="color:var(--ink);font-weight:600"><span id="tally-ai">–</span></strong> <span id="tally-ai-pct" style="color:var(--ink-3)"></span></span>
   <div style="width:1px;height:12px;background:var(--rule);flex-shrink:0"></div>
   <span style="font-weight:500;color:var(--ink-2);white-space:nowrap">24h:</span>
   <span id="act-ft-pill" class="activity-pill activity-pill-zero"><span style="color:#0d4a8a;font-weight:500">FT</span> <span id="act-ft">–</span></span>
@@ -1404,7 +1403,7 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
   <span class="activity-warning" id="act-warning" style="display:none">⚠ FT sync found 0 articles</span>
   <span style="display:none" id="tally-total">0</span>
   <div style="margin-left:auto;display:flex;gap:6px;flex-shrink:0">
-    <button class="btn btn-dark" onclick="syncAll()" id="sync-all-btn" style="font-size:10px;padding:3px 9px;background:var(--accent)">🔄 Sync all</button>
+    <button class="btn btn-dark" onclick="syncAll()" id="sync-all-btn" style="font-size:10px;padding:3px 9px;background:#d4976a;border:none;color:white;">🔄 Sync all</button>
     <button class="btn btn-outline" onclick="clipBloomberg()" id="clip-bbg-btn" style="font-size:10px;padding:3px 7px;display:none">📎 Clip Bloomberg</button>
   </div>
 </div>
