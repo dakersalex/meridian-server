@@ -1,0 +1,41 @@
+def images_backfill():
+    """Async job: capture charts for all existing Economist articles that have
+    no images yet. Processes in batches of 10 with 2s sleep between batches
+    to avoid Cloudflare rate limits. Poll /api/images/backfill/status."""
+    global _backfill_job
+    if _backfill_job["running"]:
+        return jsonify({"ok": False, "error": "Already running"}), 409
+
+    def _run():
+        global _backfill_job
+        import time as _time
+        _backfill_job = {"running": True, "total": 0, "done": 0, "captured": 0,
+                         "error": None, "started_at": now_ts()}
+        try:
+            with sqlite3.connect(DB_PATH) as cx:
+                # Only articles with URL and body (not title_only) that have no images yet
+                rows = cx.execute(
+                    "SELECT a.id, a.url, a.title FROM articles a "
+                    "WHERE a.source='The Economist' AND a.url!='' AND a.status!='title_only' "
+                    "AND NOT EXISTS (SELECT 1 FROM article_images ai WHERE ai.article_id=a.id) "
+                    "ORDER BY a.saved_at DESC"
+                ).fetchall()
+            articles = [(r[0], r[1], r[2]) for r in rows]
+            _backfill_job["total"] = len(articles)
+            log.info(f"Backfill: {len(articles)} Economist articles to process")
+
+            if not articles or not PLAYWRIGHT_OK:
+                _backfill_job["running"] = False
+                return
+
+            eco_profile = BASE_DIR / "economist_profile"
+            if not eco_profile.exists():
+                _backfill_job["error"] = "economist_profile not found"
+                _backfill_job["running"] = False
+                return
+
+            with sync_playwright() as pw:
+                browser = pw.chromium.launch_persistent_context(
+                    str(eco_profile),
+                    headless=False,
+                    args=["--no-sandbox", "--disable-blink-features=AutomationControlled"]

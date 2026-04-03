@@ -1,0 +1,35 @@
+@app.route("/api/images/recent", methods=["GET"])
+def images_recent():
+    """Return the most recent N images as base64 for progress monitoring.
+    Query params: limit (default 20), every_nth (default 5, returns every nth image by id)"""
+    import base64 as _b64
+    limit = int(request.args.get("limit", 20))
+    every_nth = int(request.args.get("every_nth", 5))
+    with sqlite3.connect(DB_PATH) as cx:
+        cx.row_factory = sqlite3.Row
+        rows = cx.execute(
+            "SELECT id, article_id, caption, description, image_data, captured_at FROM article_images ORDER BY id DESC LIMIT ?",
+            (limit * every_nth,)
+        ).fetchall()
+        total = cx.execute("SELECT COUNT(*) FROM article_images").fetchone()[0]
+    sampled = rows[::every_nth][:limit]
+    result = []
+    for row in sampled:
+        img_b64 = _b64.b64encode(row["image_data"]).decode("utf-8") if row["image_data"] else None
+        result.append({
+            "id": row["id"],
+            "article_id": row["article_id"],
+            "caption": row["caption"],
+            "description": row["description"],
+            "image_b64": img_b64,
+            "captured_at": row["captured_at"],
+        })
+    return jsonify({"images": result, "total": total})
+
+@app.route("/api/images/backfill", methods=["POST"])
+def images_backfill():
+    """Async job: capture charts for all existing Economist articles that have
+    no images yet. Processes in batches of 10 with 2s sleep between batches
+    to avoid Cloudflare rate limits. Poll /api/images/backfill/status."""
+    global _backfill_job
+    if _backfill_job["running"]:
