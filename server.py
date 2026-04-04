@@ -5,8 +5,55 @@ Correct URLs and selectors for FT, Economist, Foreign Affairs.
 """
 
 import json, os, sys, time, hashlib, logging, threading, sqlite3, re, urllib.request, urllib.error
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
+
+_MONTHS = {
+    'january':1,'february':2,'march':3,'april':4,'may':5,'june':6,
+    'july':7,'august':8,'september':9,'october':10,'november':11,'december':12,
+    'jan':1,'feb':2,'mar':3,'apr':4,'jun':6,'jul':7,'aug':8,
+    'sep':9,'oct':10,'nov':11,'dec':12
+}
+
+def normalize_pub_date(d):
+    """Normalise any pub_date string to ISO YYYY-MM-DD."""
+    if not d or not str(d).strip():
+        return ''
+    d = str(d).strip()
+    # Already ISO
+    m = re.match(r'^(\d{4}-\d{2}-\d{2})', d)
+    if m:
+        return m.group(1)
+    # DD Month YYYY e.g. '01 April 2026'
+    m = re.match(r'^(\d{1,2})\s+(\w+)\s+(\d{4})$', d)
+    if m:
+        day, mon, year = int(m.group(1)), m.group(2).lower(), int(m.group(3))
+        if mon in _MONTHS:
+            return f'{year:04d}-{_MONTHS[mon]:02d}-{day:02d}'
+    # Month D, YYYY e.g. 'April 2, 2026'
+    m = re.match(r'^(\w+)\s+(\d{1,2}),\s+(\d{4})$', d)
+    if m:
+        mon, day, year = m.group(1).lower(), int(m.group(2)), int(m.group(3))
+        if mon in _MONTHS:
+            return f'{year:04d}-{_MONTHS[mon]:02d}-{day:02d}'
+    # Month YYYY (no day) e.g. 'March 2026' -> 1st
+    m = re.match(r'^(\w+)\s+(\d{4})$', d)
+    if m:
+        mon, year = m.group(1).lower(), int(m.group(2))
+        if mon in _MONTHS:
+            return f'{year:04d}-{_MONTHS[mon]:02d}-01'
+    # X days ago
+    m = re.match(r'^(\d+)\s+days?\s+ago$', d, re.I)
+    if m:
+        return (datetime.utcnow() - timedelta(days=int(m.group(1)))).strftime('%Y-%m-%d')
+    if d.lower() == 'yesterday':
+        return (datetime.utcnow() - timedelta(days=1)).strftime('%Y-%m-%d')
+    if d.lower() in ('today', 'now'):
+        return datetime.utcnow().strftime('%Y-%m-%d')
+    if re.match(r'^\d+\s+hours?\s+ago$', d, re.I):
+        return datetime.utcnow().strftime('%Y-%m-%d')
+    return d
+
 
 from flask import Flask, jsonify, request
 from flask_cors import CORS
@@ -130,6 +177,8 @@ def article_exists(aid):
         return cx.execute("SELECT 1 FROM articles WHERE id=?", (aid,)).fetchone() is not None
 
 def upsert_article(art):
+    if art.get('pub_date'):
+        art['pub_date'] = normalize_pub_date(art['pub_date'])
     with sqlite3.connect(DB_PATH) as cx:
         cx.execute("""INSERT OR REPLACE INTO articles
           (id,source,url,title,body,summary,topic,tags,saved_at,fetched_at,status,pub_date,auto_saved)
@@ -225,7 +274,7 @@ def enrich_article_with_ai(art):
   "keyPoints": ["point 1", "point 2", "point 3", "point 4"],
   "tags": ["tag1", "tag2", "tag3"],
   "topic": "pick from: Markets, Economics, Geopolitics, Technology, Politics, Business, Energy, Finance, Society, Science — or invent a new max 2-word topic if none fit",
-  "pub_date": "publication date as Month Year e.g. March 2026, or empty string if unknown"
+  "pub_date": "publication date in YYYY-MM-DD format e.g. 2026-03-27, or empty string if unknown"
 }}
 
 Article title: {art.get('title','')}
