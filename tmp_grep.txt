@@ -1,0 +1,16 @@
+79:  #feed-header-outer { display: none !important; }
+186:/* On desktop, feed-header sits above feed-area as a normal block */
+188:  #feed-header-outer { padding: 0 20px 10px; border-bottom: 1px solid var(--rule); margin-bottom: 0; }
+193:.feed-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; padding-bottom: 10px; border-bottom: 1px solid var(--rule); }
+395:#folder-switcher {
+1353:<div id="folder-switcher">
+1359:    <button id="stats-toggle-btn" onclick="toggleStatsStrip()" style="font-size:11px;padding:4px 10px;background:transparent;border:1px solid rgba(0,0,0,0.2);color:var(--ink-2);border-radius:4px;cursor:pointer;font-family:inherit;display:flex;align-items:center;gap:5px;">📊 Stats</button>
+1360:    <button class="btn btn-outline" onclick="clipBloomberg()" id="clip-bbg-btn" style="font-size:10px;padding:3px 7px;display:none">📎 Clip Bloomberg</button>
+1394:<div id="feed-header-outer" style="display:flex;align-items:center;gap:8px;padding:7px 20px 7px 18px;background:var(--paper-2);border-bottom:2px solid var(--rule);position:sticky;top:147px;z-index:52;isolation:isolate;">
+2983:function toggleStatsStrip() {
+2985:  const btn = document.getElementById('stats-toggle-btn');
+2994:  const fs = document.getElementById('folder-switcher');
+2997:  const fh = document.getElementById('feed-header-outer');
+3672:  btn.textContent = `📎 Clip Bloomberg (${bbgTitleOnly.length})`;
+3705:    if(bbgCount > 0) btn.textContent = `📎 Clip Bloomberg (${bbgCount})`;
+3929:  const feedHeader = document.getElementById('feed-header-outer');

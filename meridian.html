@@ -1356,8 +1356,6 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
   <button class="folder-tab folder-tab-briefing" id="tab-briefing" onclick="switchMode('briefing')"><span class="nav-dot"></span>Briefing Generator</button>
   <div style="margin-left:auto;display:flex;align-items:center;gap:8px">
     <span class="last-sync" id="last-sync-label" style="display:none"></span>
-    <button id="stats-toggle-btn" onclick="toggleStatsStrip()" style="font-size:11px;padding:4px 10px;background:transparent;border:1px solid rgba(0,0,0,0.2);color:var(--ink-2);border-radius:4px;cursor:pointer;font-family:inherit;display:flex;align-items:center;gap:5px;">📊 Stats</button>
-    <button class="btn btn-outline" onclick="clipBloomberg()" id="clip-bbg-btn" style="font-size:10px;padding:3px 7px;display:none">📎 Clip Bloomberg</button>
     <button class="btn btn-dark" onclick="syncAll()" id="sync-all-btn" style="font-size:10px;padding:4px 10px;background:#d4976a;border:none;color:white;">🔄 Sync all</button>
     <button class="btn btn-dark" onclick="openAIPanel()" style="background:var(--accent);font-size:11px;padding:5px 14px">✦ AI Analysis</button>
   </div>
@@ -1414,6 +1412,10 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
     <option value="365">Last year</option>
     <option value="9999">All time</option>
   </select>
+  <div style="margin-left:auto;display:flex;align-items:center;gap:6px">
+    <button id="stats-toggle-btn" onclick="toggleStatsStrip()" style="font-size:11px;padding:4px 10px;background:transparent;border:1px solid rgba(0,0,0,0.2);color:var(--ink-2);border-radius:4px;cursor:pointer;font-family:inherit;display:flex;align-items:center;gap:5px;">📊 Stats</button>
+    <button class="btn btn-outline" onclick="clipBloomberg()" id="clip-bbg-btn" style="font-size:10px;padding:3px 7px;display:none">📎 Clip Bloomberg</button>
+  </div>
   <button class="btn btn-outline" onclick="selectAll()" style="font-size:11px;padding:4px 8px;display:none" id="select-all-btn">Select all</button>
   <button class="btn btn-outline" onclick="deleteSelected()" style="font-size:11px;padding:4px 8px;display:none;border-color:var(--red);color:var(--red)" id="delete-selected-btn">Delete selected</button>
 </div>

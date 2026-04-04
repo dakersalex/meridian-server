@@ -1,0 +1,2 @@
+Patch applied OK
+<html lang count: 1 (expected 1)
