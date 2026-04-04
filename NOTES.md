@@ -1,5 +1,5 @@
 # Meridian — Technical Notes
-Last updated: 4 April 2026 (Session 39 — major UI redesign: card layout, palette, stats panel)
+Last updated: 4 April 2026 (Session 40 — filter row buttons, stats overlay fix, dupe strip removal, tmp cleanup)
 
 ## Overview
 Personal news aggregator. Flask API + SQLite backend running on Hetzner VPS (always-on).
@@ -116,7 +116,7 @@ window.shell = (cmd) => fetch('http://localhost:4242/api/dev/shell', {
 - Line-number patches are DANGEROUS — always use exact text str.replace()
 - Always python3 -m py_compile is NOT available on this stack — do JS syntax check instead
 - After deploying, verify via live site tab (Tab B)
-- Check for duplicate `<html>` tags after any major HTML restructuring: `grep -c "<html" meridian.html` should return 1
+- Check for duplicate `<html>` tags after any major HTML restructuring: `grep -c "<html lang" meridian.html` should return 1
 
 ### CRITICAL: Duplicate HTML bug prevention
 The dedup bug (session 39) caused the whole page to render twice because a Python
@@ -126,9 +126,14 @@ replaces a large HTML block, always run:
 Expected: line 1 only (plus any inside JS template strings). Never deploy if there
 are two `<html lang` tags in the file.
 
+### tmp_ files
+- tmp_*.py and tmp_*.txt are gitignored (added Session 40)
+- Write scripts to ~/meridian-server/tmp_*.py, read output from tmp_*.txt
+- Clean up at end of session: rm -f tmp_*.txt tmp_*.py
+
 ---
 
-## UI Design — Current State (Session 39)
+## UI Design — Current State (Session 40)
 
 ### Colour Palette (Palette 1A)
 ```css
@@ -141,58 +146,63 @@ are two `<html lang` tags in the file.
 --rule: rgba(0,0,0,0.1)  /* dividers */
 ```
 
-- **Header rows** (rows 1-5): background `var(--paper-2)` — darker warm cream
+- **Header rows** (rows 1-4): background `var(--paper-2)` — darker warm cream
 - **Content zone** (cards, sidebar, feed area): background `var(--paper)` — lighter warm cream
 - **Amber** appears ONLY in: logo "dian", AI Analysis button, card hover border
 - **Sync all button**: `background: #d4976a` (muted amber fill, no border)
 - **Activity pills**: green when active, neutral grey when zero — never amber
-- **AI picks count (row 4)**: plain bold ink, NOT amber
+- **AI picks count**: plain bold ink, NOT amber
 - **Filter dropdowns**: white bg (`var(--paper)`), `1px rgba(0,0,0,0.25)` border
 
 ### Row structure (sticky, stacked)
 ```
 Row 1: Masthead — logo + tagline | date + synced time + green/red dot + connected
-Row 2: Folder-switcher — News Feed · Key Themes · Briefing Generator | Stats · Clip Bloomberg · Sync all · AI Analysis
-Row 3: Main-nav — FEED 471 · ARCHIVE · NEWSLETTERS · INTERVIEWS · SUGGESTED
-Row 4: Filter — All articles · All curation · All sources · Last 6 months
-Row 5: Info-strip (Stats panel, hidden by default, toggled by Stats button)
+Row 2: Folder-switcher — News Feed · Key Themes · Briefing Generator | Sync all · AI Analysis
+Row 3: Main-nav — FEED · ARCHIVE · NEWSLETTERS · INTERVIEWS · SUGGESTED
+Row 4: Filter — All articles · All curation · All sources · Last 6 months | 📊 Stats · 📎 Clip Bloomberg
+Row 5: Info-strip (Stats panel, hidden by default, toggled by Stats button — NOT sticky, pushes content down)
 ```
+
+**Note (Session 40):** Stats and Clip Bloomberg moved from Row 2 to Row 4 (right side).
 
 ### Sticky top values (px, from recalcStickyTops())
 - Masthead: top 0 (h≈68)
 - Folder-switcher: top 67 (h≈44)
 - Main-nav: top 111 (h≈35)
 - Filter row: top 146 (h≈41)
-- Info-strip: top 184 (shows below filter when visible)
+- Info-strip: **position:relative** (NOT sticky) — expands in normal flow, pushes feed down
 
-### recalcStickyTops() — IMPORTANT
-New order after session 39 swap (filter above info-strip):
+### recalcStickyTops()
 ```js
-// fh = feed-header-outer (filter), is_ = info-strip
-fh.style.top = (h0+h1+h2-3)+'px';
-if (is_) is_.style.top = (h0+h1+h2+h3-4)+'px';  // h3 = filter height
+const h0 = masthead.offsetHeight;
+const h1 = fs.offsetHeight;
+const h2 = mn.offsetHeight;
+const h3 = fh ? fh.offsetHeight : 0;
+fs.style.top = (h0-1)+'px';
+mn.style.top = (h0+h1-2)+'px';
+if (fh) fh.style.top = (h0+h1+h2-3)+'px';
+// info-strip is position:relative — no top needed
 ```
-Run on load + resize. Info-strip visibility is tracked; filter always visible.
 
 ### Stats toggle (Info-strip)
-- Button: `#stats-toggle-btn` in folder-switcher row
-- Function: `toggleStatsStrip()` — toggles `display:none`/`display:flex` and calls `recalcStickyTops()`
+- Button: `#stats-toggle-btn` in filter row right side (margin-left:auto group with clip-bbg-btn)
+- Function: `toggleStatsStrip()` — toggles `display:none`/`display:flex`, calls `recalcStickyTops()`
 - Hidden by default on page load
-- Stats panel background = `var(--paper)` (same as card area — intentional, blends in)
-- Bottom border: `3px solid var(--ink)` — strong separation from feed below
+- `position:relative` — opens in normal flow, pushes feed down (not an overlay)
+- Background: `var(--paper)`, bottom border: `3px solid var(--ink)`
 
 ### Stats panel layout (two-row)
 **Top row** (headline numbers + 24h):
-- 592 Total · 482 My saves · 110 AI picks · 539 Full text (22px bold)
-- 24h activity: `FT +10 · Economist +2 · FA +5 · Bloomberg — · FP —` (10px, source colours)
-- 24h uses date string comparison: `a.pub_date >= yesterdayStr` (pub_date is YYYY-MM-DD, no time)
+- Total · My saves · AI picks · Full text (22px bold ink, AI picks in accent)
+- 24h activity pills per source (green when active, grey when zero)
+- 24h uses date string comparison: `a.pub_date >= yesterdayStr`
 
 **Bottom row** (charts):
-- Curation split donut (80px): AI arc = full amber ring, saves arc on top with `transform="rotate(-90 40 40)"`
-  - `stroke-dasharray = savePct * 201.062` — exact two segments, no gap
+- Curation split donut (80px): full amber ring (AI) + rotated saves arc on top
+  - `stroke-dasharray = savePct * 201.062`
 - Top 5 topics (colour dots)
 - By source (horizontal bars, source brand colours)
-- Full text coverage (green bars, gold/red for low coverage)
+- Full text coverage (green bars)
 
 ### Article card layout (Option 3 — fixed date column)
 ```
@@ -202,25 +212,18 @@ Run on load + resize. Info-strip visibility is tracked; filter always visible.
                 [article-summary]
                 [card-footer: Full text badge · AI pick/My save · tags]
 ```
-- `card-inner`: `padding: 16px 20px 16px 17px` (17px left compensates for 3px hover border)
-- Card hover: `border-left: 3px solid var(--accent)` slides in via `border-left-color 0.15s`
-- Delete button: `card-del` class — 20×20px grey square box, top-right of card-body
-- Featured card (first): same layout, no "Latest · FT" label, slightly larger title
+- `card-inner`: `padding: 16px 20px 16px 17px`
+- Card hover: `border-left: 3px solid var(--accent)` via `border-left-color 0.15s`
+- Delete button: `card-del` — 20×20px grey square, top-right of card-body
 
 ### Curation badges
 - AI pick: `.curation-ai` — `background: #f5ede4; color: #854f0b; border: 0.5px solid #e8c9a8`
 - My save: `.curation-my` — `background: var(--paper-3); color: var(--ink-3); border: 0.5px solid var(--rule)`
-- `autoPill` JS: `a.auto_saved ? 'AI pick' : 'My save'` (plain text, used in curation-badge span)
-
-### Nav dot colours
-- Active nav: `background: var(--accent)` amber dot
-- Inactive nav: `background: var(--paper-3)` grey dot
 
 ### Server status
 - ONE instance only: in masthead right, below date
 - Format: `Synced 10:08 • meridianreader.com · connected`
-- Green dot when connected (`status-dot.connected`), red when error
-- Removed from folder-switcher row (was duplicated)
+- Green dot when connected, red when error
 
 ---
 
@@ -244,78 +247,74 @@ Run on load + resize. Info-strip visibility is tracked; filter always visible.
 ---
 
 ## Key Themes (KT) System
-- 8 themes on VPS, sorted by article count
+- 8 themes on VPS, sorted by article count descending
 - 3-call architecture: Sonnet (theme gen) → Haiku (assignment) → Haiku (key_facts)
+- KT lives on VPS only — Mac local DB has kt_themes table but it is always empty
+
+### Current themes (4 April 2026 — VPS)
+| Theme | Articles |
+|---|---|
+| Iran War and Middle East | 185 |
+| Financial Markets and Investors | 148 |
+| Trump Administration and US Politics | 117 |
+| Energy Markets and Oil Shock | 62 |
+| AI Race and Tech Industry | 59 |
+| Demographics, Society and Culture | 57 |
+| Europe's Strategic Repositioning | 53 |
+| US-China Trade and Tech War | 51 |
 
 ---
 
 ## Outstanding Issues / Next Steps
 
-1. **"LIBRARY" text node** — a bare text node appears just above the feed after the stats strip.
-   Not in the HTML file (confirmed by grep) — may be a lingering DOM artefact from the
-   duplicate-page bug. Hard reload clears it but it returns. Find the source — likely a
-   stray text node near the info-strip/main-layout boundary.
+1. **Pre-existing SyntaxError ~line 1764** — `Unexpected token 'return'` in JS, predates Session 40. Not crashing the page but should be found and fixed.
 
-2. **Sort theme articles by relevance** — detail panel shows most recent first; sort by
-   keyword hit count + recency.
+2. **"LIBRARY" text node** — bare text node appears above the feed, not in HTML source. Hard reload clears it temporarily. Find and remove the source.
 
-3. **Sub-topics filtering** — filter chips do nothing; decide implement or remove.
+3. **Sort theme articles by relevance** — detail panel shows most recent first; should sort by keyword hit count + recency.
 
-4. **FA session renewal** — Drupal cookie expires 2026-05-23.
+4. **Sub-topics filtering** — filter chips do nothing; decide: implement or remove.
 
-5. **Points of Return newsletter gap** — latest is 2 Apr; check forwarding rule.
+5. **FA session renewal** — Drupal cookie expires 2026-05-23.
 
-6. **Tmp file cleanup** — accumulated during long sessions.
-
-7. **Stats panel: 24h activity** — currently comparing `pub_date >= yesterdayStr`.
-   Works correctly for articles with pub_date set. Fallback uses saved_at timestamp.
+6. **Points of Return newsletter gap** — latest is 2 Apr; check forwarding rule.
 
 ---
 
 ## Build History
 
+### 4 April 2026 (Session 40 — filter row, stats fix, cleanup)
+
+**Button moves**
+- Stats (📊) and Clip Bloomberg (📎) moved from folder-switcher (row 2) to filter row (row 4), right-aligned
+- Folder-switcher now only: News Feed · Key Themes · Briefing Generator | Sync all · AI Analysis
+
+**Stats panel overlay fix**
+- `#info-strip` changed from `position:sticky` → `position:relative`
+- Stats panel now pushes feed down when opened, no longer overlays content
+
+**Duplicate info-strip removed**
+- A stale second `#info-strip` (flex-direction:row, 5692 chars) was lurking in the HTML after the briefing modal
+- Removed — single info-strip remains (flex-direction:column, two-row stats layout)
+
+**Select-all / Delete-selected buttons**
+- HTML buttons removed from filter row
+- JS null-guarded (`getElementById` results checked before `.style` / `.textContent` access)
+- CSS hide rule also removed
+
+**tmp_ file cleanup**
+- 66 accumulated tmp_*.py / tmp_*.txt files purged from git
+- `tmp_*.py` and `tmp_*.txt` added to .gitignore permanently
+
 ### 4 April 2026 (Session 39 — Major UI redesign)
-
-**Card layout (Option 3)**
-- Fixed 44px date column on left, card-body on right
-- Source · Topic header with boxed delete button top-right
-- Status + curation badges below summary
-- Amber left border slides in on hover (3px, `border-left-color 0.15s`)
-- Removed "Latest · FT" label from first card
-
-**Palette 1A**
-- Warm cream headers (#f0ece3 / paper-2), lighter warm content area (#faf8f4 / paper)
-- Amber reserved for: logo accent, AI Analysis button, card hover border ONLY
-- All other active states use ink (#1a1a1a)
-- Activity pills: green not amber
-- AI picks count in row 4: bold ink, not amber
-- Sync all: muted amber fill (#d4976a)
-- Filter dropdowns: white bg, bolder border
-- Single server status in masthead (green dot), removed from nav row
-
-**Stats panel (major build)**
-- Stats chip in nav row toggles info-strip panel
-- Sync all + Clip Bloomberg moved from info-strip to nav row
-- Info-strip hidden by default; toggled by Stats chip
-- Two-row layout: numbers+24h (top) / donut+charts (bottom)
-- 80px donut: correct two-segment SVG using full amber ring + rotate(-90) saves arc
-- Top 5 topics (was 7)
-- 24h: date string comparison fixes zero-article bug
-- Bottom border 3px ink for clear separation from feed
-- Background matches content zone (paper), not header zone (paper-2)
-
-**Filter row reordering**
-- Filter row moved ABOVE info-strip (was below)
-- recalcStickyTops() updated to reflect new order
-
-**Bug fixes**
-- JS syntax error (missing semicolons before return in checkServer) — fixed
-- Duplicate HTML bug caused by corrupted DOCTYPE during dedup — fixed
-- Sticky row gap: 1px overlap per row, recalcStickyTops() now header-aware
+- Card layout Option 3: fixed 44px date column, card-body right
+- Palette 1A: warm cream header/content split, amber reserved for logo/button/hover only
+- Stats panel built: donut + topics + source bars + coverage
+- Filter row moved above info-strip; recalcStickyTops() updated
+- Duplicate HTML bug fixed (corrupted DOCTYPE)
 
 ### 3 April 2026 (Session 38 — UI redesign, sync pipeline, source panel)
 - 2D nav with dot+background pattern
-- Merged tally + activity into info-strip
 - Newsletter + interview VPS sync added
 - Bloomberg source filter added
 
@@ -328,7 +327,7 @@ Run on load + resize. Info-strip visibility is tracked; filter always visible.
 
 ## GitHub Visibility
 - Repo: PUBLIC — github.com/dakersalex/meridian-server
-- Excluded: credentials.json, cookies.json, meridian.db, newsletter_sync.py, venv/
+- Excluded: credentials.json, cookies.json, meridian.db, newsletter_sync.py, venv/, tmp_*.py, tmp_*.txt
 
 ## Session Starter Prompt
 ---
