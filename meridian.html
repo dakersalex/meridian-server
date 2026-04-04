@@ -60,7 +60,7 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
 .source-sync-btn { font-size: 11px; padding: 3px 9px; background: none; border: 1px solid var(--rule); color: var(--ink-3); cursor: pointer; font-family: 'IBM Plex Sans', sans-serif; transition: all 0.15s; }
 .source-sync-btn:hover, .source-sync-btn.syncing { border-color: var(--accent); color: var(--accent); }
 .last-sync { font-size: 11px; color: var(--ink-3); }
-.main-nav { border-bottom: 1px solid var(--rule); padding: 0 20px; display: flex; align-items: center; gap: 0; overflow-x: auto; scrollbar-width: none; position: sticky; top: 112px; z-index: 53; background: var(--paper-2); box-shadow: 0 1px 0 var(--rule); }
+.main-nav { border-bottom: 1px solid var(--rule); padding: 0 20px 0 18px; display: flex; align-items: center; gap: 0; overflow-x: auto; scrollbar-width: none; position: sticky; top: 112px; z-index: 53; background: var(--paper-2); box-shadow: 0 1px 0 var(--rule); }
 .main-nav::-webkit-scrollbar { display: none; }
 .nav-tab { padding: 8px 14px; font-size: 11px; color: var(--ink-3); cursor: pointer; border-bottom: 2px solid transparent; white-space: nowrap; letter-spacing: 0.6px; text-transform: uppercase; transition: all 0.15s; background: none; border-top: none; border-left: none; border-right: none; font-family: 'IBM Plex Sans', sans-serif; display: flex; align-items: center; gap: 5px; }
 .nav-tab:hover { color: var(--ink); }
@@ -394,7 +394,7 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
 /* ── 2D nav: dot + background on active ── */
 #folder-switcher {
   background: var(--paper-2);
-  padding: 8px 20px;
+  padding: 8px 20px 8px 18px;
   display: flex;
   align-items: center;
   border-bottom: 1px solid var(--rule);
@@ -1391,7 +1391,7 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
     <option value="ai">AI picks</option>
   </select>
 </div>
-<div id="feed-header-outer" style="display:flex;align-items:center;gap:8px;padding:7px 20px;background:var(--paper-2);border-bottom:2px solid var(--rule);position:sticky;top:147px;z-index:52;isolation:isolate;">
+<div id="feed-header-outer" style="display:flex;align-items:center;gap:8px;padding:7px 20px 7px 18px;background:var(--paper-2);border-bottom:2px solid var(--rule);position:sticky;top:147px;z-index:52;isolation:isolate;">
   <span style="font-size:10px;font-weight:500;letter-spacing:0.8px;text-transform:uppercase;color:var(--ink-3);margin-right:4px">Filter</span>
   <span class="feed-title" id="feed-title" style="display:none"></span>
   <select class="filter-select" id="status-filter" onchange="renderFeed()"><option value="all">All articles</option><option value="full_text">Full text only</option><option value="title_only">Title only</option></select>
@@ -3793,8 +3793,16 @@ async function updateActivityBar() {
       const srcColors = {'Financial Times':'#0d4a8a','The Economist':'#8b1a1a','Foreign Affairs':'#1e4d8c','Bloomberg':'#555','Foreign Policy Research Institute':'#2d6b45'};
       const srcShort = {'Financial Times':'FT','The Economist':'Economist','Foreign Affairs':'FA','Bloomberg':'Bloomberg','Foreign Policy Research Institute':'FP'};
       h24Top.innerHTML = '';
-      const cutoff = Date.now() - 24*60*60*1000;
-      const recent = allArts.filter(a => new Date(a.pub_date||a.saved_at).getTime() > cutoff);
+      // pub_date is date-only (YYYY-MM-DD), compare as string to today and yesterday
+      const now = new Date();
+      const todayStr = now.toISOString().slice(0,10);
+      const yd = new Date(now - 24*60*60*1000);
+      const yestStr = yd.toISOString().slice(0,10);
+      const recent = allArts.filter(a => {
+        if(a.pub_date) return a.pub_date >= yestStr;
+        // fallback: saved_at timestamp
+        return new Date(a.saved_at).getTime() > (Date.now() - 24*60*60*1000);
+      });
       const srcMap = {};
       recent.forEach(a => { srcMap[a.source] = (srcMap[a.source]||0)+1; });
       const sources = ['Financial Times','The Economist','Foreign Affairs','Bloomberg','Foreign Policy Research Institute'];
@@ -3847,7 +3855,7 @@ async function updateActivityBar() {
     // Top topics
     const topicCounts = {};
     allArts.forEach(a=>{ if(a.topic) topicCounts[a.topic]=(topicCounts[a.topic]||0)+1; });
-    const topicSorted = Object.entries(topicCounts).sort((a,b)=>b[1]-a[1]).slice(0,7);
+    const topicSorted = Object.entries(topicCounts).sort((a,b)=>b[1]-a[1]).slice(0,5);
     const topicColors = ['#8b1a1a','#1e4d8c','#2d6b45','#5c2d8c','#555','#8c6a20','#c4783a'];
     const topEl = se('stat-topics');
     if(topEl) topEl.innerHTML = topicSorted.map(([t,n],i)=>
