@@ -1,5 +1,5 @@
 # Meridian — Technical Notes
-Last updated: 4 April 2026 (Session 41 — duplicate HTML block removal, LIBRARY ghost text fix)
+Last updated: 4 April 2026 (Session 41 — pub_date normalisation, stats panel gap fix)
 
 ## Overview
 Personal news aggregator. Flask API + SQLite backend running on Hetzner VPS (always-on).
@@ -69,12 +69,30 @@ View logs: cat /opt/meridian-server/meridian.log | tail -50
 ## Database (4 April 2026 — VPS)
 | Source | Total | Full text |
 |---|---|---|
-| The Economist | 270 | 264 |
-| Financial Times | 177 | 171 |
+| The Economist | 272 | ~265 |
+| Financial Times | 180 | ~178 |
 | Foreign Affairs | 66 | 57 |
 | Bloomberg | 38 | 37 |
-| Other | ~41 | — |
-| **Total** | **592** | **539** |
+| Other | ~19 | — |
+| **Total** | **~592** | **~537** |
+
+---
+
+## pub_date Format (IMPORTANT — normalised Session 41)
+All pub_dates are now stored as ISO `YYYY-MM-DD` in both Mac and VPS databases.
+`normalize_pub_date()` in server.py handles all incoming formats:
+- `DD Month YYYY` → e.g. `01 April 2026` → `2026-04-01`
+- `Month D, YYYY` → e.g. `April 2, 2026` → `2026-04-02`
+- `Month YYYY` (no day) → e.g. `March 2026` → `2026-03-01` (1st of month)
+- Relative (`X days ago`, `yesterday`, `today`) → resolved to absolute ISO date
+- ISO passthrough → unchanged
+
+`normalize_pub_date()` is called in `upsert_article()` so every write is clean.
+Enrichment prompt now asks Haiku for `YYYY-MM-DD` format explicitly.
+One-off migration ran on both Mac (24 fixed) and VPS (41 fixed) databases.
+
+The 24h stats in the info-strip now accurately reflect yesterday's scrape.
+Typical cadence: FT 3–6/day, Economist 2–8/day (edition drops Tue/Thu/Sat), FA 1–2/day.
 
 ---
 
@@ -115,7 +133,7 @@ window.shell = (cmd) => fetch('http://localhost:4242/api/dev/shell', {
 - Write patch scripts via filesystem:write_file → execute via window.shell()
 - Line-number patches are DANGEROUS — always use exact text str.replace()
 - For large deletions, line-index slicing in Python (lines[:N] + lines[M:]) is safe when anchors are verified first with assertions
-- Always python3 -m py_compile is NOT available on this stack — do JS syntax check instead
+- Always python3 -m py_compile is NOT available on this stack — use `ast.parse()` instead: `python3 -c "import ast; ast.parse(open('server.py').read()); print('OK')"`
 - After deploying, verify via live site tab (Tab B)
 - Check for duplicate `<html>` tags after any major HTML restructuring: `grep -c "<html lang" meridian.html` should return 1
 
@@ -139,7 +157,7 @@ output to the file directly rather than printing to stdout.
 
 ---
 
-## UI Design — Current State (Session 40)
+## UI Design — Current State (Session 40/41)
 
 ### Colour Palette (Palette 1A)
 ```css
@@ -169,14 +187,13 @@ Row 4: Filter — All articles · All curation · All sources · Last 6 months |
 Row 5: Info-strip (Stats panel, hidden by default, toggled by Stats button — NOT sticky, pushes content down)
 ```
 
-**Note (Session 40):** Stats and Clip Bloomberg moved from Row 2 to Row 4 (right side).
-
 ### Sticky top values (px, from recalcStickyTops())
 - Masthead: top 0 (h≈68)
 - Folder-switcher: top 67 (h≈44)
 - Main-nav: top 111 (h≈35)
 - Filter row: top 146 (h≈41)
 - Info-strip: **position:relative** (NOT sticky) — expands in normal flow, pushes feed down
+- recalcStickyTops() must NOT set top on #info-strip (fixed Session 41 — was causing gap + overlap)
 
 ### recalcStickyTops()
 ```js
@@ -187,28 +204,16 @@ const h3 = fh ? fh.offsetHeight : 0;
 fs.style.top = (h0-1)+'px';
 mn.style.top = (h0+h1-2)+'px';
 if (fh) fh.style.top = (h0+h1+h2-3)+'px';
-// info-strip is position:relative — no top needed
+// info-strip is position:relative — NO top assignment here
 ```
 
-### Stats toggle (Info-strip)
-- Button: `#stats-toggle-btn` in filter row right side (margin-left:auto group with clip-bbg-btn)
-- Function: `toggleStatsStrip()` — toggles `display:none`/`display:flex`, calls `recalcStickyTops()`
-- Hidden by default on page load
-- `position:relative` — opens in normal flow, pushes feed down (not an overlay)
-- Background: `var(--paper)`, bottom border: `3px solid var(--ink)`
-
-### Stats panel layout (two-row)
-**Top row** (headline numbers + 24h):
-- Total · My saves · AI picks · Full text (22px bold ink, AI picks in accent)
-- 24h activity pills per source (green when active, grey when zero)
-- 24h uses date string comparison: `a.pub_date >= yesterdayStr`
-
-**Bottom row** (charts):
-- Curation split donut (80px): full amber ring (AI) + rotated saves arc on top
-  - `stroke-dasharray = savePct * 201.062`
-- Top 5 topics (colour dots)
-- By source (horizontal bars, source brand colours)
-- Full text coverage (green bars)
+### Stats panel (info-strip) — redesign pending
+Current layout: donut + topics + source bars + coverage (two rows).
+Discussed redesign (not yet deployed):
+- Row 1: numbers (total/saves/AI/full-text) + horizontal curation bar + 24h pills
+- Row 2: three equal columns — By Source | Full Text Coverage | By Topic
+- White (#fff) background instead of warm cream
+- FP collapsed into "Other" in By Source
 
 ### Article card layout (Option 3 — fixed date column)
 ```
@@ -218,13 +223,6 @@ if (fh) fh.style.top = (h0+h1+h2-3)+'px';
                 [article-summary]
                 [card-footer: Full text badge · AI pick/My save · tags]
 ```
-- `card-inner`: `padding: 16px 20px 16px 17px`
-- Card hover: `border-left: 3px solid var(--accent)` via `border-left-color 0.15s`
-- Delete button: `card-del` — 20×20px grey square, top-right of card-body
-
-### Curation badges
-- AI pick: `.curation-ai` — `background: #f5ede4; color: #854f0b; border: 0.5px solid #e8c9a8`
-- My save: `.curation-my` — `background: var(--paper-3); color: var(--ink-3); border: 0.5px solid var(--rule)`
 
 ### Server status
 - ONE instance only: in masthead right, below date
@@ -238,10 +236,12 @@ if (fh) fh.style.top = (h0+h1+h2-3)+'px';
 ### Financial Times
 - Scraper: Playwright, `ft_profile/`
 - Session expires periodically — manual re-login needed
+- Typical cadence: 3–6 articles/day
 
 ### The Economist
 - Scraper: Playwright, `economist_profile/`
 - headless=False required (Cloudflare detection)
+- Edition drops Tue/Thu/Sat — expect 5–10 articles on those days, 1–3 otherwise
 
 ### Foreign Affairs
 - Scraper: Playwright, `fa_profile/`
@@ -273,77 +273,59 @@ if (fh) fh.style.top = (h0+h1+h2-3)+'px';
 
 ## Outstanding Issues / Next Steps
 
-1. **Sort theme articles by relevance** — detail panel shows most recent first; should sort by keyword hit count + recency.
+1. **Stats panel redesign** — implement the previewed redesign (white bg, horiz curation bar, 3-col row 2: By Source / Full Text / By Topic). Discussed but not deployed.
 
-2. **Sub-topics filtering** — filter chips do nothing; decide: implement or remove.
+2. **Sort theme articles by relevance** — detail panel shows most recent first; should sort by keyword hit count + recency.
 
-3. **FA session renewal** — Drupal cookie expires 2026-05-23.
+3. **Sub-topics filtering** — filter chips do nothing; decide: implement or remove.
 
-4. **Points of Return newsletter gap** — latest is 2 Apr; check forwarding rule.
+4. **FA session renewal** — Drupal cookie expires 2026-05-23.
+
+5. **Points of Return newsletter gap** — latest is 2 Apr; check forwarding rule.
 
 ---
 
 ## Build History
 
-### 4 April 2026 (Session 41 — duplicate HTML blocks + LIBRARY ghost fix)
+### 4 April 2026 (Session 41 — pub_date normalisation + stats gap fix + HTML dedup)
 
-**Root cause found**
-A previous patch had accidentally duplicated a large HTML block (lines 1607–1727 in the original file), containing:
-- Second copy of `<!-- KEY THEMES VIEW --><div id="key-themes-view">…</div>`
-- Second copy of `<!-- Briefing Generator view --><div id="briefing-view">…</div>`
-- Second copy of `<div class="kt-brief-modal" id="kt-brief-modal">…</div>`
-- Orphaned hidden spans (duplicate tally/activity IDs)
-- Orphaned `<div>Library</div>` heading sitting in the body flow above `.main-layout`
+**pub_date normalisation (server.py)**
+- Added `normalize_pub_date()` function handling: ISO passthrough, `DD Month YYYY`, `Month D YYYY`, `Month YYYY` (→ 1st), relative dates
+- `upsert_article()` now calls `normalize_pub_date()` on every write
+- Enrichment prompt updated: Haiku now instructed to return `YYYY-MM-DD` not `Month YYYY`
+- One-off migration: Mac DB (24 rows fixed), VPS DB (41 rows fixed)
+- 24h stats now accurate — was showing Economist +2 when it should be +5 or more
 
-**Fix**
-- Python line-slice patch: verified anchors with `assert`, then `lines[:1606] + lines[1727:]`
-- Removed 121 lines; file reduced from 4848 → 4727 lines
-- All duplicate IDs eliminated; `Library` ghost text removed
-- Pre-deploy DOM verification on live site confirmed: all counts = 1, `library_text = false`
+**Stats panel gap + overlap fix (meridian.html)**
+- `recalcStickyTops()` was setting `top: 184px` on `#info-strip` despite it being `position:relative`
+- A `top` value on a relatively-positioned element offsets it visually without affecting flow — causing a ghost gap above and overlap below
+- Fixed by removing the `is_.style.top` assignment entirely
 
-**Cleanup**
-- Accidentally committed `meridian.html.bak41` — removed in follow-up commit
-- Added `*.bak*` to `.gitignore` to prevent future accidental bak commits
+**Duplicate HTML blocks removed (meridian.html)**
+- Second copy of `#key-themes-view`, `#briefing-view`, `#kt-brief-modal` removed (lines 1607–1727)
+- Orphaned `<div>Library</div>` heading removed
+- File: 4848 → 4727 lines
 
 ### 4 April 2026 (Session 40 — filter row, stats fix, cleanup)
-
-**Button moves**
-- Stats (📊) and Clip Bloomberg (📎) moved from folder-switcher (row 2) to filter row (row 4), right-aligned
-- Folder-switcher now only: News Feed · Key Themes · Briefing Generator | Sync all · AI Analysis
-
-**Stats panel overlay fix**
+- Stats (📊) and Clip Bloomberg (📎) moved to filter row (row 4)
 - `#info-strip` changed from `position:sticky` → `position:relative`
-- Stats panel now pushes feed down when opened, no longer overlays content
-
-**Duplicate info-strip removed**
-- A stale second `#info-strip` (flex-direction:row, 5692 chars) was lurking in the HTML after the briefing modal
-- Removed — single info-strip remains (flex-direction:column, two-row stats layout)
-
-**Select-all / Delete-selected buttons**
-- HTML buttons removed from filter row
-- JS null-guarded (`getElementById` results checked before `.style` / `.textContent` access)
-- CSS hide rule also removed
-
-**tmp_ file cleanup**
-- 66 accumulated tmp_*.py / tmp_*.txt files purged from git
-- `tmp_*.py` and `tmp_*.txt` added to .gitignore permanently
+- Stale second `#info-strip` removed
+- 66 tmp files purged; `tmp_*.py`, `tmp_*.txt` added to .gitignore
 
 ### 4 April 2026 (Session 39 — Major UI redesign)
-- Card layout Option 3: fixed 44px date column, card-body right
-- Palette 1A: warm cream header/content split, amber reserved for logo/button/hover only
-- Stats panel built: donut + topics + source bars + coverage
-- Filter row moved above info-strip; recalcStickyTops() updated
-- Duplicate HTML bug fixed (corrupted DOCTYPE)
+- Card layout Option 3: fixed 44px date column
+- Palette 1A: warm cream split, amber reserved
+- Stats panel: donut + topics + source bars + coverage
+- Duplicate HTML bug (corrupted DOCTYPE) fixed
 
-### 3 April 2026 (Session 38 — UI redesign, sync pipeline, source panel)
-- 2D nav with dot+background pattern
+### 3 April 2026 (Session 38)
 - Newsletter + interview VPS sync added
 - Bloomberg source filter added
 
 ### 3 April 2026 (Session 37)
-- Brief article selection redesigned (score-based, recency, temporal anchor)
+- Brief article selection redesigned
 - FT enrichment, /api/enrich bug fix
-- Chart backfill — 163 images confirmed ceiling
+- Chart backfill — 163 images confirmed
 
 ---
 
@@ -360,3 +342,4 @@ Note for Claude: Read NOTES.md via Filesystem MCP (NOT GitHub URL — blocked).
 NEVER ask Alex to run Terminal commands — run everything autonomously via shell bridge.
 Never restart Flask via the shell endpoint.
 After any large HTML patch, always check: grep -c "<html lang" ~/meridian-server/meridian.html (should be 1).
+Syntax check server.py with: python3 -c "import ast; ast.parse(open('server.py').read()); print('OK')"
