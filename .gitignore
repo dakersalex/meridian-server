@@ -34,3 +34,7 @@ meridian.log
 newsletter_poller.log
 vps_last_log.txt
 venv/
+
+# Session working files
+tmp_*.txt
+tmp_*.py

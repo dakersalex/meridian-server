@@ -1,4 +1,0 @@
-Traceback (most recent call last):
-  File "/Users/alexdakers/meridian-server/tmp_kt.py", line 6, in <module>
-    themes = c.execute("SELECT id, label, article_count, is_gold FROM kt_themes ORDER BY article_count DESC").fetchall()
-sqlite3.OperationalError: no such column: id

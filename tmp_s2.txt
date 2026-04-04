@@ -1,8 +1,0 @@
-1392:<div id="feed-header-outer" style="display:flex;align-items:center;gap:8px;padding:7px 20px 7px 18px;background:var(--paper-2);border-bottom:2px solid var(--rule);position:sticky;top:147px;z-index:52;isolation:isolate;">
-1416:    <button id="stats-toggle-btn" onclick="toggleStatsStrip()" style="font-size:11px;padding:4px 10px;background:transparent;border:1px solid rgba(0,0,0,0.2);color:var(--ink-2);border-radius:4px;cursor:pointer;font-family:inherit;display:flex;align-items:center;gap:5px;">📊 Stats</button>
-1520:<div id="info-strip" style="display:none;flex-direction:column;background:var(--paper);border-bottom:3px solid var(--ink);font-size:11px;position:sticky;top:184px;z-index:51;isolation:isolate;">
-1705:<div id="info-strip" style="display:none;flex-direction:row;align-items:flex-start;gap:0;padding:14px 24px;background:var(--paper);border-bottom:1px solid var(--rule);font-size:11px;flex-wrap:nowrap;overflow-x:auto;position:sticky;top:184px;z-index:51;isolation:isolate;scrollbar-width:none;">
-2985:function toggleStatsStrip() {
-2986:  const strip = document.getElementById('info-strip');
-2998:  const is_ = document.getElementById('info-strip');
-3930:  const infoStrip  = document.getElementById('info-strip');
