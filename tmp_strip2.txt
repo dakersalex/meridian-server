@@ -1,0 +1,16 @@
+    <div id="kt-brief-modal-content"></div>
+  </div>
+</div>
+
+<!-- filter row — visually distinct from info strip above -->
+<div id="info-strip" style="display:none;flex-direction:row;align-items:flex-start;gap:0;padding:14px 24px;background:var(--paper);border-bottom:1px solid var(--rule);font-size:11px;flex-wrap:nowrap;overflow-x:auto;position:sticky;top:184px;z-index:51;isolation:isolate;scrollbar-width:none;">
+
+  <!-- hidden legacy ids needed by JS -->
+  <span id="tally-saves" style="display:none">–</span>
+  <span id="tally-saves-pct" style="display:none"></span>
+  <span id="tally-ai" style="display:none">–</span>
+  <span id="tally-ai-pct" style="display:none"></span>
+  <span id="tally-total" style="display:none">0</span>
+  <span id="act-ft" style="display:none">–</span>
+  <span id="act-eco" style="display:none">–</span>
+  <span id="act-fa" style="display:none">–</span>

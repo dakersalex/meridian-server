@@ -1,0 +1,4 @@
+Found dupe strip: 5692 chars
+Fixed real info-strip: sticky -> relative
+All checks passed. strip_count=1, position:relative OK
+Written. 240835 -> 235135 chars

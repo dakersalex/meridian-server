@@ -1,0 +1,26 @@
+
+function deleteArticle(id){
+  if(!confirm('Delete this article?'))return;
+  fetch(SERVER+'/api/articles/'+id,{method:'DELETE'})
+    .then(()=>{articles=articles.filter(a=>a.id!==id);saveAll();renderAll();toast('Article deleted');})
+    .catch(()=>toast('Delete failed'));
+}
+let selectedIds=new Set();
+function selectAll(){
+  const visible=document.querySelectorAll('.article-card, .featured-card');
+  visible.forEach(card=>{const id=card.dataset.id;if(id)selectedIds.add(id);card.style.outline='2px solid var(--accent)';});
+  document.getElementById('delete-selected-btn').style.display='';
+  document.getElementById('select-all-btn').textContent='Deselect all ('+selectedIds.size+')';
+}
+function deleteSelected(){
+  if(selectedIds.size===0){toast('No articles selected');return;}
+  if(!confirm('Delete '+selectedIds.size+' articles? This cannot be undone.'))return;
+  const ids=[...selectedIds];
+  Promise.all(ids.map(id=>fetch(SERVER+'/api/articles/'+id,{method:'DELETE'}))).then(()=>{articles=articles.filter(a=>!ids.includes(a.id));selectedIds.clear();saveAll();renderAll();document.getElementById('delete-selected-btn').style.display='none';document.getElementById('select-all-btn').textContent='Select all';toast(ids.length+' articles deleted');});
+}
+async function syncSource(src){
+  toast('Syncing ' + src.toUpperCase() + '...');
+  try {
+    await fetch(SERVER+'/api/sync/'+src, {method:'POST'});
+    setTimeout(() => { loadArticles(); }, 5000);
+  } catch(e) {

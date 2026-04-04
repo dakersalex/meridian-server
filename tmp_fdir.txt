@@ -1,0 +1,11 @@
+1342:  <div class="masthead-right" style="flex-direction:column;align-items:flex-end;gap:2px">
+1520:<div id="info-strip" style="display:none;flex-direction:column;background:var(--paper);border-bottom:3px solid var(--ink);font-size:11px;position:sticky;top:184px;z-index:51;isolation:isolate;">
+1573:        <div style="display:flex;flex-direction:column;gap:7px;">
+1705:<div id="info-strip" style="display:none;flex-direction:row;align-items:flex-start;gap:0;padding:14px 24px;background:var(--paper);border-bottom:1px solid var(--rule);font-size:11px;flex-wrap:nowrap;overflow-x:auto;position:sticky;top:184px;z-index:51;isolation:isolate;scrollbar-width:none;">
+1747:      <div style="display:flex;flex-direction:column;gap:4px;">
+1783:    <div id="stat-24h" style="display:flex;flex-direction:column;gap:4px;"></div>
+1959:  <div style="background:var(--paper);width:100%;max-width:700px;max-height:85vh;display:flex;flex-direction:column;border:1px solid var(--rule)">
+1967:    <div id="ai-messages" style="flex:1;overflow-y:auto;padding:16px 20px;display:flex;flex-direction:column;gap:12px;min-height:200px">
+2986:  const strip = document.getElementById('info-strip');
+2998:  const is_ = document.getElementById('info-strip');
+3930:  const infoStrip  = document.getElementById('info-strip');

@@ -1,0 +1,8 @@
+OK 1: removed select-all + delete-selected HTML buttons
+OK 2: removed CSS hide rule
+OK 3: null-guarded selectAll() getElementById calls
+OK 4: null-guarded deleteSelected() getElementById calls
+Traceback (most recent call last):
+  File "/Users/alexdakers/meridian-server/tmp_patch3.py", line 59, in <module>
+    assert strip_count == 1, "FATAL: info-strip count = %d" % strip_count
+AssertionError: FATAL: info-strip count = 2

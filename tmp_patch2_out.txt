@@ -1,0 +1,7 @@
+✓ Found dupe strip, 5692 chars
+✓ Removed duplicate info-strip
+✓ Changed info-strip position:sticky → position:relative
+Traceback (most recent call last):
+  File "/Users/alexdakers/meridian-server/tmp_patch2.py", line 50, in <module>
+    assert 'id="select-all-btn"' not in html, "select-all-btn still present!"
+AssertionError: select-all-btn still present!
