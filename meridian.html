@@ -1517,92 +1517,113 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
 </div>
 
 <!-- filter row — visually distinct from info strip above -->
-<div id="info-strip" style="display:none;flex-direction:column;background:var(--paper);border-bottom:3px solid var(--ink);font-size:11px;position:relative;z-index:51;isolation:isolate;">
+<div id="info-strip" style="display:none;flex-direction:column;background:#fff;border-bottom:2px solid #e0dbd0;font-size:11px;position:relative;z-index:51;isolation:isolate;">
+<div style="padding:16px 28px 18px;font-family:'IBM Plex Sans',sans-serif;font-size:11px">
 
-  <!-- hidden legacy ids needed by JS -->
+  <!-- ROW 1: 3 equal cols, align-items:stretch so all same height -->
+  <div id="sp-row1" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0;align-items:stretch;border-bottom:1px solid rgba(0,0,0,.07);padding-bottom:14px">
+
+    <!-- Col 1: Numbers + Curation split -->
+    <div style="padding-right:24px;border-right:1px solid rgba(0,0,0,.07);display:flex;flex-direction:column">
+      <div style="display:flex;gap:20px;align-items:flex-end;margin-bottom:14px;flex-shrink:0">
+        <div><div id="sp-total" style="font-size:26px;font-weight:700;line-height:1;color:#1a1a1a">–</div><div style="font-size:10px;color:#8a8a8a;text-transform:uppercase;letter-spacing:.5px;margin-top:2px">Total</div></div>
+        <div><div id="sp-saves" style="font-size:26px;font-weight:700;line-height:1;color:#1a1a1a">–</div><div style="font-size:10px;color:#8a8a8a;text-transform:uppercase;letter-spacing:.5px;margin-top:2px">My saves</div></div>
+        <div><div id="sp-ai" style="font-size:26px;font-weight:700;line-height:1;color:#c4783a">–</div><div style="font-size:10px;color:#8a8a8a;text-transform:uppercase;letter-spacing:.5px;margin-top:2px">AI picks</div></div>
+        <div><div id="sp-ft" style="font-size:26px;font-weight:700;line-height:1;color:#2d6b45">–</div><div style="font-size:10px;color:#8a8a8a;text-transform:uppercase;letter-spacing:.5px;margin-top:2px">Full text</div></div>
+      </div>
+      <div style="font-size:9px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:#8a8a8a;margin-bottom:8px;flex-shrink:0">Curation split</div>
+      <div id="sp-cur-bars" style="flex-shrink:0"></div>
+      <div style="display:flex;gap:10px;margin-top:7px;flex-shrink:0">
+        <div style="display:flex;align-items:center;gap:4px;font-size:10px;color:#6a6a6a"><div style="width:8px;height:8px;border-radius:2px;background:#1a1a1a"></div>My saves</div>
+        <div style="display:flex;align-items:center;gap:4px;font-size:10px;color:#6a6a6a"><div style="width:8px;height:8px;border-radius:2px;background:#c4783a"></div>AI picks</div>
+      </div>
+    </div>
+
+    <!-- Col 2: New articles table -->
+    <div style="padding:0 24px;border-right:1px solid rgba(0,0,0,.07);display:flex;flex-direction:column">
+      <div style="font-size:9px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:#8a8a8a;margin-bottom:8px;flex-shrink:0">New articles</div>
+      <div id="sp-ingest-table" style="flex-shrink:0"></div>
+    </div>
+
+    <!-- Col 3: 14-day sparkline — SVG fills flex:1 -->
+    <div style="padding-left:24px;display:flex;flex-direction:column">
+      <div style="font-size:9px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:#8a8a8a;margin-bottom:8px;flex-shrink:0">14-day ingestion</div>
+      <div id="sp-sparkline" style="flex:1;min-height:80px"></div>
+      <div id="sp-spark-legend" style="display:flex;gap:10px;flex-wrap:wrap;padding-top:8px;flex-shrink:0"></div>
+    </div>
+
+  </div>
+
+  <!-- ROW 2: By source | Full text coverage | By topic -->
+  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0;margin-top:14px;padding-top:14px;border-top:1px solid rgba(0,0,0,.07)">
+    <div style="padding-right:24px;border-right:1px solid rgba(0,0,0,.07)">
+      <div style="font-size:9px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:#8a8a8a;margin-bottom:8px">By source</div>
+      <div id="sp-src-bars"></div>
+    </div>
+    <div style="padding:0 24px;border-right:1px solid rgba(0,0,0,.07)">
+      <div style="font-size:9px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:#8a8a8a;margin-bottom:8px">Full text coverage</div>
+      <div id="sp-cov-bars"></div>
+    </div>
+    <div style="padding-left:24px">
+      <div style="font-size:9px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:#8a8a8a;margin-bottom:8px">By topic</div>
+      <div id="sp-topic-bars"></div>
+    </div>
+  </div>
+
+  <!-- ROW 3: Health — Option C style (bottom-rule header) -->
+  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:24px;margin-top:14px;padding-top:14px;border-top:1px solid rgba(0,0,0,.07)">
+    <div>
+      <div style="border-bottom:1px solid #1a1a1a;padding-bottom:5px;margin-bottom:8px"><span style="font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#1a1a1a">⏱ Last scraped</span></div>
+      <div id="sp-last-scraped"></div>
+      <div style="font-size:10px;color:#bbb;margin-top:6px;line-height:1.4">Bloomberg manual-only via extension</div>
+    </div>
+    <div>
+      <div style="border-bottom:1px solid #1a1a1a;padding-bottom:5px;margin-bottom:8px"><span style="font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#1a1a1a">📋 Unenriched backlog</span></div>
+      <div id="sp-backlog"></div>
+      <div style="font-size:10px;color:#bbb;margin-top:6px;line-height:1.4">Scraped but not yet AI-enriched</div>
+    </div>
+    <div>
+      <div style="border-bottom:1px solid #1a1a1a;padding-bottom:5px;margin-bottom:8px"><span style="font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#1a1a1a">📈 7-day rate</span></div>
+      <div id="sp-rate"></div>
+      <div style="font-size:10px;color:#bbb;margin-top:6px;line-height:1.4">Articles published in last 7 days</div>
+    </div>
+    <div>
+      <div style="border-bottom:1px solid #1a1a1a;padding-bottom:5px;margin-bottom:8px"><span style="font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#1a1a1a">✦ Agent activity</span></div>
+      <div id="sp-agent"></div>
+      <div style="font-size:10px;color:#bbb;margin-top:6px;line-height:1.4">High rate = healthy scraping + curation</div>
+    </div>
+  </div>
+
+  <!-- hidden legacy spans kept for JS compatibility -->
   <span id="tally-saves" style="display:none">–</span>
   <span id="tally-saves-pct" style="display:none"></span>
   <span id="tally-ai" style="display:none">–</span>
   <span id="tally-ai-pct" style="display:none"></span>
   <span id="tally-total" style="display:none">0</span>
-  <span id="act-ft" style="display:none">–</span>
-  <span id="act-eco" style="display:none">–</span>
-  <span id="act-fa" style="display:none">–</span>
-  <span id="act-bbg" style="display:none">–</span>
-  <span id="act-fp" style="display:none">–</span>
   <span id="act-ft-pill" style="display:none" class="activity-pill activity-pill-zero"></span>
   <span id="act-eco-pill" style="display:none" class="activity-pill activity-pill-zero"></span>
   <span id="act-fa-pill" style="display:none" class="activity-pill activity-pill-zero"></span>
   <span id="act-bbg-pill" style="display:none" class="activity-pill activity-pill-zero"></span>
   <span id="act-fp-pill" style="display:none" class="activity-pill activity-pill-zero"></span>
+  <span id="act-ft" style="display:none">–</span>
+  <span id="act-eco" style="display:none">–</span>
+  <span id="act-fa" style="display:none">–</span>
+  <span id="act-bbg" style="display:none">–</span>
+  <span id="act-fp" style="display:none">–</span>
   <span class="activity-warning" id="act-warning" style="display:none"></span>
+  <div id="stat-total" style="display:none">–</div>
+  <div id="stat-saves" style="display:none">–</div>
+  <div id="stat-ai" style="display:none">–</div>
+  <div id="stat-ft" style="display:none">–</div>
+  <div id="stat-24h-top" style="display:none"></div>
+  <div id="stat-src-bars" style="display:none"></div>
+  <div id="stat-cov-bars" style="display:none"></div>
+  <div id="stat-topics" style="display:none"></div>
+  <div id="donut-pct" style="display:none"></div>
+  <div id="leg-saves" style="display:none"></div>
+  <div id="leg-ai" style="display:none"></div>
 
-  <!-- TOP ROW: headline numbers + 24h activity -->
-  <div style="display:flex;align-items:center;padding:12px 24px 10px;border-bottom:0.5px solid var(--rule);flex-wrap:nowrap;overflow-x:auto;gap:0;scrollbar-width:none;">
-    <div style="display:flex;gap:24px;align-items:flex-end;flex-shrink:0;">
-      <div><div id="stat-total" style="font-size:22px;font-weight:600;color:var(--ink);line-height:1;">–</div><div style="font-size:10px;color:var(--ink-3);margin-top:3px;white-space:nowrap;">Total articles</div></div>
-      <div><div id="stat-saves" style="font-size:22px;font-weight:600;color:var(--ink);line-height:1;">–</div><div style="font-size:10px;color:var(--ink-3);margin-top:3px;white-space:nowrap;">My saves</div></div>
-      <div><div id="stat-ai" style="font-size:22px;font-weight:600;color:var(--accent);line-height:1;">–</div><div style="font-size:10px;color:var(--ink-3);margin-top:3px;white-space:nowrap;">AI picks</div></div>
-      <div><div id="stat-ft" style="font-size:22px;font-weight:600;color:var(--green);line-height:1;">–</div><div style="font-size:10px;color:var(--ink-3);margin-top:3px;white-space:nowrap;">Full text</div></div>
-    </div>
-    <div style="width:0.5px;background:var(--rule);align-self:stretch;margin:0 24px;flex-shrink:0;"></div>
-    <div style="flex-shrink:0;">
-      <div style="font-size:9px;font-weight:600;letter-spacing:1px;text-transform:uppercase;color:var(--ink-3);margin-bottom:7px;white-space:nowrap;">Last 24 hours</div>
-      <div id="stat-24h-top" style="display:flex;gap:16px;flex-wrap:nowrap;"></div>
-    </div>
-  </div>
-
-  <!-- BOTTOM ROW: donut + topics + source bars + coverage -->
-  <div style="display:flex;align-items:flex-start;gap:0;padding:12px 24px 14px;overflow-x:auto;scrollbar-width:none;">
-
-    <!-- Donut 80px -->
-    <div style="flex-shrink:0;">
-      <div style="font-size:9px;font-weight:600;letter-spacing:1.2px;text-transform:uppercase;color:var(--ink-3);margin-bottom:8px;">Curation split</div>
-      <div style="display:flex;align-items:center;gap:14px;">
-        <svg id="stat-donut" width="80" height="80" viewBox="0 0 80 80" style="flex-shrink:0;">
-          <!-- AI arc drawn first as full ring (amber fills everything) -->
-          <circle id="donut-ai" cx="40" cy="40" r="32" fill="none" stroke="var(--accent)" stroke-width="12"/>
-          <!-- Saves arc on top, rotated to start at 12 o'clock via transform -->
-          <circle id="donut-saves" cx="40" cy="40" r="32" fill="none" stroke="var(--ink)" stroke-width="12"
-            stroke-dasharray="0 201.062"
-            transform="rotate(-90 40 40)"
-            stroke-linecap="butt"/>
-          <text id="donut-pct" x="40" y="37" text-anchor="middle" font-size="13" font-family="IBM Plex Sans,sans-serif" fill="var(--ink)" font-weight="600">–%</text>
-          <text x="40" y="51" text-anchor="middle" font-size="9" font-family="IBM Plex Sans,sans-serif" fill="var(--ink-3)">saves</text>
-        </svg>
-        <div style="display:flex;flex-direction:column;gap:7px;">
-          <div style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--ink-2);white-space:nowrap;"><div style="width:9px;height:9px;border-radius:2px;background:var(--ink);flex-shrink:0;"></div>My saves — <span id="leg-saves" style="font-weight:600">–</span></div>
-          <div style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--ink-2);white-space:nowrap;"><div style="width:9px;height:9px;border-radius:2px;background:var(--accent);flex-shrink:0;"></div>AI picks — <span id="leg-ai" style="font-weight:600">–</span></div>
-        </div>
-      </div>
-    </div>
-
-    <div style="width:0.5px;background:var(--rule);align-self:stretch;margin:0 24px;flex-shrink:0;"></div>
-
-    <!-- Top 5 topics -->
-    <div style="flex-shrink:0;min-width:155px;">
-      <div style="font-size:9px;font-weight:600;letter-spacing:1.2px;text-transform:uppercase;color:var(--ink-3);margin-bottom:8px;">Top topics</div>
-      <div id="stat-topics"></div>
-    </div>
-
-    <div style="width:0.5px;background:var(--rule);align-self:stretch;margin:0 24px;flex-shrink:0;"></div>
-
-    <!-- Source bars -->
-    <div style="flex-shrink:0;min-width:200px;">
-      <div style="font-size:9px;font-weight:600;letter-spacing:1.2px;text-transform:uppercase;color:var(--ink-3);margin-bottom:8px;">By source</div>
-      <div id="stat-src-bars"></div>
-    </div>
-
-    <div style="width:0.5px;background:var(--rule);align-self:stretch;margin:0 24px;flex-shrink:0;"></div>
-
-    <!-- Coverage -->
-    <div style="flex-shrink:0;min-width:180px;">
-      <div style="font-size:9px;font-weight:600;letter-spacing:1.2px;text-transform:uppercase;color:var(--ink-3);margin-bottom:8px;">Full text coverage</div>
-      <div id="stat-cov-bars"></div>
-    </div>
-
-  </div>
-
+</div>
 </div>
 <div class="main-layout">
   <div class="feed-area" id="feed-area">
@@ -3664,6 +3685,233 @@ async function updateActivityBar() {
         <div style="font-size:10px;color:var(--ink-3);">${n}</div>
       </div>`
     ).join('');
+
+    // ── NEW stats panel renderer ─────────────────────────────────────────────
+    (function renderNewStats() {
+      const se = id => document.getElementById(id);
+      const mainSrc = ['Financial Times','The Economist','Foreign Affairs','Bloomberg'];
+      const srcShort = {'Financial Times':'FT','The Economist':'Economist','Foreign Affairs':'FA','Bloomberg':'Bloomberg'};
+      const srcColor = {'Financial Times':'#1e4d8c','The Economist':'#8b1a1a','Foreign Affairs':'#2a7a5a','Bloomberg':'#555','Other':'#999'};
+
+      // ── Headline numbers ──────────────────────────────────────────────
+      const total = allArts.length;
+      const aiPicksN = allArts.filter(a=>a.auto_saved||a.status==='agent').length;
+      const mySavesN = total - aiPicksN;
+      const fullTextN = allArts.filter(a=>a.status==='full_text'||a.status==='agent').length;
+      if(se('sp-total')) se('sp-total').textContent = total.toLocaleString();
+      if(se('sp-saves')) se('sp-saves').textContent = mySavesN.toLocaleString();
+      if(se('sp-ai'))    se('sp-ai').textContent    = aiPicksN.toLocaleString();
+      if(se('sp-ft'))    se('sp-ft').textContent    = fullTextN.toLocaleString();
+
+      // ── Curation split bars: all time / 30d / 7d ─────────────────────
+      const now = new Date();
+      const isoDate = d => new Date(d).toISOString().slice(0,10);
+      const t30d = isoDate(now - 30*864e5);
+      const t7d  = isoDate(now - 7*864e5);
+      const splitOf = (from) => {
+        const s = from ? allArts.filter(a=>(a.pub_date||'')>=from) : allArts;
+        const ai = s.filter(a=>a.auto_saved||a.status==='agent').length;
+        const my = s.length - ai;
+        const t = ai + my;
+        return t ? {myPct:Math.round(my/t*100), aiPct:Math.round(ai/t*100)} : {myPct:0,aiPct:0};
+      };
+      const splits = [['All time',splitOf(null)],['30 days',splitOf(t30d)],['7 days',splitOf(t7d)]];
+      const curEl = se('sp-cur-bars');
+      if(curEl) curEl.innerHTML = splits.map(([label,d]) => {
+        const myLbl = d.myPct>=16 ? '<span style="font-size:9px;font-weight:700;color:#fff">'+d.myPct+'%</span>' : '';
+        const aiLbl = d.aiPct>=16 ? '<span style="font-size:9px;font-weight:700;color:#fff">'+d.aiPct+'%</span>' : '';
+        return '<div style="display:flex;align-items:center;gap:8px;margin-bottom:3px">'
+          +'<div style="font-size:9px;color:#aaa;white-space:nowrap;width:44px;flex-shrink:0;text-align:right">'+label+'</div>'
+          +'<div style="flex:1;height:14px;background:#f0ece3;border-radius:3px;overflow:hidden;display:flex">'
+          +'<div style="width:'+d.myPct+'%;background:#1a1a1a;display:flex;align-items:center;'+(d.myPct>=16?'justify-content:flex-end;padding-right:4px':'')+'">'+myLbl+'</div>'
+          +'<div style="width:'+d.aiPct+'%;background:#c4783a;display:flex;align-items:center;'+(d.aiPct>=16?'padding-left:4px':'')+'">'+aiLbl+'</div>'
+          +'</div></div>';
+      }).join('');
+
+      // ── Ingestion table: 24h / 48h / 7d / 14d ────────────────────────
+      const todayStr = now.toISOString().slice(0,10);
+      const t24 = isoDate(now - 864e5);
+      const t48 = isoDate(now - 2*864e5);
+      const t14d = isoDate(now - 14*864e5);
+      const ing = {};
+      [...mainSrc,'Other'].forEach(s=>ing[s]={h24:0,h48:0,d7:0,d14:0});
+      allArts.forEach(a=>{
+        const d=a.pub_date||'', s=mainSrc.includes(a.source)?a.source:'Other';
+        if(d>=t24){ing[s].h24++;ing[s].h48++;ing[s].d7++;ing[s].d14++;}
+        else if(d>=t48){ing[s].h48++;ing[s].d7++;ing[s].d14++;}
+        else if(d>=t7d){ing[s].d7++;ing[s].d14++;}
+        else if(d>=t14d){ing[s].d14++;}
+      });
+      const ingTot={h24:0,h48:0,d7:0,d14:0};
+      Object.values(ing).forEach(v=>{ingTot.h24+=v.h24;ingTot.h48+=v.h48;ingTot.d7+=v.d7;ingTot.d14+=v.d14;});
+      const nzStyle = n => n ? 'font-weight:600;color:#1e4d8c' : 'font-weight:400;color:#ccc';
+      const nzVal = n => n || '—';
+      const ingEl = se('sp-ingest-table');
+      if(ingEl) {
+        const hasOther = ing['Other'].d14 > 0;
+        ingEl.innerHTML = '<table style="width:100%;border-collapse:collapse;font-size:11px">'
+          +'<thead><tr>'
+          +'<th style="font-size:9px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;color:#8a8a8a;padding:0 8px 4px 0;text-align:left">Source</th>'
+          +'<th style="font-size:9px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;color:#8a8a8a;padding:0 8px 4px 0;text-align:right">24h</th>'
+          +'<th style="font-size:9px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;color:#8a8a8a;padding:0 8px 4px 0;text-align:right">48h</th>'
+          +'<th style="font-size:9px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;color:#8a8a8a;padding:0 8px 4px 0;text-align:right">7d</th>'
+          +'<th style="font-size:9px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;color:#8a8a8a;padding:0 0 4px;text-align:right">14d</th>'
+          +'</tr></thead><tbody>'
+          + mainSrc.map(s=>{const r=ing[s];const bt='border-top:1px solid rgba(0,0,0,.05)';return''
+            +'<tr>'
+            +'<td style="padding:2px 8px 2px 0;font-weight:500;color:#1a1a1a;'+bt+'">'+srcShort[s]+'</td>'
+            +'<td style="padding:2px 8px 2px 0;text-align:right;'+bt+';'+nzStyle(r.h24)+'">'+nzVal(r.h24)+'</td>'
+            +'<td style="padding:2px 8px 2px 0;text-align:right;'+bt+';'+nzStyle(r.h48)+'">'+nzVal(r.h48)+'</td>'
+            +'<td style="padding:2px 8px 2px 0;text-align:right;'+bt+';'+nzStyle(r.d7)+'">'+nzVal(r.d7)+'</td>'
+            +'<td style="padding:2px 0;text-align:right;'+bt+';'+nzStyle(r.d14)+'">'+nzVal(r.d14)+'</td>'
+            +'</tr>';}).join('')
+          +(hasOther ? '<tr>'
+            +'<td style="padding:2px 8px 2px 0;font-weight:500;color:#1a1a1a;border-top:1px solid rgba(0,0,0,.05)">Other</td>'
+            +'<td style="padding:2px 8px 2px 0;text-align:right;border-top:1px solid rgba(0,0,0,.05);color:#ccc">—</td>'
+            +'<td style="padding:2px 8px 2px 0;text-align:right;border-top:1px solid rgba(0,0,0,.05);color:#ccc">—</td>'
+            +'<td style="padding:2px 8px 2px 0;text-align:right;border-top:1px solid rgba(0,0,0,.05);'+nzStyle(ing['Other'].d7)+'">'+nzVal(ing['Other'].d7)+'</td>'
+            +'<td style="padding:2px 0;text-align:right;border-top:1px solid rgba(0,0,0,.05);font-weight:600;color:#1e4d8c">'+ing['Other'].d14+'</td>'
+            +'</tr>' : '')
+          +'<tr>'
+          +'<td style="padding:4px 8px 0 0;font-weight:700;color:#1a1a1a;border-top:2px solid rgba(0,0,0,.12)">Total</td>'
+          +'<td style="padding:4px 8px 0 0;text-align:right;border-top:2px solid rgba(0,0,0,.12);font-weight:700;color:'+(ingTot.h24?'#1a1a1a':'#ccc')+'">'+nzVal(ingTot.h24)+'</td>'
+          +'<td style="padding:4px 8px 0 0;text-align:right;border-top:2px solid rgba(0,0,0,.12);font-weight:700;color:'+(ingTot.h48?'#1a1a1a':'#ccc')+'">'+nzVal(ingTot.h48)+'</td>'
+          +'<td style="padding:4px 8px 0 0;text-align:right;border-top:2px solid rgba(0,0,0,.12);font-weight:700;color:'+(ingTot.d7?'#1a1a1a':'#ccc')+'">'+nzVal(ingTot.d7)+'</td>'
+          +'<td style="padding:4px 0 0;text-align:right;border-top:2px solid rgba(0,0,0,.12);font-weight:700;color:#1a1a1a">'+ingTot.d14+'</td>'
+          +'</tr>'
+          +'</tbody></table>';
+      }
+
+      // ── Sparkline: 14-day stacked bars ────────────────────────────────
+      const days14 = [];
+      for(let i=13;i>=0;i--){const d=new Date(now);d.setDate(d.getDate()-i);days14.push(d.toISOString().slice(0,10));}
+      const spkD = {};
+      mainSrc.forEach(s=>{spkD[s]=days14.map(day=>allArts.filter(a=>a.source===s&&a.pub_date===day).length);});
+      const spkMax = Math.max(...Object.values(spkD).flat(),1);
+      const SPK_H=80,AXIS_H=28,bW=16,bG=3;
+      const cW=days14.length*(bW+bG)-bG;
+      const DAYNAMES=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+      const spkBars = days14.map((day,i)=>{
+        const x=i*(bW+bG);let r='',yO=SPK_H;
+        mainSrc.forEach(s=>{const v=spkD[s][i];if(!v)return;
+          const bh=Math.max(2,Math.round(v/spkMax*SPK_H));yO-=bh;
+          r+='<rect x="'+x+'" y="'+yO+'" width="'+bW+'" height="'+bh+'" fill="'+srcColor[s]+'" opacity=".85" rx="1"/>';
+        });return r;
+      }).join('');
+      const spkAxis = days14.map((day,i)=>{
+        const x=i*(bW+bG)+bW/2;
+        const dt=new Date(day+'T12:00:00');
+        const isWE=dt.getDay()===0||dt.getDay()===6;
+        const dayName=DAYNAMES[dt.getDay()];
+        const dateStr=dt.getDate()+'/'+(dt.getMonth()+1);
+        const fill=isWE?'#999':'#bbb';
+        return '<text x="'+x+'" y="'+(SPK_H+14)+'" text-anchor="middle" font-size="8" fill="'+fill+'" font-weight="'+(isWE?'600':'400')+'">'+dayName+'</text>'
+          +'<text x="'+x+'" y="'+(SPK_H+25)+'" text-anchor="middle" font-size="8" fill="#ccc">'+dateStr+'</text>';
+      }).join('');
+      const spkEl = se('sp-sparkline');
+      if(spkEl) spkEl.innerHTML = '<svg viewBox="0 0 '+cW+' '+(SPK_H+AXIS_H)+'" preserveAspectRatio="xMidYMid meet" style="display:block;width:100%;height:100%;min-height:80px">'
+        +'<line x1="0" y1="'+SPK_H+'" x2="'+cW+'" y2="'+SPK_H+'" stroke="#e8e4dc" stroke-width="1"/>'
+        +spkBars+spkAxis+'</svg>';
+      const legEl = se('sp-spark-legend');
+      if(legEl) legEl.innerHTML = mainSrc.map(s=>'<div style="display:flex;align-items:center;gap:4px;font-size:10px;color:#6a6a6a">'
+        +'<div style="width:8px;height:8px;border-radius:1px;background:'+srcColor[s]+'"></div>'+srcShort[s]+'</div>').join('');
+
+      // ── Row 2: By source ──────────────────────────────────────────────
+      const srcCounts = {}, srcFTCount = {};
+      allArts.forEach(a=>{
+        srcCounts[a.source]=(srcCounts[a.source]||0)+1;
+        if(a.status==='full_text'||a.status==='agent') srcFTCount[a.source]=(srcFTCount[a.source]||0)+1;
+      });
+      const mainSrcFull = [...mainSrc,'Other'];
+      const srcCountsMain = {};
+      mainSrcFull.forEach(s=>{
+        if(s==='Other') srcCountsMain['Other']=Object.entries(srcCounts).filter(([k])=>!mainSrc.includes(k)).reduce((a,[,v])=>a+v,0);
+        else srcCountsMain[s]=srcCounts[s]||0;
+      });
+      const maxSrc = Math.max(...Object.values(srcCountsMain),1);
+      const srcEl = se('sp-src-bars');
+      if(srcEl) srcEl.innerHTML = mainSrcFull.map(s=>{
+        const c=srcCountsMain[s]||0, col=srcColor[s]||'#999';
+        const w=Math.round(c/maxSrc*100);
+        const name=s==='Other'?'Other':srcShort[s];
+        return '<div style="display:flex;align-items:center;gap:8px;margin-bottom:7px">'
+          +'<div style="font-size:11px;color:#4a4a4a;width:80px;flex-shrink:0">'+name+'</div>'
+          +'<div style="flex:1;height:6px;background:#f0ece3;border-radius:2px;overflow:hidden">'
+          +'<div style="width:'+w+'%;height:100%;background:'+col+';border-radius:2px"></div></div>'
+          +'<div style="font-size:11px;min-width:36px;text-align:right;flex-shrink:0;color:#8a8a8a">'+c+'</div></div>';
+      }).join('');
+
+      // ── Row 2: Full text coverage ─────────────────────────────────────
+      const covEl = se('sp-cov-bars');
+      if(covEl) covEl.innerHTML = mainSrc.map(s=>{
+        const tot2=srcCounts[s]||0, ft2=srcFTCount[s]||0;
+        const pct=tot2?Math.round(ft2/tot2*100):0;
+        const col=pct>=90?'#2d6b45':'#8b7020';
+        return '<div style="display:flex;align-items:center;gap:8px;margin-bottom:7px">'
+          +'<div style="font-size:11px;color:#4a4a4a;width:80px;flex-shrink:0">'+srcShort[s]+'</div>'
+          +'<div style="flex:1;height:6px;background:#f0ece3;border-radius:2px;overflow:hidden">'
+          +'<div style="width:'+pct+'%;height:100%;background:'+col+';border-radius:2px"></div></div>'
+          +'<div style="font-size:11px;min-width:36px;text-align:right;flex-shrink:0;font-weight:600;color:'+col+'">'+pct+'%</div></div>';
+      }).join('');
+
+      // ── Row 2: By topic ───────────────────────────────────────────────
+      const topicCounts = {};
+      allArts.forEach(a=>{if(a.topic) topicCounts[a.topic]=(topicCounts[a.topic]||0)+1;});
+      const topics = Object.entries(topicCounts).sort((a,b)=>b[1]-a[1]).slice(0,5);
+      const maxTopic = topics[0]?.[1]||1;
+      const topEl = se('sp-topic-bars');
+      if(topEl) topEl.innerHTML = topics.map(([t,c])=>'<div style="display:flex;align-items:center;gap:8px;margin-bottom:7px">'
+        +'<div style="font-size:11px;color:#4a4a4a;width:80px;flex-shrink:0">'+t+'</div>'
+        +'<div style="flex:1;height:6px;background:#f0ece3;border-radius:2px;overflow:hidden">'
+        +'<div style="width:'+Math.round(c/maxTopic*100)+'%;height:100%;background:#8c2020;border-radius:2px"></div></div>'
+        +'<div style="font-size:11px;min-width:36px;text-align:right;flex-shrink:0;color:#8a8a8a">'+c+'</div></div>').join('');
+
+      // ── Row 3: Last scraped ───────────────────────────────────────────
+      const gC=d=>d<=1?'#2d6b45':d<=3?'#8b7020':d<=7?'#c4783a':'#8c2020';
+      const gL=d=>d<=1?'Yesterday':d+'d ago';
+      const latestBySource = {};
+      allArts.forEach(a=>{if(a.pub_date&&(!latestBySource[a.source]||a.pub_date>latestBySource[a.source]))latestBySource[a.source]=a.pub_date;});
+      const scEl=se('sp-last-scraped');
+      if(scEl) scEl.innerHTML = mainSrc.map(s=>{
+        const d=latestBySource[s]?Math.round((now-new Date(latestBySource[s]))/864e5):99;
+        return '<div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;padding:2.5px 0">'
+          +'<span style="color:#4a4a4a;font-weight:500">'+srcShort[s]+'</span>'
+          +'<span style="font-weight:600;color:'+gC(d)+'">'+gL(d)+'</span></div>';
+      }).join('');
+
+      // ── Row 3: Unenriched backlog ─────────────────────────────────────
+      const blEl=se('sp-backlog');
+      if(blEl) blEl.innerHTML = mainSrc.map(s=>{
+        const b=allArts.filter(a=>a.source===s&&(a.status==='title_only'||a.status==='fetched')).length;
+        const col=b===0?'#2d6b45':b<=5?'#8b7020':'#c4783a';
+        return '<div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;padding:2.5px 0">'
+          +'<span style="color:#4a4a4a;font-weight:500">'+srcShort[s]+'</span>'
+          +'<span style="font-weight:600;color:'+col+'">'+(b===0?'✓ clean':b+' pending')+'</span></div>';
+      }).join('');
+
+      // ── Row 3: 7-day rate ─────────────────────────────────────────────
+      const rateEl=se('sp-rate');
+      if(rateEl) rateEl.innerHTML = mainSrc.map(s=>{
+        const d=ing[s].d7, col=d===0?'#8c2020':d<5?'#c4783a':'#2d6b45';
+        return '<div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;padding:2.5px 0">'
+          +'<span style="color:#4a4a4a;font-weight:500">'+srcShort[s]+'</span>'
+          +'<span style="font-weight:600;color:'+col+'">'+d
+          +' <span style="font-weight:400;font-size:10px;color:#bbb">('+((d/7).toFixed(1))+'/d)</span></span></div>';
+      }).join('');
+
+      // ── Row 3: Agent activity ─────────────────────────────────────────
+      const agentEl=se('sp-agent');
+      const s7data = splitOf(t7d);
+      if(agentEl) agentEl.innerHTML = [
+        ['Auto-saved total', aiPicksN.toLocaleString(), '#c4783a'],
+        ['Last 7 days', (allArts.filter(a=>(a.pub_date||'')>=t7d&&(a.auto_saved||a.status==='agent')).length)+' of '+(allArts.filter(a=>(a.pub_date||'')>=t7d).length), '#1a1a1a'],
+        ['Rate this week', s7data.aiPct+'%', '#1a1a1a'],
+        ['All-time rate', splitOf(null).aiPct+'%', '#8a8a8a'],
+      ].map(([l,v,vc])=>'<div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;padding:2.5px 0">'
+        +'<span style="color:#4a4a4a;font-weight:500">'+l+'</span>'
+        +'<span style="font-weight:600;color:'+vc+'">'+v+'</span></div>').join('');
+
+    })();
 
     // 24h activity — plain text, no pills
     const h24El = se('stat-24h');
