@@ -2803,8 +2803,7 @@ function recalcStickyTops() {
   fs.style.top = (h0 - 1) + 'px';
   mn.style.top = (h0 + h1 - 2) + 'px';
   if (fh) fh.style.top = (h0 + h1 + h2 - 3) + 'px';
-  const h4actual = (is_ && is_.style.display !== 'none') ? is_.offsetHeight : 0;
-  if (is_) is_.style.top = (h0 + h1 + h2 + h3 - 4) + 'px';
+  // info-strip is position:relative — no top needed, it sits in normal flow
   // Sidebar sticks below all header rows
   const h4 = fh ? fh.offsetHeight : 0;
   const totalHeaderH = h0 + h1 + h2 + h3 + h4 - 4;
