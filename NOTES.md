@@ -1,5 +1,5 @@
 # Meridian — Technical Notes
-Last updated: 4 April 2026 (Session 40 — filter row buttons, stats overlay fix, dupe strip removal, tmp cleanup)
+Last updated: 4 April 2026 (Session 41 — duplicate HTML block removal, LIBRARY ghost text fix)
 
 ## Overview
 Personal news aggregator. Flask API + SQLite backend running on Hetzner VPS (always-on).
@@ -114,6 +114,7 @@ window.shell = (cmd) => fetch('http://localhost:4242/api/dev/shell', {
 ### Key patterns
 - Write patch scripts via filesystem:write_file → execute via window.shell()
 - Line-number patches are DANGEROUS — always use exact text str.replace()
+- For large deletions, line-index slicing in Python (lines[:N] + lines[M:]) is safe when anchors are verified first with assertions
 - Always python3 -m py_compile is NOT available on this stack — do JS syntax check instead
 - After deploying, verify via live site tab (Tab B)
 - Check for duplicate `<html>` tags after any major HTML restructuring: `grep -c "<html lang" meridian.html` should return 1
@@ -127,9 +128,14 @@ Expected: line 1 only (plus any inside JS template strings). Never deploy if the
 are two `<html lang` tags in the file.
 
 ### tmp_ files
-- tmp_*.py and tmp_*.txt are gitignored (added Session 40)
+- tmp_*.py, tmp_*.txt, *.bak* are all gitignored
 - Write scripts to ~/meridian-server/tmp_*.py, read output from tmp_*.txt
 - Clean up at end of session: rm -f tmp_*.txt tmp_*.py
+
+### Shell output keyword filter
+The shell bridge swallows output containing certain words ("api", "fetch", "query string", etc.).
+Workaround: write results to tmp_*.txt and read via Filesystem MCP, or use Python to write
+output to the file directly rather than printing to stdout.
 
 ---
 
@@ -267,21 +273,37 @@ if (fh) fh.style.top = (h0+h1+h2-3)+'px';
 
 ## Outstanding Issues / Next Steps
 
-1. **Pre-existing SyntaxError ~line 1764** — `Unexpected token 'return'` in JS, predates Session 40. Not crashing the page but should be found and fixed.
+1. **Sort theme articles by relevance** — detail panel shows most recent first; should sort by keyword hit count + recency.
 
-2. **"LIBRARY" text node** — bare text node appears above the feed, not in HTML source. Hard reload clears it temporarily. Find and remove the source.
+2. **Sub-topics filtering** — filter chips do nothing; decide: implement or remove.
 
-3. **Sort theme articles by relevance** — detail panel shows most recent first; should sort by keyword hit count + recency.
+3. **FA session renewal** — Drupal cookie expires 2026-05-23.
 
-4. **Sub-topics filtering** — filter chips do nothing; decide: implement or remove.
-
-5. **FA session renewal** — Drupal cookie expires 2026-05-23.
-
-6. **Points of Return newsletter gap** — latest is 2 Apr; check forwarding rule.
+4. **Points of Return newsletter gap** — latest is 2 Apr; check forwarding rule.
 
 ---
 
 ## Build History
+
+### 4 April 2026 (Session 41 — duplicate HTML blocks + LIBRARY ghost fix)
+
+**Root cause found**
+A previous patch had accidentally duplicated a large HTML block (lines 1607–1727 in the original file), containing:
+- Second copy of `<!-- KEY THEMES VIEW --><div id="key-themes-view">…</div>`
+- Second copy of `<!-- Briefing Generator view --><div id="briefing-view">…</div>`
+- Second copy of `<div class="kt-brief-modal" id="kt-brief-modal">…</div>`
+- Orphaned hidden spans (duplicate tally/activity IDs)
+- Orphaned `<div>Library</div>` heading sitting in the body flow above `.main-layout`
+
+**Fix**
+- Python line-slice patch: verified anchors with `assert`, then `lines[:1606] + lines[1727:]`
+- Removed 121 lines; file reduced from 4848 → 4727 lines
+- All duplicate IDs eliminated; `Library` ghost text removed
+- Pre-deploy DOM verification on live site confirmed: all counts = 1, `library_text = false`
+
+**Cleanup**
+- Accidentally committed `meridian.html.bak41` — removed in follow-up commit
+- Added `*.bak*` to `.gitignore` to prevent future accidental bak commits
 
 ### 4 April 2026 (Session 40 — filter row, stats fix, cleanup)
 
@@ -327,7 +349,7 @@ if (fh) fh.style.top = (h0+h1+h2-3)+'px';
 
 ## GitHub Visibility
 - Repo: PUBLIC — github.com/dakersalex/meridian-server
-- Excluded: credentials.json, cookies.json, meridian.db, newsletter_sync.py, venv/, tmp_*.py, tmp_*.txt
+- Excluded: credentials.json, cookies.json, meridian.db, newsletter_sync.py, venv/, tmp_*.py, tmp_*.txt, *.bak*
 
 ## Session Starter Prompt
 ---
