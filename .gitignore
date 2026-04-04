@@ -38,3 +38,4 @@ venv/
 # Session working files
 tmp_*.txt
 tmp_*.py
+*.bak*
