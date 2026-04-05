@@ -3912,7 +3912,7 @@ async function updateActivityBar() {
             return {total:arts.length, ai:ai};
           });
         });
-        var LANE_H=20, TICK_H=10, LANE_GAP=12, YAW=28, bW=18, bG=3;
+        var LANE_H=14, TICK_H=9, LANE_GAP=8, YAW=26, bW=10, bG=2;
         var barsW = days14sw.length*(bW+bG)-bG;
         var totalW = YAW + barsW;
         var laneStride = LANE_H + TICK_H + LANE_GAP;
@@ -3956,7 +3956,7 @@ async function updateActivityBar() {
           var showLabel = isWE || di===0 || di===6 || di===13;
           if(showLabel) svgLines += '<text x="'+x+'" y="'+axisY+'" text-anchor="middle" font-size="7" fill="'+(isWE?'#888':'#bbb')+'" font-weight="'+(isWE?'600':'400')+'">'+dt.getDate()+'/'+(dt.getMonth()+1)+'</text>';
         });
-        swEl.innerHTML = '<svg viewBox="0 0 '+totalW+' '+svgH+'" preserveAspectRatio="xMidYMin meet" style="display:block;width:100%">'+svgLines+'</svg>';
+        swEl.innerHTML = '<svg viewBox="0 0 '+totalW+' '+svgH+'" preserveAspectRatio="xMinYMin meet" height="'+svgH+'" style="display:block;width:auto;max-width:100%">'+svgLines+'</svg>';
         if(swLeg) swLeg.innerHTML =
           '<div style="display:flex;align-items:center;gap:4px;font-size:10px;color:#6a6a6a"><div style="width:8px;height:8px;border-radius:1px;background:#1e4d8c"></div>FT</div>'
          +'<div style="display:flex;align-items:center;gap:4px;font-size:10px;color:#6a6a6a"><div style="width:8px;height:8px;border-radius:1px;background:#8b1a1a"></div>Eco</div>'
