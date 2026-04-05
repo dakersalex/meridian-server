@@ -3506,12 +3506,12 @@ def health_check():
         "3. trend: compare prev7avg vs last7avg per source. Flag if last7avg dropped >40pct vs prev7avg.\n"
         "4. sources[].daysSinceLatest: flag if >3 days for FT/Economist, >7 for FA.\n"
         "5. sources[].backlog: flag if >10 unenriched articles.\n"
-        "Be specific: name the dates and sources. warn=needs action now, info=informational. Only include genuine issues."
+        "Be specific: name the dates and sources. warn=needs action now, info=informational. Only include genuine issues. IMPORTANT: Keep your entire JSON response under 600 tokens. Summary: max 2 sentences. Each issue text: max 15 words. Max 4 issues."
     )
     try:
         result = call_anthropic({
             "model": "claude-haiku-4-5-20251001",
-            "max_tokens": 1400,
+            "max_tokens": 1800,
             "system": system_prompt,
             "messages": [{"role": "user", "content": "Stats: " + json.dumps(stats)}]
         })
