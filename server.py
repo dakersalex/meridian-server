@@ -3507,8 +3507,11 @@ def health_check():
         text = result.get("content", [{}])[0].get("text", "{}")
         return jsonify({"ok": True, "text": text})
     except Exception as e:
-        log.error(f"Health check error: {e}")
-        return jsonify({"ok": False, "error": str(e)}), 500
+        err_str = str(e)
+        log.error(f"Health check error: {err_str}")
+        if "credit balance" in err_str.lower() or "400" in err_str:
+            return jsonify({"ok": False, "error": "Anthropic API credits required — top up at console.anthropic.com"}), 402
+        return jsonify({"ok": False, "error": err_str}), 500
 
 
 if __name__ == "__main__":

@@ -3760,6 +3760,7 @@ async function updateActivityBar() {
           body: JSON.stringify({stats: statsPayload})
         });
         const data = await resp.json();
+        if(!data.ok) throw new Error(data.error || 'Health check failed');
         const raw = data.text || '{}';
         const clean = (raw.startsWith('```') ? raw.slice(raw.indexOf('\n')+1) : raw).split('```')[0].trim();
         const result = JSON.parse(clean);
@@ -3793,7 +3794,11 @@ async function updateActivityBar() {
         if(eyebrowEl) eyebrowEl.innerHTML = '<div style="width:6px;height:6px;border-radius:50%;background:#c4783a;flex-shrink:0"></div>AI health check · '+t;
         if(tsEl) tsEl.textContent = 'Generated '+t;
       } catch(e) {
-        if(sumEl) sumEl.innerHTML = '<span style="color:#c4783a">Health check failed — check console</span>';
+        var msg = e && e.message ? e.message : String(e);
+        var friendly = msg.indexOf('credits') >= 0 || msg.indexOf('402') >= 0
+          ? 'Anthropic API credits needed — top up at <a href="https://console.anthropic.com" target="_blank" style="color:#c4783a">console.anthropic.com</a>'
+          : 'Health check failed — check console';
+        if(sumEl) sumEl.innerHTML = '<span style="color:#c4783a">' + friendly + '</span>';
         console.error('Health check error', e);
       }
     };
