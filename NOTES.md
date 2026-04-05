@@ -1,5 +1,5 @@
 # Meridian — Technical Notes
-Last updated: 5 April 2026 (Session 43 — runHealthCheck SyntaxError diagnosed, patch designed but not yet applied)
+Last updated: 5 April 2026 (Session 44 — runHealthCheck SyntaxError fixed, site restored)
 
 ## Overview
 Personal news aggregator. Flask API + SQLite backend running on Hetzner VPS (always-on).
@@ -141,6 +141,10 @@ window.shell = (cmd) => fetch('http://localhost:4242/api/dev/shell', {
 **Do not use regex literals (e.g. `/pattern/g`) inside any JS function that also contains or is near a backtick template literal string.** The browser parser can misread the backtick as closing the template, causing `SyntaxError: Invalid regular expression`. This bit us in Session 42 with `runHealthCheck()`.
 **Fix: always use `.split('x').join('y')` instead of `.replace(/x/g, 'y')` in these contexts. Use plain string concatenation for multi-line strings instead of template literals.**
 
+### CRITICAL: Single quotes inside single-quoted JS string literals
+**Do not use single-quoted JS strings when the string content contains single quotes** (e.g. CSS font-family values like `'IBM Plex Sans'`, or hover style strings like `'#faf8f4'`). The parser will terminate the string early, causing `SyntaxError: Unexpected identifier`.
+**Fix: use double-quoted outer strings for any JS string literals that build HTML or inline CSS. This entirely avoids the escaping problem. For HTML-building blocks (innerHTML builders, button constructors), always use double-quoted outer JS strings.**
+
 ### CRITICAL: Duplicate HTML bug prevention
 After any patch replacing a large HTML block, always verify:
   grep -n "<!DOCTYPE\|<html lang" ~/meridian-server/meridian.html
@@ -204,10 +208,12 @@ Health check fired by `runHealthCheck()` — called from `toggleStatsStrip()` on
 **Health check row (Row 0)** — amber left border panel above all stats rows:
 - Eyebrow: "AI health check · HH:MM" (9px uppercase amber)
 - Summary: 2–3 sentence plain English overview (12px)
-- Issues: clickable button rows — hover reveals "↗ ask Claude", click calls `sendPrompt()` with a pre-written actionable prompt
+- Issues: clickable button rows — hover reveals "↗ ask Claude", click stores prompt in `window._hcPrompts[idx]` and calls `window.sendPrompt()`
 - Score: X/10 top-right, colour coded green/amber/red
 - Refresh button + timestamp
 - DOM IDs: sp-health-row, sp-health-eyebrow, sp-health-summary, sp-health-issues, sp-health-score, sp-health-ts
+
+**Issue button implementation note (Session 44):** onclick uses `window._hcPrompts` index store (not inline prompt strings) to avoid all quoting issues. `issIdx` counter increments per issue; prompts stored in `window._hcPrompts = {}` before the map.
 
 **Unified section heading style (all rows)**: `font-size:9px; font-weight:700; letter-spacing:1.2px; text-transform:uppercase; color:#8a8a8a; border-bottom:1px solid rgba(0,0,0,.1); padding-bottom:5px; margin-bottom:9px`
 - Applied consistently to: Article library, Curation split, New articles, 14-day ingestion, By source, Full text coverage, By topic, Last scraped, Unenriched backlog, 7-day rate, Agent activity
@@ -287,31 +293,41 @@ Legacy hidden IDs preserved for JS compatibility: stat-total, stat-saves, stat-a
 
 ## Outstanding Issues / Next Steps
 
-1. **🔴 URGENT: runHealthCheck JS SyntaxError** — The site is currently broken (stuck on "Checking…") due to a `SyntaxError: Invalid regular expression` thrown by `runHealthCheck()` in meridian.html. Full diagnosis completed in Session 43. The function starts at line ~3714 (`// ── Health check`). Three problems identified:
-   - The `system:` value uses a backtick template literal (multi-line JSON schema string) → replace with `var haikuSystem = '...' + '...'` plain string concatenation
-   - `safePrompt` line uses `.replace(/\//g,'\\')`, `.replace(/\`/g,'\\\`')`, `.replace(/\$/g,'\$')` regex literals → replace all three with `.split().join()` equivalents
-   - `onclick` handler uses backtick string to call `sendPrompt()` → rewrite as single-quoted string with `sendPrompt('...')` instead
-   - **No other logic changes needed** — stats payload, API call, DOM rendering, score/colour, issue buttons, eyebrow, timestamp all stay identical
-   - **This must be the first task of Session 44.**
+1. **Sort theme articles by relevance** — detail panel shows most recent first; should sort by keyword hit count + recency.
 
-2. **Sort theme articles by relevance** — detail panel shows most recent first; should sort by keyword hit count + recency.
+2. **Sub-topics filtering** — filter chips do nothing; decide: implement or remove.
 
-3. **Sub-topics filtering** — filter chips do nothing; decide: implement or remove.
+3. **FA session renewal** — Drupal cookie expires 2026-05-23.
 
-4. **FA session renewal** — Drupal cookie expires 2026-05-23.
-
-5. **Points of Return newsletter gap** — latest is 2 Apr; check forwarding rule.
+4. **Points of Return newsletter gap** — latest is 2 Apr; check forwarding rule.
 
 ---
 
 ## Build History
 
-### 5 April 2026 (Session 43 — SyntaxError diagnosed, patch not yet applied)
+### 5 April 2026 (Session 44 — runHealthCheck SyntaxError fixed)
+
+**runHealthCheck() fully repaired (two deploys)**
+
+Deploy 1 — three fixes to eliminate regex/backtick conflicts:
+- Fix 1: Replaced backtick template literal for Haiku `system:` value with IIFE + plain string concatenation (`var s = '...'; s += '...'; return s;`)
+- Fix 2: Replaced `.replace(/\//g,...)`, `.replace(/\`/g,...)`, `.replace(/\$/g,...)` regex calls in `safePrompt` line with `.split().join()` equivalents
+- Fix 3: Rewrote `onclick` handler — removed backtick `sendPrompt(\`...\`)` call
+
+Deploy 2 — fix exposed pre-existing bug in issue-button builder:
+- Root cause: lines 3791–3793 used single-quoted outer JS strings containing unescaped single quotes (`'IBM Plex Sans'`, `'#faf8f4'`, etc.), causing `SyntaxError: Unexpected identifier 'IBM'`
+- Fix: rewrote entire `issEl.innerHTML` map block using double-quoted outer strings throughout
+- Prompts now stored in `window._hcPrompts[issIdx]` (index store) rather than embedded in onclick attribute strings — cleaner and avoids all future quoting issues
+- `font-family:IBM Plex Sans,sans-serif` (no quotes needed in inline CSS)
+
+Site confirmed working: 480 articles load, no SyntaxErrors in console.
+
+### 5 April 2026 (Session 43 — SyntaxError diagnosed, patch designed but not yet applied)
 
 **runHealthCheck SyntaxError — full diagnosis**
 - Confirmed: site stuck on "Checking…" due to `SyntaxError: Invalid regular expression` in `runHealthCheck()`
 - Root cause: backtick template literal for the Haiku `system:` prompt string, plus regex literals (`.replace(/x/g,y)`) in the `safePrompt` building block, inside the same function scope
-- Fix designed (not yet applied): replace backtick system string with `var haikuSystem = '...' + '...'` concatenation; replace all three `.replace(/regex/)` calls with `.split().join()`; rewrite `onclick` to use single-quoted `sendPrompt('...')` instead of backtick
+- Fix designed (not yet applied): replace backtick system string with `var s = '...' + '...'` concatenation; replace all three `.replace(/regex/)` calls with `.split().join()`; rewrite `onclick` to use single-quoted `sendPrompt('...')` instead of backtick
 - Session ended before patch script could be executed (tool call limit reached during filesystem:write_file tool_search)
 
 ### 5 April 2026 (Session 42 — stats headings unified, AI health check panel)
@@ -325,10 +341,9 @@ Legacy hidden IDs preserved for JS compatibility: stat-total, stat-saves, stat-a
 **AI health check panel added (meridian.html)**
 - New `#sp-health-row` HTML block inserted above Row 1 inside #info-strip
 - `window.runHealthCheck(force)` async function added — calls Haiku with computed stats payload, renders summary + scored issues
-- Issues are clickable buttons — hover reveals "↗ ask Claude", click calls `sendPrompt()` with a pre-written prompt
+- Issues are clickable buttons — hover reveals "↗ ask Claude", click calls `sendPrompt()` via prompt index store
 - Cached in `window._healthCache`, cleared on page reload; Refresh button forces new call
 - `toggleStatsStrip()` updated to call `runHealthCheck(false)` on panel open
-- **BUG: SyntaxError in runHealthCheck due to regex literals conflicting with nearby backtick template string — site currently broken, fix is first task of Session 44**
 
 ### 4 April 2026 (Session 41 — stats panel redesign + pub_date fix + HTML dedup)
 - Stats panel full redesign (3-row layout, white bg, sparkline, ingestion table)
@@ -371,3 +386,4 @@ Never restart Flask via the shell endpoint.
 After any large HTML patch, check: grep -c "<html lang" ~/meridian-server/meridian.html (should be 1).
 JS syntax check: grep for key element IDs and function names — do NOT use ast.parse on HTML files.
 NEVER use regex literals inside functions that contain or are near backtick template literal strings — use .split().join() instead.
+NEVER use single-quoted outer JS strings when the content contains single quotes (CSS values, font names, colour hex strings in hover handlers) — use double-quoted outer strings for all HTML-building blocks.
