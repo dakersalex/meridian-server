@@ -3920,15 +3920,15 @@ async function updateActivityBar() {
       const spkD = {};
       mainSrc.forEach(s=>{spkD[s]=days14.map(day=>allArts.filter(a=>a.source===s&&a.pub_date===day).length);});
       const spkMax = Math.max(...Object.values(spkD).flat(),1);
-      const SPK_H=80,AXIS_H=28,bW=16,bG=3,YAW=22;
+      const SPK_H=80,AXIS_H=28,bW=16,bG=3,YAW=22,SPK_MAX=20;
       const barsW=days14.length*(bW+bG)-bG;
       const cW=YAW+barsW;
       const DAYNAMES=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
       const spkBars = days14.map((day,i)=>{
         const x=YAW+i*(bW+bG);let r='',yO=SPK_H;
         mainSrc.forEach(s=>{const v=spkD[s][i];if(!v)return;
-          const bh=Math.max(2,Math.round(v/spkMax*SPK_H));yO-=bh;
-          r+='<rect x="'+x+'" y="'+yO+'" width="'+bW+'" height="'+bh+'" fill="'+srcColor[s]+'" opacity=".85" rx="1"/>';
+          const bh=Math.min(SPK_H,Math.max(2,Math.round(v/SPK_MAX*SPK_H)));yO-=bh;
+          r+='<rect x="'+x+'" y="'+Math.max(0,yO)+'" width="'+bW+'" height="'+bh+'" fill="'+srcColor[s]+'" opacity=".85" rx="1"/>';
         });return r;
       }).join('');
       const spkAxis = days14.map((day,i)=>{
@@ -3941,11 +3941,10 @@ async function updateActivityBar() {
         return '<text x="'+x+'" y="'+(SPK_H+14)+'" text-anchor="middle" font-size="8" fill="'+fill+'" font-weight="'+(isWE?'600':'400')+'">'+dayName+'</text>'
           +'<text x="'+x+'" y="'+(SPK_H+25)+'" text-anchor="middle" font-size="8" fill="#ccc">'+dateStr+'</text>';
       }).join('');
-      const yMid=Math.round(spkMax/2);
       const spkYAxis = [
-        {val:spkMax, y:0},
-        {val:yMid,   y:Math.round(SPK_H/2)},
-        {val:0,      y:SPK_H}
+        {val:20, y:0},
+        {val:10, y:Math.round(SPK_H/2)},
+        {val:0,  y:SPK_H}
       ].map(function(t){
         return '<line x1="'+YAW+'" y1="'+t.y+'" x2="'+cW+'" y2="'+t.y+'" stroke="#ede9e0" stroke-width="1"/>'
           +'<text x="'+(YAW-3)+'" y="'+(t.y+3)+'" text-anchor="end" font-size="8" fill="#ccc">'+t.val+'</text>';
