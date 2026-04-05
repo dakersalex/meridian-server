@@ -3760,21 +3760,23 @@ async function updateActivityBar() {
           body: JSON.stringify({
             model: 'claude-haiku-4-5-20251001',
             max_tokens: 600,
-            system: `You are a health monitor for Meridian, a personal news aggregator. Analyse the provided stats and return ONLY valid JSON with this exact shape:
-{
-  "score": <integer 1-10>,
-  "summary": "<2-3 sentence plain English overview of the system health>",
-  "issues": [
-    {"severity": "warn"|"info", "label": "<short bold label>", "text": "<rest of sentence>", "prompt": "<full actionable prompt to send to Claude to fix this>"}
-  ]
-}
-Issues should only be included if genuinely notable. "warn" = needs action now, "info" = informational/upcoming. No markdown, no preamble, pure JSON only.`,
+            system: (function(){
+              var s = 'You are a health monitor for Meridian, a personal news aggregator. ';
+              s += 'Analyse the provided stats and return ONLY valid JSON with this exact shape:\n';
+              s += '{\n  "score": <integer 1-10>,\n';
+              s += '  "summary": "<2-3 sentence plain English overview of the system health>",\n';
+              s += '  "issues": [\n    {"severity": "warn"|"info", "label": "<short bold label>",';
+              s += ' "text": "<rest of sentence>", "prompt": "<full actionable prompt to send to Claude to fix this>"}\n  ]\n}\n';
+              s += 'Issues should only be included if genuinely notable. ';
+              s += '"warn" = needs action now, "info" = informational/upcoming. No markdown, no preamble, pure JSON only.';
+              return s;
+            }()),
             messages:[{role:'user',content:'Stats: '+JSON.stringify(statsPayload)}]
           })
         });
         const data = await resp.json();
         const raw = data.content?.[0]?.text || '{}';
-        const clean = raw.replace(/^```[\w]*\n?/,'').replace(/```$/,'').trim();
+        const clean = (raw.startsWith('```') ? raw.slice(raw.indexOf('\n')+1) : raw).split('```')[0].trim();
         const result = JSON.parse(clean);
         window._healthCache = result;
 
@@ -3784,8 +3786,8 @@ Issues should only be included if genuinely notable. "warn" = needs action now, 
         if(sumEl) sumEl.innerHTML = result.summary || '';
         if(issEl) issEl.innerHTML = (result.issues||[]).map(iss=>{
           const dotCol = iss.severity==='warn'?'#c4783a':'#1e4d8c';
-          const safePrompt = (iss.prompt||'').replace(/\/g,'\\').replace(/`/g,'\`').replace(/\$/g,'\$');
-          return '<button onclick="if(window.sendPrompt){window.sendPrompt(`'+safePrompt+'`)}else{alert(`Copy this prompt:\n\n'+safePrompt.replace(/`/g,"'")+'`)}" '
+          const safePrompt = (iss.prompt||'').split('\\').join('\\\\').split('`').join('\\`').split('$').join('\\$');
+          return '<button onclick="if(window.sendPrompt){window.sendPrompt(\'' + safePrompt.split("'").join("\\'") + '\');}else{alert(\'Copy this prompt:\\n\\n' + safePrompt.split("'").join("\\'") + '\')}" '
             +'style="display:flex;align-items:flex-start;gap:8px;font-size:12px;line-height:1.65;font-family:'IBM Plex Sans',sans-serif;background:none;border:1px solid transparent;border-radius:4px;padding:4px 8px 4px 6px;cursor:pointer;text-align:left;width:100%;color:#4a4a4a;transition:background .12s,border-color .12s" '
             +'onmouseover="this.style.background='#faf8f4';this.style.borderColor='rgba(0,0,0,.1)';this.querySelector('.hc-arrow').style.opacity='1'" '
             +'onmouseout="this.style.background='';this.style.borderColor='transparent';this.querySelector('.hc-arrow').style.opacity='0'">'
