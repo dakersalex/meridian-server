@@ -3511,7 +3511,7 @@ def health_check():
     try:
         result = call_anthropic({
             "model": "claude-haiku-4-5-20251001",
-            "max_tokens": 800,
+            "max_tokens": 1400,
             "system": system_prompt,
             "messages": [{"role": "user", "content": "Stats: " + json.dumps(stats)}]
         })
