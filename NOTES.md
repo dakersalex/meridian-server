@@ -1,5 +1,5 @@
 # Meridian — Technical Notes
-Last updated: 4 April 2026 (Session 41 — stats panel redesign, pub_date normalisation, HTML dedup)
+Last updated: 5 April 2026 (Session 42 — stats headings unified, AI health check panel, regex bug outstanding)
 
 ## Overview
 Personal news aggregator. Flask API + SQLite backend running on Hetzner VPS (always-on).
@@ -66,15 +66,15 @@ View logs: cat /opt/meridian-server/meridian.log | tail -50
   cd ~/meridian-server && ./deploy.sh "description"
 (git add -A, commit, push, SSH pull on VPS, systemctl restart meridian)
 
-## Database (4 April 2026 — VPS)
+## Database (5 April 2026 — VPS)
 | Source | Total | Full text |
 |---|---|---|
-| The Economist | 272 | ~265 |
+| The Economist | 273 | ~265 |
 | Financial Times | 181 | ~179 |
 | Foreign Affairs | 66 | 57 |
 | Bloomberg | 38 | 37 |
 | Other | ~19 | — |
-| **Total** | **~596** | **~541** |
+| **Total** | **~577** | **~541** |
 
 ---
 
@@ -137,6 +137,10 @@ window.shell = (cmd) => fetch('http://localhost:4242/api/dev/shell', {
 - After deploying, verify via live site tab (Tab B)
 - Check for duplicate `<html>` tags: `grep -c "<html lang" meridian.html` should return 1
 
+### CRITICAL: Regex literals inside JS functions that share scope with backtick template literals
+**Do not use regex literals (e.g. `/pattern/g`) inside any JS function that also contains or is near a backtick template literal string.** The browser parser can misread the backtick as closing the template, causing `SyntaxError: Invalid regular expression`. This bit us in Session 42 with `runHealthCheck()`.
+**Fix: always use `.split('x').join('y')` instead of `.replace(/x/g, 'y')` in these contexts. Use plain string concatenation for multi-line strings instead of template literals.**
+
 ### CRITICAL: Duplicate HTML bug prevention
 After any patch replacing a large HTML block, always verify:
   grep -n "<!DOCTYPE\|<html lang" ~/meridian-server/meridian.html
@@ -153,7 +157,7 @@ Workaround: write results to tmp_*.txt and read via Filesystem MCP.
 
 ---
 
-## UI Design — Current State (Session 41)
+## UI Design — Current State (Session 42)
 
 ### Colour Palette (Palette 1A)
 ```css
@@ -192,27 +196,34 @@ Row 5: Info-strip (Stats panel, hidden by default, toggled by Stats button — N
 - Info-strip: **position:relative** (NOT sticky) — expands in normal flow, pushes feed down
 - recalcStickyTops() must NOT set top on #info-strip
 
-### Stats panel (#info-strip) — redesigned Session 41
+### Stats panel (#info-strip) — updated Session 42
 Background: `#fff` (white), bottom border: `2px solid #e0dbd0`
 Toggled by 📊 Stats button in filter row. Rendered by `renderNewStats()` (IIFE called in loadAll).
+Health check fired by `runHealthCheck()` — called from `toggleStatsStrip()` on open (once per session, cached in `window._healthCache`). Refresh button forces a new call.
+
+**Health check row (Row 0)** — amber left border panel above all stats rows:
+- Eyebrow: "AI health check · HH:MM" (9px uppercase amber)
+- Summary: 2–3 sentence plain English overview (12px)
+- Issues: clickable button rows — hover reveals "↗ ask Claude", click calls `sendPrompt()` with a pre-written actionable prompt
+- Score: X/10 top-right, colour coded green/amber/red
+- Refresh button + timestamp
+- DOM IDs: sp-health-row, sp-health-eyebrow, sp-health-summary, sp-health-issues, sp-health-score, sp-health-ts
+
+**Unified section heading style (all rows)**: `font-size:9px; font-weight:700; letter-spacing:1.2px; text-transform:uppercase; color:#8a8a8a; border-bottom:1px solid rgba(0,0,0,.1); padding-bottom:5px; margin-bottom:9px`
+- Applied consistently to: Article library, Curation split, New articles, 14-day ingestion, By source, Full text coverage, By topic, Last scraped, Unenriched backlog, 7-day rate, Agent activity
+- Col 1 of Row 1 now has "Article library" heading (was untitled before)
+- Row 3 previously used dark `#1a1a1a` rule — now uses the same muted grey as all other headings
 
 **Row 1** — 3 equal columns (`grid-template-columns: 1fr 1fr 1fr`, `align-items: stretch`):
-- **Col 1**: Headline numbers (Total / My saves / AI picks / Full text, 26px bold) + Curation split over time (3 bars: All time / 30 days / 7 days, 14px tall, % inside bars, label inline left at 44px)
-- **Col 2**: New articles ingestion table — rows: FT / Economist / FA / Bloomberg / Other / Total; columns: 24h / 48h / 7d / 14d
-- **Col 3**: 14-day ingestion sparkline — stacked bars per day coloured by source; x-axis shows day name (Mon/Tue…) + date (d/m) in two rows, weekends bolder; SVG uses `flex:1` to fill column height equally
-
-All three cols use `display:flex;flex-direction:column` — sparkline SVG has `flex:1` so it expands to match the tallest column. Verified equal height (177px) before deploy.
+- **Col 1**: "Article library" heading + Headline numbers (Total / My saves / AI picks / Full text, 26px bold) + "Curation split" heading + 3 bars (All time / 30 days / 7 days)
+- **Col 2**: "New articles" heading + ingestion table (24h / 48h / 7d / 14d)
+- **Col 3**: "14-day ingestion" heading + sparkline SVG (flex:1)
 
 **Row 2** — 3 equal columns:
-- By source (horizontal bars, source colours)
-- Full text coverage (green bars, % values coloured green/amber)
-- By topic (top 5, dark red bars)
+- By source / Full text coverage / By topic (top 5)
 
-**Row 3** — 4 columns, Option C style (bottom-rule header `border-bottom:1px solid #1a1a1a`, no card box):
-- ⏱ Last scraped — days since most recent article per source (green ≤1d, amber ≤7d, red >7d)
-- 📋 Unenriched backlog — title-only count per source (green=clean, amber≤5, orange>5)
-- 📈 7-day rate — article count + per-day average, colour-coded
-- ✦ Agent activity — auto-saved total / last 7 days / rate this week / all-time rate
+**Row 3** — 4 columns:
+- Last scraped / Unenriched backlog / 7-day rate / Agent activity
 
 **DOM IDs for renderNewStats()**: sp-total, sp-saves, sp-ai, sp-ft, sp-cur-bars, sp-ingest-table, sp-sparkline, sp-spark-legend, sp-src-bars, sp-cov-bars, sp-topic-bars, sp-last-scraped, sp-backlog, sp-rate, sp-agent
 
@@ -276,53 +287,45 @@ Legacy hidden IDs preserved for JS compatibility: stat-total, stat-saves, stat-a
 
 ## Outstanding Issues / Next Steps
 
-1. **Sort theme articles by relevance** — detail panel shows most recent first; should sort by keyword hit count + recency.
+1. **🔴 URGENT: runHealthCheck JS SyntaxError** — The site is currently broken (stuck on "Checking…") due to a `SyntaxError: Invalid regular expression` thrown by `runHealthCheck()` in meridian.html. The function contains regex literals near backtick template strings, which confuses the browser parser. Fix: rewrite the entire `runHealthCheck` function replacing all regex literals with `.split().join()` and the backtick system prompt string with plain string concatenation or a regular quoted string. See the CRITICAL note in the Key Patterns section above. **This must be the first task of Session 43.**
 
-2. **Sub-topics filtering** — filter chips do nothing; decide: implement or remove.
+2. **Sort theme articles by relevance** — detail panel shows most recent first; should sort by keyword hit count + recency.
 
-3. **FA session renewal** — Drupal cookie expires 2026-05-23.
+3. **Sub-topics filtering** — filter chips do nothing; decide: implement or remove.
 
-4. **Points of Return newsletter gap** — latest is 2 Apr; check forwarding rule.
+4. **FA session renewal** — Drupal cookie expires 2026-05-23.
+
+5. **Points of Return newsletter gap** — latest is 2 Apr; check forwarding rule.
 
 ---
 
 ## Build History
 
+### 5 April 2026 (Session 42 — stats headings unified, AI health check panel)
+
+**Stats panel heading unification (meridian.html)**
+- All section headings now use one consistent style: 9px, 700 weight, 1.2px tracking, uppercase, #8a8a8a, with `border-bottom:1px solid rgba(0,0,0,.1)` rule
+- Previously Row 1/2 had no rule, Row 3 used heavy `#1a1a1a` rule — all now match
+- Col 1 of Row 1 given "Article library" heading (was previously untitled)
+- Row 2 top border/padding removed to align visually with Row 1
+
+**AI health check panel added (meridian.html)**
+- New `#sp-health-row` HTML block inserted above Row 1 inside #info-strip
+- `window.runHealthCheck(force)` async function added — calls Haiku with computed stats payload, renders summary + scored issues
+- Issues are clickable buttons — hover reveals "↗ ask Claude", click calls `sendPrompt()` with a pre-written prompt
+- Cached in `window._healthCache`, cleared on page reload; Refresh button forces new call
+- `toggleStatsStrip()` updated to call `runHealthCheck(false)` on panel open
+- **BUG: SyntaxError in runHealthCheck due to regex literals conflicting with nearby backtick template string — site currently broken, fix is first task of Session 43**
+
 ### 4 April 2026 (Session 41 — stats panel redesign + pub_date fix + HTML dedup)
-
-**Stats panel full redesign (meridian.html)**
-- Replaced entire #info-strip HTML with new 3-row layout
-- White background (#fff), 2px solid #e0dbd0 border
-- Row 1: 3 equal-width, equal-height columns (align-items:stretch, flex col with SVG flex:1)
-  - Col 1: headline numbers (26px) + curation split bars (14px, % inside, label inline left)
-  - Col 2: ingestion table with 24h / 48h / 7d / 14d columns
-  - Col 3: 14-day sparkline with day+date two-row x-axis, weekends bolder
-- Row 2: By Source / Full Text Coverage / By Topic (top 5) — equal padding, symmetric gutters
-- Row 3: Option C style (bottom-rule header) — Last scraped / Unenriched backlog / 7-day rate / Agent activity
-- Added `renderNewStats()` IIFE in JS — fully dynamic, populated from allArts on every load
-- Source colours updated: FA changed to teal-green #2a7a5a (distinct from FT blue #1e4d8c)
-- Legacy hidden IDs preserved for backward JS compatibility
-
-**pub_date normalisation (server.py)**
-- Added `normalize_pub_date()` — handles DD Month YYYY, Month D YYYY, Month YYYY, relative dates
-- Called in `upsert_article()` on every write
-- Enrichment prompt updated to request YYYY-MM-DD format
-- One-off migration: Mac DB (24 rows), VPS DB (41 rows)
-
-**Stats panel gap fix (meridian.html)**
-- `recalcStickyTops()` was setting `top: 184px` on #info-strip (position:relative) — caused ghost gap + overlap
-- Removed the `is_.style.top` assignment
-
-**Duplicate HTML blocks removed (meridian.html)**
-- Second copy of #key-themes-view, #briefing-view, #kt-brief-modal removed (lines 1607–1727)
-- Orphaned `<div>Library</div>` heading removed
-- File: 4848 → 4727 lines
+- Stats panel full redesign (3-row layout, white bg, sparkline, ingestion table)
+- pub_date normalised to ISO YYYY-MM-DD everywhere
+- Duplicate HTML blocks removed (4727 lines)
 
 ### 4 April 2026 (Session 40 — filter row, stats fix, cleanup)
 - Stats (📊) and Clip Bloomberg (📎) moved to filter row (row 4)
 - #info-strip changed from position:sticky → position:relative
-- Stale second #info-strip removed
-- 66 tmp files purged; tmp_*.py, tmp_*.txt added to .gitignore
+- 66 tmp files purged
 
 ### 4 April 2026 (Session 39 — Major UI redesign)
 - Card layout Option 3: fixed 44px date column
@@ -354,3 +357,4 @@ NEVER ask Alex to run Terminal commands — run everything autonomously via shel
 Never restart Flask via the shell endpoint.
 After any large HTML patch, check: grep -c "<html lang" ~/meridian-server/meridian.html (should be 1).
 JS syntax check: grep for key element IDs and function names — do NOT use ast.parse on HTML files.
+NEVER use regex literals inside functions that contain or are near backtick template literal strings — use .split().join() instead.
