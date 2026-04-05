@@ -3480,6 +3480,37 @@ def kt_brief_context_debug():
     })
 
 
+@app.route("/api/health-check", methods=["POST"])
+def health_check():
+    """Proxy health-check Haiku call from frontend (keeps API key server-side)."""
+    body = request.get_json(force=True)
+    stats = body.get("stats", {})
+    system_prompt = (
+        "You are a health monitor for Meridian, a personal news aggregator. "
+        "Analyse the provided stats and return ONLY valid JSON with this exact shape:\n"
+        '{\n  "score": <integer 1-10>,\n'
+        '  "summary": "<2-3 sentence plain English overview of the system health>",\n'
+        '  "issues": [\n'
+        '    {"severity": "warn"|"info", "label": "<short bold label>", '
+        '"text": "<rest of sentence>", "prompt": "<full actionable prompt to send to Claude to fix this>"}\n'
+        "  ]\n}\n"
+        "Issues should only be included if genuinely notable. "
+        '"warn" = needs action now, "info" = informational/upcoming. No markdown, no preamble, pure JSON only.'
+    )
+    try:
+        result = call_anthropic({
+            "model": "claude-haiku-4-5-20251001",
+            "max_tokens": 600,
+            "system": system_prompt,
+            "messages": [{"role": "user", "content": "Stats: " + json.dumps(stats)}]
+        })
+        text = result.get("content", [{}])[0].get("text", "{}")
+        return jsonify({"ok": True, "text": text})
+    except Exception as e:
+        log.error(f"Health check error: {e}")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 if __name__ == "__main__":
     init_db()
     interval = float(os.environ.get("SYNC_INTERVAL_HOURS","6"))

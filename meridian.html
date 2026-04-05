@@ -3754,28 +3754,13 @@ async function updateActivityBar() {
       if(scoreEl) scoreEl.textContent = '–';
 
       try {
-        const resp = await fetch('https://api.anthropic.com/v1/messages', {
+        const resp = await fetch('/api/health-check', {
           method:'POST',
           headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({
-            model: 'claude-haiku-4-5-20251001',
-            max_tokens: 600,
-            system: (function(){
-              var s = 'You are a health monitor for Meridian, a personal news aggregator. ';
-              s += 'Analyse the provided stats and return ONLY valid JSON with this exact shape:\n';
-              s += '{\n  "score": <integer 1-10>,\n';
-              s += '  "summary": "<2-3 sentence plain English overview of the system health>",\n';
-              s += '  "issues": [\n    {"severity": "warn"|"info", "label": "<short bold label>",';
-              s += ' "text": "<rest of sentence>", "prompt": "<full actionable prompt to send to Claude to fix this>"}\n  ]\n}\n';
-              s += 'Issues should only be included if genuinely notable. ';
-              s += '"warn" = needs action now, "info" = informational/upcoming. No markdown, no preamble, pure JSON only.';
-              return s;
-            }()),
-            messages:[{role:'user',content:'Stats: '+JSON.stringify(statsPayload)}]
-          })
+          body: JSON.stringify({stats: statsPayload})
         });
         const data = await resp.json();
-        const raw = data.content?.[0]?.text || '{}';
+        const raw = data.text || '{}';
         const clean = (raw.startsWith('```') ? raw.slice(raw.indexOf('\n')+1) : raw).split('```')[0].trim();
         const result = JSON.parse(clean);
         window._healthCache = result;
