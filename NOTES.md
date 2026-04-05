@@ -1,5 +1,5 @@
 # Meridian — Technical Notes
-Last updated: 5 April 2026 (Session 42 — stats headings unified, AI health check panel, regex bug outstanding)
+Last updated: 5 April 2026 (Session 43 — runHealthCheck SyntaxError diagnosed, patch designed but not yet applied)
 
 ## Overview
 Personal news aggregator. Flask API + SQLite backend running on Hetzner VPS (always-on).
@@ -287,7 +287,12 @@ Legacy hidden IDs preserved for JS compatibility: stat-total, stat-saves, stat-a
 
 ## Outstanding Issues / Next Steps
 
-1. **🔴 URGENT: runHealthCheck JS SyntaxError** — The site is currently broken (stuck on "Checking…") due to a `SyntaxError: Invalid regular expression` thrown by `runHealthCheck()` in meridian.html. The function contains regex literals near backtick template strings, which confuses the browser parser. Fix: rewrite the entire `runHealthCheck` function replacing all regex literals with `.split().join()` and the backtick system prompt string with plain string concatenation or a regular quoted string. See the CRITICAL note in the Key Patterns section above. **This must be the first task of Session 43.**
+1. **🔴 URGENT: runHealthCheck JS SyntaxError** — The site is currently broken (stuck on "Checking…") due to a `SyntaxError: Invalid regular expression` thrown by `runHealthCheck()` in meridian.html. Full diagnosis completed in Session 43. The function starts at line ~3714 (`// ── Health check`). Three problems identified:
+   - The `system:` value uses a backtick template literal (multi-line JSON schema string) → replace with `var haikuSystem = '...' + '...'` plain string concatenation
+   - `safePrompt` line uses `.replace(/\//g,'\\')`, `.replace(/\`/g,'\\\`')`, `.replace(/\$/g,'\$')` regex literals → replace all three with `.split().join()` equivalents
+   - `onclick` handler uses backtick string to call `sendPrompt()` → rewrite as single-quoted string with `sendPrompt('...')` instead
+   - **No other logic changes needed** — stats payload, API call, DOM rendering, score/colour, issue buttons, eyebrow, timestamp all stay identical
+   - **This must be the first task of Session 44.**
 
 2. **Sort theme articles by relevance** — detail panel shows most recent first; should sort by keyword hit count + recency.
 
@@ -300,6 +305,14 @@ Legacy hidden IDs preserved for JS compatibility: stat-total, stat-saves, stat-a
 ---
 
 ## Build History
+
+### 5 April 2026 (Session 43 — SyntaxError diagnosed, patch not yet applied)
+
+**runHealthCheck SyntaxError — full diagnosis**
+- Confirmed: site stuck on "Checking…" due to `SyntaxError: Invalid regular expression` in `runHealthCheck()`
+- Root cause: backtick template literal for the Haiku `system:` prompt string, plus regex literals (`.replace(/x/g,y)`) in the `safePrompt` building block, inside the same function scope
+- Fix designed (not yet applied): replace backtick system string with `var haikuSystem = '...' + '...'` concatenation; replace all three `.replace(/regex/)` calls with `.split().join()`; rewrite `onclick` to use single-quoted `sendPrompt('...')` instead of backtick
+- Session ended before patch script could be executed (tool call limit reached during filesystem:write_file tool_search)
 
 ### 5 April 2026 (Session 42 — stats headings unified, AI health check panel)
 
@@ -315,7 +328,7 @@ Legacy hidden IDs preserved for JS compatibility: stat-total, stat-saves, stat-a
 - Issues are clickable buttons — hover reveals "↗ ask Claude", click calls `sendPrompt()` with a pre-written prompt
 - Cached in `window._healthCache`, cleared on page reload; Refresh button forces new call
 - `toggleStatsStrip()` updated to call `runHealthCheck(false)` on panel open
-- **BUG: SyntaxError in runHealthCheck due to regex literals conflicting with nearby backtick template string — site currently broken, fix is first task of Session 43**
+- **BUG: SyntaxError in runHealthCheck due to regex literals conflicting with nearby backtick template string — site currently broken, fix is first task of Session 44**
 
 ### 4 April 2026 (Session 41 — stats panel redesign + pub_date fix + HTML dedup)
 - Stats panel full redesign (3-row layout, white bg, sparkline, ingestion table)
