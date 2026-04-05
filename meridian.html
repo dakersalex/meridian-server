@@ -3715,6 +3715,21 @@ async function updateActivityBar() {
     window.runHealthCheck = async function(force) {
       const se = id => document.getElementById(id);
       if (!force && window._healthCache) return;
+      // Guard: wait for allArts to be populated (retry up to 3x, 2s apart)
+      if (!allArts || allArts.length === 0) {
+        var retries = 0;
+        await new Promise(function(resolve) {
+          var t = setInterval(function() {
+            retries++;
+            if ((allArts && allArts.length > 0) || retries >= 3) { clearInterval(t); resolve(); }
+          }, 2000);
+        });
+        if (!allArts || allArts.length === 0) {
+          var sumEl2 = se('sp-health-summary');
+          if(sumEl2) sumEl2.innerHTML = '<span style="color:#bbb;font-style:italic">Waiting for articles to load…</span>';
+          return;
+        }
+      }
       const now = new Date();
       const isoDate = d => new Date(d).toISOString().slice(0,10);
       const t7d  = isoDate(now - 7*864e5);
