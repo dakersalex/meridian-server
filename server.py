@@ -3488,7 +3488,17 @@ def health_check():
     system_prompt = (
         "You are a health monitor for Meridian, a personal news aggregator. "
         "Analyse the provided stats JSON and return ONLY valid JSON (no markdown, no preamble) with this exact shape:\n"
-        '{"score":<int 1-10>,"summary":"<2-3 sentence overview>","issues":[{"severity":"warn or info","label":"<short label>","text":"<detail>","prompt":"<actionable prompt to fix>"}]}\n'
+        '{"score":<int 1-10>,"summary":"<2-3 sentence overview>",'
+        '"issues":[{"severity":"warn or info","rank":<int, 1=most critical to overall Meridian health>,'
+        '"label":"<short label>","text":"<detail>",'
+        '"effort":"quick or moderate or involved",'
+        '"prompt":"<actionable prompt to fix>"}]}\n'
+        "Rules:\n"
+        "- rank: order issues by impact on overall Meridian health (1 = fix this first). "
+        "  A source being completely dead outranks a trend decline. A scraper failure outranks a backlog.\n"
+        "- effort: quick = under 5 min (e.g. check a setting, re-login), "
+        "  moderate = 15-30 min (e.g. debug a scraper, update a cookie), "
+        "  involved = significant work (e.g. rebuild a pipeline, new source).\n"
         "Key things to check:\n"
         "1. ingestion14d: look at daily totals and bySource counts. Flag any day with 0 articles total, "
         "   or any source missing for 2+ consecutive days. Note weekend dips only if severe (0 articles).\n"
@@ -3501,7 +3511,7 @@ def health_check():
     try:
         result = call_anthropic({
             "model": "claude-haiku-4-5-20251001",
-            "max_tokens": 600,
+            "max_tokens": 800,
             "system": system_prompt,
             "messages": [{"role": "user", "content": "Stats: " + json.dumps(stats)}]
         })
