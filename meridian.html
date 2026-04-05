@@ -3942,9 +3942,10 @@ async function updateActivityBar() {
               var aiTop = baseY - myH - aiH;
               svgLines += '<rect x="'+x+'" y="'+aiTop+'" width="'+bW+'" height="'+aiH+'" fill="'+col+'" opacity=".85" rx="1"/>';
               var cx = Math.round(x + bW/2);
-              svgLines += '<line x1="'+cx+'" y1="'+aiTop+'" x2="'+cx+'" y2="'+(aiTop-TICK_H+2)+'" stroke="'+col+'" stroke-width="1"/>';
-              var tyPos = Math.max(8, aiTop-TICK_H+2);
-              svgLines += '<text x="'+cx+'" y="'+tyPos+'" text-anchor="middle" font-size="7" font-weight="700" fill="'+col+'">'+d.ai+'</text>';
+              svgLines += '<line x1="'+cx+'" y1="'+aiTop+'" x2="'+cx+'" y2="'+(aiTop-TICK_H+4)+'" stroke="'+col+'" stroke-width="1.5" stroke-dasharray="1.5,1"/>';
+              var tyPos = Math.max(9, aiTop-TICK_H+3);
+              svgLines += '<rect x="'+(cx-5)+'" y="'+(tyPos-8)+'" width="10" height="9" fill="white" opacity="0.85"/>';
+              svgLines += '<text x="'+cx+'" y="'+tyPos+'" text-anchor="middle" font-size="9" font-weight="700" fill="'+col+'">'+d.ai+'</text>';
             }
           });
         });
