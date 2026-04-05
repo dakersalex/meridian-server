@@ -3912,11 +3912,11 @@ async function updateActivityBar() {
             return {total:arts.length, ai:ai};
           });
         });
-        var LANE_H=18, TICK_H=10, LANE_GAP=10, YAW=28, bW=11, bG=2;
+        var LANE_H=12, TICK_H=8, LANE_GAP=8, YAW=24, bW=9, bG=2;
         var barsW = days14sw.length*(bW+bG)-bG;
         var totalW = YAW + barsW;
         var laneStride = LANE_H + TICK_H + LANE_GAP;
-        var axisH = 14;
+        var axisH = 12;
         var svgH = swSrc.length * laneStride - LANE_GAP + axisH + 4;
         var svgLines = '';
         var DAYNAMES = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
@@ -3926,16 +3926,16 @@ async function updateActivityBar() {
           var laneMax = Math.max.apply(null, swData[s].map(function(d){return d.total;}));
           if(!laneMax) laneMax = 1;
           var baseY = si * laneStride + TICK_H + LANE_H;
-          svgLines += '<text x="'+(YAW-4)+'" y="'+(baseY-LANE_H/2+3)+'" text-anchor="end" font-size="8" font-weight="500" fill="'+col+'">'+sh+'</text>';
+          svgLines += '<text x="'+(YAW-3)+'" y="'+(baseY-LANE_H/2+3)+'" text-anchor="end" font-size="7" font-weight="400" fill="'+col+'">'+sh+'</text>';
           svgLines += '<line x1="'+YAW+'" y1="'+baseY+'" x2="'+(YAW+barsW)+'" y2="'+baseY+'" stroke="#e8e4dc" stroke-width="1"/>';
           swData[s].forEach(function(d, di){
             var x = YAW + di*(bW+bG);
             if(d.total === 0){
-              svgLines += '<rect x="'+x+'" y="'+(baseY-2)+'" width="'+bW+'" height="2" fill="#fee2e2" rx="1"/>';
+              svgLines += '<rect x="'+x+'" y="'+(baseY-1)+'" width="'+bW+'" height="1" fill="#fee2e2" rx="0"/>';
               return;
             }
-            var totalH = Math.max(2, Math.round(d.total/laneMax*LANE_H));
-            var aiH = d.ai > 0 ? Math.max(2, Math.round(d.ai/laneMax*LANE_H)) : 0;
+            var totalH = Math.max(1, Math.round(d.total/laneMax*LANE_H));
+            var aiH = d.ai > 0 ? Math.max(1, Math.round(d.ai/laneMax*LANE_H)) : 0;
             var myH = totalH - aiH;
             if(myH > 0) svgLines += '<rect x="'+x+'" y="'+(baseY-myH)+'" width="'+bW+'" height="'+myH+'" fill="#1a1a1a" opacity=".18" rx="1"/>';
             if(aiH > 0){
