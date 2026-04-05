@@ -3516,6 +3516,12 @@ def health_check():
             "messages": [{"role": "user", "content": "Stats: " + json.dumps(stats)}]
         })
         text = result.get("content", [{}])[0].get("text", "{}")
+        text = text.strip()
+        if text.startswith("```"):
+            lines = text.split("
+")
+            text = "
+".join(lines[1:]).rstrip("`").strip()
         return jsonify({"ok": True, "text": text})
     except Exception as e:
         err_str = str(e)
