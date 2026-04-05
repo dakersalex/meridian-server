@@ -3912,7 +3912,7 @@ async function updateActivityBar() {
             return {total:arts.length, ai:ai};
           });
         });
-        var LANE_H=28, TICK_H=10, LANE_GAP=16, YAW=32, bW=14, bG=2;
+        var LANE_H=18, TICK_H=10, LANE_GAP=10, YAW=28, bW=11, bG=2;
         var barsW = days14sw.length*(bW+bG)-bG;
         var totalW = YAW + barsW;
         var laneStride = LANE_H + TICK_H + LANE_GAP;
@@ -3926,7 +3926,7 @@ async function updateActivityBar() {
           var laneMax = Math.max.apply(null, swData[s].map(function(d){return d.total;}));
           if(!laneMax) laneMax = 1;
           var baseY = si * laneStride + TICK_H + LANE_H;
-          svgLines += '<text x="'+(YAW-5)+'" y="'+(baseY-LANE_H/2+4)+'" text-anchor="end" font-size="9" font-weight="700" fill="'+col+'">'+sh+'</text>';
+          svgLines += '<text x="'+(YAW-4)+'" y="'+(baseY-LANE_H/2+3)+'" text-anchor="end" font-size="8" font-weight="500" fill="'+col+'">'+sh+'</text>';
           svgLines += '<line x1="'+YAW+'" y1="'+baseY+'" x2="'+(YAW+barsW)+'" y2="'+baseY+'" stroke="#e8e4dc" stroke-width="1"/>';
           swData[s].forEach(function(d, di){
             var x = YAW + di*(bW+bG);
@@ -3943,7 +3943,7 @@ async function updateActivityBar() {
               svgLines += '<rect x="'+x+'" y="'+aiTop+'" width="'+bW+'" height="'+aiH+'" fill="'+col+'" opacity=".85" rx="1"/>';
               var cx = Math.round(x + bW/2);
               svgLines += '<line x1="'+cx+'" y1="'+aiTop+'" x2="'+cx+'" y2="'+(aiTop-TICK_H+2)+'" stroke="'+col+'" stroke-width="1"/>';
-              svgLines += '<text x="'+cx+'" y="'+(aiTop-TICK_H+1)+'" text-anchor="middle" font-size="7" font-weight="700" fill="'+col+'">'+d.ai+'</text>';
+              svgLines += '<text x="'+cx+'" y="'+(aiTop-TICK_H+2)+'" text-anchor="middle" font-size="6" font-weight="700" fill="'+col+'">'+d.ai+'</text>';
             }
           });
         });
@@ -3953,7 +3953,8 @@ async function updateActivityBar() {
           var x = YAW + di*(bW+bG) + Math.round(bW/2);
           var dt = new Date(day+'T12:00:00');
           var isWE = dt.getDay()===0||dt.getDay()===6;
-          svgLines += '<text x="'+x+'" y="'+axisY+'" text-anchor="middle" font-size="7" fill="'+(isWE?'#999':'#ccc')+'" font-weight="'+(isWE?'600':'400')+'">'+dt.getDate()+'/'+(dt.getMonth()+1)+'</text>';
+          var showLabel = isWE || di===0 || di===6 || di===13;
+          if(showLabel) svgLines += '<text x="'+x+'" y="'+axisY+'" text-anchor="middle" font-size="7" fill="'+(isWE?'#888':'#bbb')+'" font-weight="'+(isWE?'600':'400')+'">'+dt.getDate()+'/'+(dt.getMonth()+1)+'</text>';
         });
         swEl.innerHTML = '<svg viewBox="0 0 '+totalW+' '+svgH+'" preserveAspectRatio="xMidYMid meet" style="display:block;width:100%">'+svgLines+'</svg>';
         if(swLeg) swLeg.innerHTML =
@@ -3963,9 +3964,6 @@ async function updateActivityBar() {
          +'<div style="display:flex;align-items:center;gap:4px;font-size:10px;color:#6a6a6a"><div style="width:8px;height:8px;border-radius:1px;background:#1a1a1a;opacity:.18"></div>My saves</div>'
          +'<div style="display:flex;align-items:center;gap:4px;font-size:10px;color:#6a6a6a"><div style="width:12px;height:3px;border-radius:1px;background:#fee2e2"></div>Zero that day</div>';
       }());
-
-      if(legEl) legEl.innerHTML = mainSrc.map(s=>'<div style="display:flex;align-items:center;gap:4px;font-size:10px;color:#6a6a6a">'
-        +'<div style="width:8px;height:8px;border-radius:1px;background:'+srcColor[s]+'"></div>'+srcShort[s]+'</div>').join('');
 
       // ── Row 2: By source ──────────────────────────────────────────────
       const srcCounts = {}, srcFTCount = {};
