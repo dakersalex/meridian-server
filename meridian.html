@@ -3955,7 +3955,7 @@ async function updateActivityBar() {
           var x = YAW + di*(bW+bG) + Math.round(bW/2);
           var dt = new Date(day+'T12:00:00');
           var isWE = dt.getDay()===0||dt.getDay()===6;
-          var showLabel = isWE || di===0 || di===13;
+          var showLabel = true;
           if(showLabel) svgLines += '<text x="'+x+'" y="'+axisY+'" text-anchor="middle" font-size="7" fill="'+(isWE?'#888':'#bbb')+'" font-weight="'+(isWE?'600':'400')+'">'+dt.getDate()+'/'+(dt.getMonth()+1)+'</text>';
         });
         swEl.innerHTML = '<svg viewBox="0 0 '+totalW+' '+svgH+'" preserveAspectRatio="xMinYMin meet" style="display:block;width:100%">'+svgLines+'</svg>';
