@@ -1545,8 +1545,8 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
     </div>
   </div>
 
-  <!-- ROW 1: 3 equal cols, align-items:stretch so all same height -->
-  <div id="sp-row1" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0;align-items:stretch;border-bottom:1px solid rgba(0,0,0,.07);padding-bottom:14px">
+  <!-- ROW 1: Col1=library+curation (1fr), Col2=swim lanes (2fr) -->
+  <div id="sp-row1" style="display:grid;grid-template-columns:1fr 2fr;gap:0;align-items:stretch;border-bottom:1px solid rgba(0,0,0,.07);padding-bottom:14px">
 
     <!-- Col 1: Article library + Curation split -->
     <div style="padding-right:24px;border-right:1px solid rgba(0,0,0,.07);display:flex;flex-direction:column">
@@ -1565,17 +1565,11 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
       </div>
     </div>
 
-    <!-- Col 2: New articles table -->
-    <div style="padding:0 24px;border-right:1px solid rgba(0,0,0,.07);display:flex;flex-direction:column">
-      <div style="font-size:9px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:#8a8a8a;border-bottom:1px solid rgba(0,0,0,.1);padding-bottom:5px;margin-bottom:9px;flex-shrink:0">New articles</div>
-      <div id="sp-ingest-table" style="flex-shrink:0"></div>
-    </div>
-
-    <!-- Col 3: 14-day sparkline — SVG fills flex:1 -->
+    <!-- Col 2: Swim lanes — AI picks vs my saves by source, 14 days -->
     <div style="padding-left:24px;display:flex;flex-direction:column">
-      <div style="font-size:9px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:#8a8a8a;border-bottom:1px solid rgba(0,0,0,.1);padding-bottom:5px;margin-bottom:9px;flex-shrink:0">14-day ingestion</div>
-      <div id="sp-sparkline" style="flex:1;min-height:80px"></div>
-      <div id="sp-spark-legend" style="display:flex;gap:10px;flex-wrap:wrap;padding-top:8px;flex-shrink:0"></div>
+      <div style="font-size:9px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:#8a8a8a;border-bottom:1px solid rgba(0,0,0,.1);padding-bottom:5px;margin-bottom:9px;flex-shrink:0">AI picks vs my saves — by source, last 14 days</div>
+      <div id="sp-swim-lanes" style="flex:1"></div>
+      <div id="sp-swim-legend" style="display:flex;gap:14px;flex-wrap:wrap;padding-top:8px;flex-shrink:0"></div>
     </div>
 
   </div>
@@ -3900,101 +3894,76 @@ async function updateActivityBar() {
           +'</div></div>';
       }).join('');
 
-      // ── Ingestion table: 24h / 48h / 7d / 14d ────────────────────────
-      const todayStr = now.toISOString().slice(0,10);
-      const t24 = isoDate(now - 864e5);
-      const t48 = isoDate(now - 2*864e5);
-      const t14d = isoDate(now - 14*864e5);
-      const ing = {};
-      [...mainSrc,'Other'].forEach(s=>ing[s]={h24:0,h48:0,d7:0,d14:0});
-      allArts.forEach(a=>{
-        const d=a.pub_date||'', s=mainSrc.includes(a.source)?a.source:'Other';
-        if(d>=t24){ing[s].h24++;ing[s].h48++;ing[s].d7++;ing[s].d14++;}
-        else if(d>=t48){ing[s].h48++;ing[s].d7++;ing[s].d14++;}
-        else if(d>=t7d){ing[s].d7++;ing[s].d14++;}
-        else if(d>=t14d){ing[s].d14++;}
-      });
-      const ingTot={h24:0,h48:0,d7:0,d14:0};
-      Object.values(ing).forEach(v=>{ingTot.h24+=v.h24;ingTot.h48+=v.h48;ingTot.d7+=v.d7;ingTot.d14+=v.d14;});
-      const nzStyle = n => n ? 'font-weight:600;color:#1e4d8c' : 'font-weight:400;color:#ccc';
-      const nzVal = n => n || '—';
-      const ingEl = se('sp-ingest-table');
-      if(ingEl) {
-        const hasOther = ing['Other'].d14 > 0;
-        ingEl.innerHTML = '<table style="width:100%;border-collapse:collapse;font-size:11px">'
-          +'<thead><tr>'
-          +'<th style="font-size:9px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;color:#8a8a8a;padding:0 8px 4px 0;text-align:left">Source</th>'
-          +'<th style="font-size:9px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;color:#8a8a8a;padding:0 8px 4px 0;text-align:right">24h</th>'
-          +'<th style="font-size:9px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;color:#8a8a8a;padding:0 8px 4px 0;text-align:right">48h</th>'
-          +'<th style="font-size:9px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;color:#8a8a8a;padding:0 8px 4px 0;text-align:right">7d</th>'
-          +'<th style="font-size:9px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;color:#8a8a8a;padding:0 0 4px;text-align:right">14d</th>'
-          +'</tr></thead><tbody>'
-          + mainSrc.map(s=>{const r=ing[s];const bt='border-top:1px solid rgba(0,0,0,.05)';return''
-            +'<tr>'
-            +'<td style="padding:2px 8px 2px 0;font-weight:500;color:#1a1a1a;'+bt+'">'+srcShort[s]+'</td>'
-            +'<td style="padding:2px 8px 2px 0;text-align:right;'+bt+';'+nzStyle(r.h24)+'">'+nzVal(r.h24)+'</td>'
-            +'<td style="padding:2px 8px 2px 0;text-align:right;'+bt+';'+nzStyle(r.h48)+'">'+nzVal(r.h48)+'</td>'
-            +'<td style="padding:2px 8px 2px 0;text-align:right;'+bt+';'+nzStyle(r.d7)+'">'+nzVal(r.d7)+'</td>'
-            +'<td style="padding:2px 0;text-align:right;'+bt+';'+nzStyle(r.d14)+'">'+nzVal(r.d14)+'</td>'
-            +'</tr>';}).join('')
-          +(hasOther ? '<tr>'
-            +'<td style="padding:2px 8px 2px 0;font-weight:500;color:#1a1a1a;border-top:1px solid rgba(0,0,0,.05)">Other</td>'
-            +'<td style="padding:2px 8px 2px 0;text-align:right;border-top:1px solid rgba(0,0,0,.05);color:#ccc">—</td>'
-            +'<td style="padding:2px 8px 2px 0;text-align:right;border-top:1px solid rgba(0,0,0,.05);color:#ccc">—</td>'
-            +'<td style="padding:2px 8px 2px 0;text-align:right;border-top:1px solid rgba(0,0,0,.05);'+nzStyle(ing['Other'].d7)+'">'+nzVal(ing['Other'].d7)+'</td>'
-            +'<td style="padding:2px 0;text-align:right;border-top:1px solid rgba(0,0,0,.05);font-weight:600;color:#1e4d8c">'+ing['Other'].d14+'</td>'
-            +'</tr>' : '')
-          +'<tr>'
-          +'<td style="padding:4px 8px 0 0;font-weight:700;color:#1a1a1a;border-top:2px solid rgba(0,0,0,.12)">Total</td>'
-          +'<td style="padding:4px 8px 0 0;text-align:right;border-top:2px solid rgba(0,0,0,.12);font-weight:700;color:'+(ingTot.h24?'#1a1a1a':'#ccc')+'">'+nzVal(ingTot.h24)+'</td>'
-          +'<td style="padding:4px 8px 0 0;text-align:right;border-top:2px solid rgba(0,0,0,.12);font-weight:700;color:'+(ingTot.h48?'#1a1a1a':'#ccc')+'">'+nzVal(ingTot.h48)+'</td>'
-          +'<td style="padding:4px 8px 0 0;text-align:right;border-top:2px solid rgba(0,0,0,.12);font-weight:700;color:'+(ingTot.d7?'#1a1a1a':'#ccc')+'">'+nzVal(ingTot.d7)+'</td>'
-          +'<td style="padding:4px 0 0;text-align:right;border-top:2px solid rgba(0,0,0,.12);font-weight:700;color:#1a1a1a">'+ingTot.d14+'</td>'
-          +'</tr>'
-          +'</tbody></table>';
-      }
+      // ── Swim lanes: AI picks vs my saves by source, last 14 days ───────
+      (function renderSwimLanes() {
+        var swEl = se('sp-swim-lanes');
+        var swLeg = se('sp-swim-legend');
+        if(!swEl) return;
+        var days14sw = [];
+        for(var di=13;di>=0;di--) days14sw.push(isoDate(now - di*864e5));
+        var swSrc = ['Financial Times','The Economist','Foreign Affairs'];
+        var swShort = {'Financial Times':'FT','The Economist':'Eco','Foreign Affairs':'FA'};
+        var swCol = {'Financial Times':'#1e4d8c','The Economist':'#8b1a1a','Foreign Affairs':'#2a7a5a'};
+        var swData = {};
+        swSrc.forEach(function(s){
+          swData[s] = days14sw.map(function(d){
+            var arts = allArts.filter(function(a){return a.source===s && a.pub_date===d;});
+            var ai = arts.filter(function(a){return a.auto_saved||a.status==='agent';}).length;
+            return {total:arts.length, ai:ai};
+          });
+        });
+        var LANE_H=28, TICK_H=10, LANE_GAP=16, YAW=32, bW=14, bG=2;
+        var barsW = days14sw.length*(bW+bG)-bG;
+        var totalW = YAW + barsW;
+        var laneStride = LANE_H + TICK_H + LANE_GAP;
+        var axisH = 14;
+        var svgH = swSrc.length * laneStride - LANE_GAP + axisH + 4;
+        var svgLines = '';
+        var DAYNAMES = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+        swSrc.forEach(function(s, si){
+          var col = swCol[s];
+          var sh = swShort[s];
+          var laneMax = Math.max.apply(null, swData[s].map(function(d){return d.total;}));
+          if(!laneMax) laneMax = 1;
+          var baseY = si * laneStride + TICK_H + LANE_H;
+          svgLines += '<text x="'+(YAW-5)+'" y="'+(baseY-LANE_H/2+4)+'" text-anchor="end" font-size="9" font-weight="700" fill="'+col+'">'+sh+'</text>';
+          svgLines += '<line x1="'+YAW+'" y1="'+baseY+'" x2="'+(YAW+barsW)+'" y2="'+baseY+'" stroke="#e8e4dc" stroke-width="1"/>';
+          swData[s].forEach(function(d, di){
+            var x = YAW + di*(bW+bG);
+            if(d.total === 0){
+              svgLines += '<rect x="'+x+'" y="'+(baseY-2)+'" width="'+bW+'" height="2" fill="#fee2e2" rx="1"/>';
+              return;
+            }
+            var totalH = Math.max(2, Math.round(d.total/laneMax*LANE_H));
+            var aiH = d.ai > 0 ? Math.max(2, Math.round(d.ai/laneMax*LANE_H)) : 0;
+            var myH = totalH - aiH;
+            if(myH > 0) svgLines += '<rect x="'+x+'" y="'+(baseY-myH)+'" width="'+bW+'" height="'+myH+'" fill="#1a1a1a" opacity=".18" rx="1"/>';
+            if(aiH > 0){
+              var aiTop = baseY - myH - aiH;
+              svgLines += '<rect x="'+x+'" y="'+aiTop+'" width="'+bW+'" height="'+aiH+'" fill="'+col+'" opacity=".85" rx="1"/>';
+              var cx = Math.round(x + bW/2);
+              svgLines += '<line x1="'+cx+'" y1="'+aiTop+'" x2="'+cx+'" y2="'+(aiTop-TICK_H+2)+'" stroke="'+col+'" stroke-width="1"/>';
+              svgLines += '<text x="'+cx+'" y="'+(aiTop-TICK_H+1)+'" text-anchor="middle" font-size="7" font-weight="700" fill="'+col+'">'+d.ai+'</text>';
+            }
+          });
+        });
+        // X-axis date labels
+        var axisY = swSrc.length * laneStride - LANE_GAP + axisH;
+        days14sw.forEach(function(day, di){
+          var x = YAW + di*(bW+bG) + Math.round(bW/2);
+          var dt = new Date(day+'T12:00:00');
+          var isWE = dt.getDay()===0||dt.getDay()===6;
+          svgLines += '<text x="'+x+'" y="'+axisY+'" text-anchor="middle" font-size="7" fill="'+(isWE?'#999':'#ccc')+'" font-weight="'+(isWE?'600':'400')+'">'+dt.getDate()+'/'+(dt.getMonth()+1)+'</text>';
+        });
+        swEl.innerHTML = '<svg viewBox="0 0 '+totalW+' '+svgH+'" preserveAspectRatio="xMidYMid meet" style="display:block;width:100%">'+svgLines+'</svg>';
+        if(swLeg) swLeg.innerHTML =
+          '<div style="display:flex;align-items:center;gap:4px;font-size:10px;color:#6a6a6a"><div style="width:8px;height:8px;border-radius:1px;background:#1e4d8c"></div>FT</div>'
+         +'<div style="display:flex;align-items:center;gap:4px;font-size:10px;color:#6a6a6a"><div style="width:8px;height:8px;border-radius:1px;background:#8b1a1a"></div>Eco</div>'
+         +'<div style="display:flex;align-items:center;gap:4px;font-size:10px;color:#6a6a6a"><div style="width:8px;height:8px;border-radius:1px;background:#2a7a5a"></div>FA</div>'
+         +'<div style="display:flex;align-items:center;gap:4px;font-size:10px;color:#6a6a6a"><div style="width:8px;height:8px;border-radius:1px;background:#1a1a1a;opacity:.18"></div>My saves</div>'
+         +'<div style="display:flex;align-items:center;gap:4px;font-size:10px;color:#6a6a6a"><div style="width:12px;height:3px;border-radius:1px;background:#fee2e2"></div>Zero that day</div>';
+      }());
 
-      // ── Sparkline: 14-day stacked bars ────────────────────────────────
-      const days14 = [];
-      for(let i=13;i>=0;i--){const d=new Date(now);d.setDate(d.getDate()-i);days14.push(d.toISOString().slice(0,10));}
-      const spkD = {};
-      mainSrc.forEach(s=>{spkD[s]=days14.map(day=>allArts.filter(a=>a.source===s&&a.pub_date===day).length);});
-      const spkMax = Math.max(...Object.values(spkD).flat(),1);
-      const SPK_H=80,AXIS_H=28,bW=16,bG=3,YAW=22;
-      const barsW=days14.length*(bW+bG)-bG;
-      const cW=YAW+barsW;
-      const DAYNAMES=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-      const spkDayTotals = days14.map((_,i)=>mainSrc.reduce((s,src)=>s+(spkD[src][i]||0),0));
-      const spkActualMax = Math.max(...spkDayTotals, 1);
-      const SPK_CEIL = Math.ceil(spkActualMax/5)*5;
-      const spkBars = days14.map((day,i)=>{
-        const x=YAW+i*(bW+bG);let r='',yO=SPK_H;
-        mainSrc.forEach(s=>{const v=spkD[s][i];if(!v)return;
-          const bh=Math.max(2,Math.round(v/SPK_CEIL*SPK_H));yO-=bh;
-          r+='<rect x="'+x+'" y="'+yO+'" width="'+bW+'" height="'+bh+'" fill="'+srcColor[s]+'" opacity=".85" rx="1"/>';
-        });return r;
-      }).join('');
-      const spkAxis = days14.map((day,i)=>{
-        const x=YAW+i*(bW+bG)+bW/2;
-        const dt=new Date(day+'T12:00:00');
-        const isWE=dt.getDay()===0||dt.getDay()===6;
-        const dayName=DAYNAMES[dt.getDay()];
-        const dateStr=dt.getDate()+'/'+(dt.getMonth()+1);
-        const fill=isWE?'#999':'#bbb';
-        return '<text x="'+x+'" y="'+(SPK_H+14)+'" text-anchor="middle" font-size="8" fill="'+fill+'" font-weight="'+(isWE?'600':'400')+'">'+dayName+'</text>'
-          +'<text x="'+x+'" y="'+(SPK_H+25)+'" text-anchor="middle" font-size="8" fill="#ccc">'+dateStr+'</text>';
-      }).join('');
-      const spkTicks = [];
-      for(var tv=0; tv<=SPK_CEIL; tv+=5) spkTicks.push(tv);
-      const spkYAxis = spkTicks.map(function(val){
-        const y = Math.round(SPK_H - (val/SPK_CEIL*SPK_H));
-        return '<line x1="'+YAW+'" y1="'+y+'" x2="'+cW+'" y2="'+y+'" stroke="#ede9e0" stroke-width="1"/>'
-          +'<text x="'+(YAW-3)+'" y="'+(y+3)+'" text-anchor="end" font-size="8" fill="#ccc">'+val+'</text>';
-      }).join('');
-      const spkEl = se('sp-sparkline');
-      if(spkEl) spkEl.innerHTML = '<svg viewBox="0 0 '+cW+' '+(SPK_H+AXIS_H)+'" preserveAspectRatio="xMidYMid meet" style="display:block;width:100%;height:100%;min-height:80px">'
-        +spkYAxis+spkBars+spkAxis+'</svg>';
-      const legEl = se('sp-spark-legend');
       if(legEl) legEl.innerHTML = mainSrc.map(s=>'<div style="display:flex;align-items:center;gap:4px;font-size:10px;color:#6a6a6a">'
         +'<div style="width:8px;height:8px;border-radius:1px;background:'+srcColor[s]+'"></div>'+srcShort[s]+'</div>').join('');
 
