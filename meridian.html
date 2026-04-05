@@ -1331,6 +1331,9 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
   .kt-brief-close, .kt-print-btn { display: none !important; }
   .kt-brief-exec { background: #f5ede4 !important; -webkit-print-color-adjust: exact; }
 }
+.hc-btn{background:none;border:1px solid transparent;border-radius:4px;transition:background .12s,border-color .12s}
+.hc-btn:hover{background:#f5f1eb;border-color:rgba(0,0,0,.1)}
+.hc-btn:hover .hc-arrow{opacity:1 !important}
 </style>
 </head>
 <body>
@@ -3824,9 +3827,8 @@ async function updateActivityBar() {
           var btn = "";
           btn += "<button ";
           btn += "onclick=\"if(window._hcPrompts&&window._hcPrompts[this.dataset.idx]){window.sendPrompt&&window.sendPrompt(window._hcPrompts[this.dataset.idx])}else{alert('Prompt not found')}\" ";
-          btn += "style=\"display:flex;align-items:flex-start;gap:8px;font-size:12px;line-height:1.65;font-family:IBM Plex Sans,sans-serif;background:none;border:1px solid transparent;border-radius:4px;padding:4px 8px 4px 6px;cursor:pointer;text-align:left;width:100%;color:#4a4a4a;transition:background .12s,border-color .12s\" ";
-          btn += "onmouseover=\"this.style.background='#faf8f4';this.style.borderColor='rgba(0,0,0,.1)';this.querySelector('.hc-arrow').style.opacity='1'\" ";
-          btn += "onmouseout=\"this.style.background='';this.style.borderColor='transparent';this.querySelector('.hc-arrow').style.opacity='0'\" ";
+          btn += "class=\"hc-btn\" ";
+          btn += "style=\"display:flex;align-items:flex-start;gap:8px;font-size:12px;line-height:1.65;font-family:IBM Plex Sans,sans-serif;padding:4px 8px 4px 6px;cursor:pointer;text-align:left;width:100%;color:#4a4a4a\" ";
           btn += "data-idx=\"" + issIdx + "\">";
           btn += "<div style=\"width:6px;height:6px;border-radius:50%;background:" + dotCol + ";flex-shrink:0;margin-top:6px\"></div>";
           btn += "<div style=\"flex:1\"><strong style=\"color:#1a1a1a\">" + iss.label + ":</strong> " + iss.text + "</div>";
