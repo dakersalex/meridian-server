@@ -3487,15 +3487,16 @@ def health_check():
     stats = body.get("stats", {})
     system_prompt = (
         "You are a health monitor for Meridian, a personal news aggregator. "
-        "Analyse the provided stats and return ONLY valid JSON with this exact shape:\n"
-        '{\n  "score": <integer 1-10>,\n'
-        '  "summary": "<2-3 sentence plain English overview of the system health>",\n'
-        '  "issues": [\n'
-        '    {"severity": "warn"|"info", "label": "<short bold label>", '
-        '"text": "<rest of sentence>", "prompt": "<full actionable prompt to send to Claude to fix this>"}\n'
-        "  ]\n}\n"
-        "Issues should only be included if genuinely notable. "
-        '"warn" = needs action now, "info" = informational/upcoming. No markdown, no preamble, pure JSON only.'
+        "Analyse the provided stats JSON and return ONLY valid JSON (no markdown, no preamble) with this exact shape:\n"
+        '{"score":<int 1-10>,"summary":"<2-3 sentence overview>","issues":[{"severity":"warn or info","label":"<short label>","text":"<detail>","prompt":"<actionable prompt to fix>"}]}\n'
+        "Key things to check:\n"
+        "1. ingestion14d: look at daily totals and bySource counts. Flag any day with 0 articles total, "
+        "   or any source missing for 2+ consecutive days. Note weekend dips only if severe (0 articles).\n"
+        "2. zeroDaysLast7: days per source with 0 articles in the last 7 days — flag if 2+ days for a source.\n"
+        "3. trend: compare prev7avg vs last7avg per source. Flag if last7avg dropped >40pct vs prev7avg.\n"
+        "4. sources[].daysSinceLatest: flag if >3 days for FT/Economist, >7 for FA.\n"
+        "5. sources[].backlog: flag if >10 unenriched articles.\n"
+        "Be specific: name the dates and sources. warn=needs action now, info=informational. Only include genuine issues."
     )
     try:
         result = call_anthropic({

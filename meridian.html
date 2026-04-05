@@ -3741,7 +3741,22 @@ async function updateActivityBar() {
       }));
       const week7arts = allArts.filter(a=>(a.pub_date||'')>=t7d);
       const agentRate7 = week7arts.length ? Math.round(week7arts.filter(a=>a.auto_saved||a.status==='agent').length/week7arts.length*100) : 0;
-      const statsPayload = {total,aiPicks:aiN,fullText:ftN,ftPct:Math.round(ftN/total*100),agentRate7d:agentRate7,sources:srcStats};
+      const days14 = [];
+      for(var di=13; di>=0; di--) days14.push(isoDate(now - di*864e5));
+      const dailyBySrc = {};
+      mainSrc.forEach(function(s){ dailyBySrc[srcShort[s]] = days14.map(function(d){ return allArts.filter(function(a){ return a.source===s && a.pub_date===d; }).length; }); });
+      const dailyTotal = days14.map(function(d){ return allArts.filter(function(a){ return mainSrc.indexOf(a.source)>=0 && a.pub_date===d; }).length; });
+      const zeroDays = {};
+      mainSrc.forEach(function(s){ var sh=srcShort[s]; var last7=days14.slice(7); zeroDays[sh]=last7.filter(function(d,i){ return dailyBySrc[sh][7+i]===0; }).map(function(d){ return d.slice(5); }); });
+      const trendBySrc = {};
+      mainSrc.forEach(function(s){ var sh=srcShort[s]; var arr=dailyBySrc[sh]; var avg1=arr.slice(0,7).reduce(function(a,b){return a+b;},0)/7; var avg2=arr.slice(7).reduce(function(a,b){return a+b;},0)/7; trendBySrc[sh]={prev7avg:Math.round(avg1*10)/10,last7avg:Math.round(avg2*10)/10}; });
+      const statsPayload = {
+        total, aiPicks:aiN, fullText:ftN, ftPct:Math.round(ftN/total*100), agentRate7d:agentRate7,
+        sources: srcStats,
+        ingestion14d: { dates: days14.map(function(d){return d.slice(5);}), totals: dailyTotal, bySource: dailyBySrc },
+        zeroDaysLast7: zeroDays,
+        trend: trendBySrc
+      };
 
       // Show loading state
       const sumEl = se('sp-health-summary');
