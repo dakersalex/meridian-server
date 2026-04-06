@@ -3962,7 +3962,7 @@ async function updateActivityBar() {
             var dayStr=dt.getDate()+'/'+(dt.getMonth()+1);
             var my=d.total-d.ai;
             var tipHtml=dayStr+'<br>Total: <b>'+d.total+'</b>'
-              +(d.ai>0?'<br>AI picks: <b style="color:'+col+'">'+d.ai+'</b>':'')
+              +(d.ai>0?'<br>AI picks: <b>'+d.ai+'</b>':'')
               +(my>0?'<br>My saves: <b>'+my+'</b>':'');
             html+='<div class="sw-col" style="width:'+bW+'px;flex-shrink:0;margin-right:'+bG+'px;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;">';
             // Total label above bar
