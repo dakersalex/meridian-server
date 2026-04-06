@@ -1595,6 +1595,7 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
     <div style="padding-left:24px;display:flex;flex-direction:column">
       <div style="font-size:9px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:#8a8a8a;border-bottom:1px solid rgba(0,0,0,.1);padding-bottom:5px;margin-bottom:9px;flex-shrink:0">14 day total</div>
       <div id="sp-split-bars" style="flex-shrink:0;display:flex;flex-direction:column;gap:0"></div>
+      <div id="sp-split-summary" style="flex-shrink:0;"></div>
     </div>
 
   </div></div>
@@ -3959,6 +3960,25 @@ async function updateActivityBar() {
         });
         html += '</div>';
         el.innerHTML = html;
+
+        // Summary — total articles and overall AI% across all 3 sources
+        var sumEl2 = se('sp-split-summary');
+        if(sumEl2) {
+          var sp14Total = srcData.reduce(function(a,d){return a+d.total;},0);
+          var sp14AI    = srcData.reduce(function(a,d){return a+d.ai;},0);
+          var sp14Pct   = sp14Total > 0 ? Math.round(sp14AI/sp14Total*100) : 0;
+          sumEl2.innerHTML =
+            '<div style="margin-top:12px;border-top:1px solid #e8e4dc;padding-top:10px;display:flex;flex-direction:column;gap:5px;">'
+            +'<div style="display:flex;align-items:baseline;gap:8px;">'
+            +'<span style="font-size:13px;font-weight:700;color:#1a1a1a;width:60px;text-align:center;flex-shrink:0;">'+sp14Total+'</span>'
+            +'<span style="font-size:10px;color:#8a8a8a;text-transform:uppercase;letter-spacing:.5px;">Total</span>'
+            +'</div>'
+            +'<div style="display:flex;align-items:baseline;gap:8px;">'
+            +'<span style="font-size:13px;font-weight:700;color:#1a1a1a;width:60px;text-align:center;flex-shrink:0;">'+sp14Pct+'%</span>'
+            +'<span style="font-size:10px;color:#8a8a8a;text-transform:uppercase;letter-spacing:.5px;">AI selected</span>'
+            +'</div>'
+            +'</div>';
+        }
       }());
 
       // ── Curation split bars: all time / 30d / 7d ─────────────────────
