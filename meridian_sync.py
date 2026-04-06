@@ -47,7 +47,7 @@ def run_sync():
         return
     try:
         logging.info("Starting sync...")
-        r = requests.post(f"{API_BASE}/api/sync", timeout=120)
+        r = requests.post(f"{API_BASE}/api/sync", json={}, timeout=120)
         r.raise_for_status()
         data = r.json()
         logging.info(f"Sync complete: {data}")
