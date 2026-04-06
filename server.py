@@ -1061,7 +1061,7 @@ class ForeignAffairsScraper:
                 log.info(f"FA: found {len(cards)} cards")
                 found_existing = False
                 for card in cards:
-                    if found_existing: break
+                    if consecutive_existing >= 3: break
                     a = card if card.name == "a" else card.select_one("a[href*='foreignaffairs.com']")
                     if not a:
                         a = card.find_parent("a") or card.select_one("a")

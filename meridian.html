@@ -3920,33 +3920,41 @@ async function updateActivityBar() {
         var svgH = swSrc.length * laneStride - LANE_GAP + axisH + 4;
         var svgLines = '';
         var DAYNAMES = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+        // Shared scale across all lanes
+        var globalMax = 1;
+        swSrc.forEach(function(s){
+          swData[s].forEach(function(d){ if(d.total > globalMax) globalMax = d.total; });
+        });
+
         swSrc.forEach(function(s, si){
           var col = swCol[s];
           var sh = swShort[s];
-          var laneMax = Math.max.apply(null, swData[s].map(function(d){return d.total;}));
-          if(!laneMax) laneMax = 1;
           var baseY = si * laneStride + TICK_H + LANE_H;
           svgLines += '<text x="'+(YAW-4)+'" y="'+(baseY-LANE_H/2+4)+'" text-anchor="end" font-size="8" font-weight="500" fill="'+col+'">'+sh+'</text>';
           svgLines += '<line x1="'+YAW+'" y1="'+baseY+'" x2="'+(YAW+barsW)+'" y2="'+baseY+'" stroke="#e8e4dc" stroke-width="1"/>';
           swData[s].forEach(function(d, di){
             var x = YAW + di*(bW+bG);
+            var cx = Math.round(x + bW/2);
             if(d.total === 0){
               svgLines += '<rect x="'+x+'" y="'+(baseY-1)+'" width="'+bW+'" height="1" fill="#fee2e2" rx="0"/>';
               return;
             }
-            var totalH = Math.max(3, Math.round(d.total/laneMax*LANE_H));
-            var aiH = d.ai > 0 ? Math.max(2, Math.round(d.ai/laneMax*LANE_H)) : 0;
+            var totalH = Math.max(3, Math.round(d.total/globalMax*LANE_H));
+            var aiH = d.ai > 0 ? Math.max(2, Math.round(d.ai/globalMax*LANE_H)) : 0;
             var myH = totalH - aiH;
             if(myH > 0 && myH < 2) myH = 2;
+            var barTop = baseY - totalH;
             if(myH > 0) svgLines += '<rect x="'+x+'" y="'+(baseY-myH)+'" width="'+bW+'" height="'+myH+'" fill="#1a1a1a" opacity=".18" rx="1"/>';
             if(aiH > 0){
               var aiTop = baseY - myH - aiH;
               svgLines += '<rect x="'+x+'" y="'+aiTop+'" width="'+bW+'" height="'+aiH+'" fill="'+col+'" opacity=".85" rx="1"/>';
-              var cx = Math.round(x + bW/2);
-              svgLines += '<line x1="'+cx+'" y1="'+aiTop+'" x2="'+cx+'" y2="'+(aiTop-TICK_H+4)+'" stroke="'+col+'" stroke-width="1.5" stroke-dasharray="1.5,1"/>';
-              var tyPos = Math.max(9, aiTop-TICK_H+3);
-              svgLines += '<rect x="'+(cx-5)+'" y="'+(tyPos-8)+'" width="10" height="9" fill="white" opacity="0.85"/>';
-              svgLines += '<text x="'+cx+'" y="'+tyPos+'" text-anchor="middle" font-size="9" font-weight="700" fill="'+col+'">'+d.ai+'</text>';
+            }
+            // Total label above bar
+            var totalLabelY = Math.max(barTop - 2, si * laneStride + 7);
+            svgLines += '<text x="'+cx+'" y="'+totalLabelY+'" text-anchor="middle" font-size="9" font-weight="700" fill="#555">'+d.total+'</text>';
+            // AI label below bar (at baseline + 9px), only if AI > 0
+            if(d.ai > 0){
+              svgLines += '<text x="'+cx+'" y="'+(baseY+9)+'" text-anchor="middle" font-size="8" font-weight="600" fill="'+col+'">'+d.ai+'</text>';
             }
           });
         });
