@@ -1546,7 +1546,7 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
   </div>
 
   <!-- ROW 1: Col1=library+curation (1fr), Col2=swim lanes (2fr) -->
-  <div id="sp-row1" style="border-bottom:1px solid rgba(0,0,0,.07);padding-bottom:14px;overflow:visible"><div style="display:grid;grid-template-columns:1fr 2fr 1fr;gap:0;align-items:stretch;min-width:860px;overflow-x:auto">
+  <div id="sp-row1" style="border-bottom:1px solid rgba(0,0,0,.07);padding-bottom:14px;overflow:visible"><div style="display:grid;grid-template-columns:1fr 2fr 1fr;gap:0;align-items:stretch;min-width:860px;overflow:visible">
 
     <!-- Col 1: Article library (totals + full text) -->
     <div style="padding-right:24px;border-right:1px solid rgba(0,0,0,.07);display:flex;flex-direction:column">
@@ -1582,7 +1582,7 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
     <div style="padding-left:24px;padding-right:24px;border-right:1px solid rgba(0,0,0,.07);display:flex;flex-direction:column">
       <div style="font-size:9px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:#8a8a8a;border-bottom:1px solid rgba(0,0,0,.1);padding-bottom:5px;margin-bottom:9px;flex-shrink:0">AI picks vs my saves — by source, last 14 days</div>
       <div id="sp-swim-lanes" style="flex-shrink:0"></div>
-      <div id="sp-swim-legend" style="display:flex;gap:14px;flex-wrap:wrap;padding-top:8px;flex-shrink:0"></div>
+      <div id="sp-swim-legend" style="display:flex;gap:14px;flex-wrap:wrap;padding-top:8px;flex-shrink:0;justify-content:center"></div>
     </div>
 
     <!-- Col 3: 14-day AI vs My save totals by source -->
@@ -3928,7 +3928,7 @@ async function updateActivityBar() {
           // Bar + AI% adjacent
           html += '<div style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;">';
           // Total above
-          html += '<div style="font-size:9px;font-weight:700;color:#666;line-height:1;margin-bottom:3px;">'+(d.total>0?d.total:'')+'</div>';
+          html += '<div style="font-size:9px;font-weight:700;color:#666;line-height:1;margin-bottom:3px;text-align:center;width:60px;">'+(d.total>0?d.total:'')+'</div>';
           // Bar row: stacked bar + AI% label to the right
           var aiPct = d.total>0 ? Math.round(d.ai/d.total*100) : 0;
           var pctCol = aiPct>0 ? d.col : '#bbb';
@@ -4074,9 +4074,12 @@ async function updateActivityBar() {
         html+='</div></div>';
         swEl.innerHTML = html;
         if(swLeg) swLeg.innerHTML =
-          '<div style="display:flex;align-items:center;gap:4px;font-size:10px;color:#6a6a6a"><div style="width:8px;height:8px;border-radius:1px;background:#1e4d8c"></div>FT</div>'
-         +'<div style="display:flex;align-items:center;gap:4px;font-size:10px;color:#6a6a6a"><div style="width:8px;height:8px;border-radius:1px;background:#8b1a1a"></div>Eco</div>'
-         +'<div style="display:flex;align-items:center;gap:4px;font-size:10px;color:#6a6a6a"><div style="width:8px;height:8px;border-radius:1px;background:#2a7a5a"></div>FA</div>'
+          '<div style="display:flex;align-items:center;gap:4px;font-size:10px;color:#6a6a6a">'
+         +'<div style="display:flex;gap:2px;">'
+         +'<div style="width:8px;height:8px;border-radius:1px 0 0 1px;background:#1e4d8c"></div>'
+         +'<div style="width:8px;height:8px;background:#8b1a1a"></div>'
+         +'<div style="width:8px;height:8px;border-radius:0 1px 1px 0;background:#2a7a5a"></div>'
+         +'</div>AI selected</div>'
          +'<div style="display:flex;align-items:center;gap:4px;font-size:10px;color:#6a6a6a"><div style="width:8px;height:8px;border-radius:1px;background:#1a1a1a;opacity:.18"></div>My saves</div>'
          +'<div style="display:flex;align-items:center;gap:4px;font-size:10px;color:#6a6a6a"><div style="width:12px;height:3px;border-radius:1px;background:#fee2e2"></div>Zero that day</div>';
       }());
