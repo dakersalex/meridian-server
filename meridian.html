@@ -1585,14 +1585,10 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
       <div id="sp-swim-legend" style="display:flex;gap:14px;flex-wrap:wrap;padding-top:8px;flex-shrink:0"></div>
     </div>
 
-    <!-- Col 3: 14-day AI vs My save split by source -->
+    <!-- Col 3: 14-day AI vs My save totals by source -->
     <div style="padding-left:24px;display:flex;flex-direction:column">
-      <div style="font-size:9px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:#8a8a8a;border-bottom:1px solid rgba(0,0,0,.1);padding-bottom:5px;margin-bottom:9px;flex-shrink:0">Last 14 days — AI vs my saves</div>
+      <div style="font-size:9px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:#8a8a8a;border-bottom:1px solid rgba(0,0,0,.1);padding-bottom:5px;margin-bottom:9px;flex-shrink:0">AI vs my saves — total</div>
       <div id="sp-split-bars" style="flex-shrink:0;display:flex;flex-direction:column;gap:0"></div>
-      <div style="display:flex;gap:12px;margin-top:8px;flex-shrink:0">
-        <div style="display:flex;align-items:center;gap:4px;font-size:10px;color:#6a6a6a"><div style="width:8px;height:8px;border-radius:1px;background:#1a1a1a;opacity:.18;border:1px solid #999"></div>My saves</div>
-        <div style="display:flex;align-items:center;gap:4px;font-size:10px;color:#6a6a6a"><div style="width:8px;height:8px;border-radius:1px;background:#888"></div>AI pick (source colour)</div>
-      </div>
     </div>
 
   </div>
@@ -3914,10 +3910,8 @@ async function updateActivityBar() {
           return {name:s.name, short:s.short, col:s.col, total:total, ai:ai, my:my};
         });
 
-        // Same LANE_H + gap structure as swim lanes (LANE_H=20, TICK_H=16, LANE_GAP=10)
+        // Exactly match swim lanes spacing: LANE_H=20, TICK_H=16, LANE_GAP=10
         var TICK_H = 16, LANE_GAP = 10;
-        var laneStride = LANE_H + TICK_H + LANE_GAP;
-        var YAW = 72; // match swim lanes label width
 
         var html = '<div style="position:relative">';
         srcData.forEach(function(d, si) {
@@ -3927,14 +3921,15 @@ async function updateActivityBar() {
           var myH    = totalH - aiH;
           if(myH > 0 && myH < 2) myH = 2;
 
-          html += '<div style="display:flex;align-items:flex-end;height:'+(LANE_H+TICK_H)+'px;'+(isLast?'':'margin-bottom:'+LANE_GAP+'px;')+'border-bottom:1px solid #e8e4dc;">';
-          // Source label — right-aligned, same width as swim lane YAW
-          html += '<div style="width:'+YAW+'px;flex-shrink:0;font-size:11px;font-weight:600;color:'+d.col+';text-align:right;padding-right:6px;padding-bottom:2px;">'+d.short+'</div>';
-          // Bar column
-          html += '<div style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:flex-start;position:relative;">';
-          // Total label above
+          // Outer lane: exact same height as swim lane row (LANE_H + TICK_H)
+          html += '<div style="display:flex;align-items:flex-end;height:'+(LANE_H+TICK_H)+'px;'
+                + (isLast?'':'margin-bottom:'+LANE_GAP+'px;')
+                + 'border-bottom:1px solid #e8e4dc;">';
+          // Bar column — full width, no source label
+          html += '<div style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:flex-start;">';
+          // Total above bar
           html += '<div style="font-size:9px;font-weight:700;color:#666;line-height:1;margin-bottom:2px;">'+(d.total>0?d.total:'')+'</div>';
-          // Stacked bar
+          // Stacked bar — full width
           html += '<div style="display:flex;flex-direction:column;width:100%;">';
           if(d.total === 0) {
             html += '<div style="height:1px;background:#fee2e2;width:100%;"></div>';
@@ -3943,9 +3938,10 @@ async function updateActivityBar() {
             if(myH > 0) html += '<div style="height:'+myH+'px;background:#1a1a1a;opacity:.18;'+(aiH===0?'border-radius:1px 1px 0 0;':'')+'width:100%;"></div>';
           }
           html += '</div>';
-          // AI / My labels below bar
-          html += '<div style="font-size:8px;color:#999;line-height:1;margin-top:3px;">'
-            + (d.ai>0?'<span style="color:'+d.col+';font-weight:600;">'+d.ai+' AI</span>  ':'')
+          // AI/My count below bar — same vertical space as swim lane tick area
+          html += '<div style="font-size:8px;color:#999;line-height:1;margin-top:3px;white-space:nowrap;">'
+            + (d.ai>0?'<span style="color:'+d.col+';font-weight:600;">'+d.ai+' AI</span>':'')
+            + (d.ai>0&&d.my>0?' · ':'')
             + (d.my>0?'<span>'+d.my+' My</span>':'')
             + '</div>';
           html += '</div>';
