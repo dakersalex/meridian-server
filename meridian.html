@@ -3934,9 +3934,10 @@ async function updateActivityBar() {
               svgLines += '<rect x="'+x+'" y="'+(baseY-1)+'" width="'+bW+'" height="1" fill="#fee2e2" rx="0"/>';
               return;
             }
-            var totalH = Math.max(1, Math.round(d.total/laneMax*LANE_H));
-            var aiH = d.ai > 0 ? Math.max(1, Math.round(d.ai/laneMax*LANE_H)) : 0;
+            var totalH = Math.max(3, Math.round(d.total/laneMax*LANE_H));
+            var aiH = d.ai > 0 ? Math.max(2, Math.round(d.ai/laneMax*LANE_H)) : 0;
             var myH = totalH - aiH;
+            if(myH > 0 && myH < 2) myH = 2;
             if(myH > 0) svgLines += '<rect x="'+x+'" y="'+(baseY-myH)+'" width="'+bW+'" height="'+myH+'" fill="#1a1a1a" opacity=".18" rx="1"/>';
             if(aiH > 0){
               var aiTop = baseY - myH - aiH;
