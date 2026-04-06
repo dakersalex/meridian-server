@@ -1,5 +1,5 @@
 # Meridian — Technical Notes
-Last updated: 5 April 2026 (Session 44 — AI health check fully operational)
+Last updated: 6 April 2026 (Session 45 — Bloomberg health check fix, consolidated to-do list)
 
 ## Overview
 Personal news aggregator. Flask API + SQLite backend running on Hetzner VPS (always-on).
@@ -66,15 +66,17 @@ View logs: cat /opt/meridian-server/meridian.log | tail -50
   cd ~/meridian-server && ./deploy.sh "description"
 (git add -A, commit, push, SSH pull on VPS, systemctl restart meridian)
 
-## Database (5 April 2026 — VPS)
-| Source | Total | Full text |
-|---|---|---|
-| The Economist | 273 | ~265 |
-| Financial Times | 182 | ~180 |
-| Foreign Affairs | 68 | ~58 |
-| Bloomberg | 38 | 37 |
-| Other | ~41 | — |
-| **Total** | **~602** | **~593** |
+## Database (6 April 2026 — Mac local)
+| Source | Total | Full text | Enriched |
+|---|---|---|---|
+| The Economist | 277 | 271 | 271 (97%) |
+| Financial Times | 185 | 178 | 153 (82%) |
+| Foreign Affairs | 58 | 58 | 56 (96%) |
+| Bloomberg | 38 | 37 | 36 (94%) |
+| Other sources | 19 | — | — |
+| **Total** | **577** | — | **533** |
+
+VPS totals are higher (~602 as of Session 44) — VPS is the canonical DB.
 
 ---
 
@@ -94,6 +96,8 @@ Typical cadence: FT 3–6/day, Economist 2–8/day (edition drops Tue/Thu/Sat), 
 5. Push images → /api/push-images
 6. Push newsletters → /api/push-newsletters
 7. Push interviews → /api/push-interviews
+
+Sync windows (Geneva time): 05:35 and 11:35. Third window at ~17:40 is under consideration.
 
 ---
 
@@ -195,6 +199,7 @@ Toggled by 📊 Stats button. Health check fires on open (cached per session).
 - Flask uses `call_anthropic()` with server-side API key from credentials.json
 - Stats payload includes: total, aiPicks, fullText, ftPct, agentRate7d, sources[], ingestion14d (14-day daily breakdown by source), zeroDaysLast7, trend (prev7avg vs last7avg per source)
 - Haiku system prompt instructs analysis of daily ingestion trends, zero-days, source drop-offs, and backlog
+- Bloomberg is explicitly excluded from all health check analysis — gaps are normal (manual clip source)
 - `allArts` timing guard: if articles not yet loaded when Stats opens, retries up to 3× with 2s delay
 - Result cached in `window._healthCache`; Refresh button forces new call
 - Prompts stored in `window._hcPrompts[idx]` (index store, avoids quoting issues in onclick)
@@ -244,8 +249,11 @@ Toggled by 📊 Stats button. Health check fires on open (cached per session).
 - Session: Drupal cookie valid until **2026-05-23**
 
 ### Bloomberg
-- No automated scraper — Chrome Extension v1.3 only
-- Has been inactive 18+ days as of Session 44 (no articles pulled)
+- **No automated scraper — by design.** Bot detection was too strong; Playwright scraper removed.
+- Articles are added manually via Chrome Extension v1.3 (clip button in logged-in session).
+- Gaps in Bloomberg ingestion are NORMAL and expected — not a system fault.
+- The AI health check is aware of this and will not flag Bloomberg zero-days as issues.
+- Cadence depends entirely on manual clipping activity.
 
 ---
 
@@ -270,19 +278,46 @@ Toggled by 📊 Stats button. Health check fires on open (cached per session).
 
 ## Outstanding Issues / Next Steps
 
-1. **Sort theme articles by relevance** — detail panel shows most recent first; should sort by keyword hit count + recency.
+### 🔴 Infrastructure / Stability
+1. **Backup system** — Git tracks code but no automated DB snapshots or rollback mechanism. Need: git tag on each deploy + daily cron copy of meridian.db to dated file (keep 7 days).
+2. **Full code review** — Audit server.py and meridian.html for redundant endpoints, dead code, bugs, improvement opportunities. Dedicate a full session.
 
-2. **Sub-topics filtering** — filter chips do nothing; decide: implement or remove.
+### 🔴 Ingestion / Sync
+3. **Economist trend decline — investigate** — Health check flagged −43% vs prior 7 days, 3 zero-days. Possible Cloudflare tightening or launchd misfire.
+4. **FA trend decline — investigate** — Health check flagged −57%, 4 zero-days. May be early cookie degradation ahead of May 23 expiry.
+5. **Zero ingestion Apr 6 — verify** — No FT or Economist articles on Apr 6. Check whether 11:35 sync ran and review logs.
+6. **Third sync window (~17:40)** — Assess value of adding a third launchd sync. Would catch Economist late edition drops and FT afternoon pieces. Low risk to add.
 
-3. **FA session renewal** — Drupal cookie expires 2026-05-23.
+### 🟡 Briefing Generator
+7. **Charts not referenced in briefing body text** — Briefing prose doesn't mention embedded charts. Need chart references woven into text ("as shown in the chart below…") and a relevance check that each chart matches its section.
+8. **Data points need date anchors** — Stats like "down X% YTD" need an explicit date reference (e.g. "as of 6 Apr 2026").
+9. **Briefing source section — add detail grid** — Show articles per source, date range covered, and how the selection sample was drawn. Gives transparency on what the brief is based on.
 
-4. **Points of Return newsletter gap** — latest is 2 Apr; check forwarding rule.
+### 🟡 UI / Frontend
+10. **Newsletter + Suggested sections — match Feed design** — Both sections have a different visual style to the main Feed. Bring into line with card layout Option 3 (fixed date col, source·topic header, Playfair title, footer badges).
+11. **Sort KT theme articles by relevance** — Detail panel currently sorts by date; should weight by keyword hit count + recency.
+12. **Sub-topics filtering — implement or remove** — Filter chips render but do nothing. Decision needed.
 
-5. **Bloomberg ingestion** — 18+ days inactive; Chrome Extension v1.3 is the only source. Check if clipping still works.
+### 🟡 Enrichment / Data
+13. **FT enrichment backfill** — 32 FT articles unenriched (153/185 enriched). Run targeted backfill.
+14. **pub_date normalisation stragglers** — A few old records still in `DD Month YYYY` format. One-off migration script needed.
+15. **KT tag-new wiring into VPS scheduler** — Incremental tagging built, not yet hooked into sync cycle.
+
+### 🟢 Maintenance / Watch
+16. **FA cookie renewal** — Drupal cookie expires 2026-05-23. No action yet.
+17. **Points of Return newsletter gap** — Latest issue is 2 Apr. Check iCloud forwarding rule.
+18. **Haiku markdown fence stripping fix** — Designed in Session 43, still not deployed to VPS.
+19. **Clean up tmp_*.py / tmp_*.txt files** — Periodic purge needed.
 
 ---
 
 ## Build History
+
+### 6 April 2026 (Session 45 — Bloomberg health check fix, to-do consolidation)
+- Identified that Bloomberg was being incorrectly flagged as "dead" by Haiku health check
+- Bloomberg has no automated scraper by design (bot detection too strong); articles are manual-only via Chrome Extension
+- Patched `/api/health-check` system prompt in server.py to explicitly exclude Bloomberg from all trend/zero-day analysis
+- Updated NOTES.md Bloomberg section and Outstanding Issues with full consolidated to-do list from session review
 
 ### 5 April 2026 (Session 44 — AI health check fully operational)
 
@@ -337,9 +372,40 @@ Toggled by 📊 Stats button. Health check fires on open (cached per session).
 - Excluded: credentials.json, cookies.json, meridian.db, newsletter_sync.py, venv/, tmp_*.py, tmp_*.txt, *.bak*
 
 ## Session Starter Prompt
----
-You are helping me build Meridian, my personal news aggregator. Please read my technical notes from the Filesystem MCP at /Users/alexdakers/meridian-server/NOTES.md and review them. Then run the session start health check.
----
+
+```
+You are helping me build Meridian, my personal news aggregator.
+
+## Step 1 — Load MCPs (do this first, before anything else)
+Call tool_search with EXACTLY these queries in order:
+1. "tabs context mcp" — loads Chrome MCP (gives you tabs_context_mcp, javascript_tool, navigate)
+2. "filesystem write file" — loads Filesystem MCP (gives you filesystem:write_file, filesystem:read_text_file)
+
+Do not attempt to read files or touch the browser until both tool_searches have completed.
+
+## Step 2 — Read NOTES.md
+Read /Users/alexdakers/meridian-server/NOTES.md via filesystem:read_text_file.
+
+## Step 3 — Set up browser tabs
+Call tabs_context_mcp with createIfEmpty:true to get current tab IDs (they change every session).
+Tab A = localhost:8080/meridian.html (shell bridge)
+Tab B = meridianreader.com/meridian.html (live verify)
+
+## Step 4 — Inject shell bridge into Tab A
+Run this via javascript_tool on Tab A:
+window.shell = (cmd) => fetch('http://localhost:4242/api/dev/shell', {
+  method:'POST', headers:{'Content-Type':'application/json'},
+  body:JSON.stringify({cmd})
+}).then(r=>r.json());
+
+## Step 5 — Health check
+Write the health check script via filesystem:write_file to ~/meridian-server/tmp_health.py,
+then execute it via shell bridge: window.shell("python3 ~/meridian-server/tmp_health.py > ~/meridian-server/tmp_hc_out.txt 2>&1; echo done")
+Then read the result via filesystem:read_text_file.
+
+NEVER attempt to run a Python script before the shell bridge is injected.
+NEVER ask me to run Terminal commands — do everything autonomously.
+```
 
 Note for Claude: Read NOTES.md via Filesystem MCP (NOT GitHub URL — blocked).
 NEVER ask Alex to run Terminal commands — run everything autonomously via shell bridge.
