@@ -1546,30 +1546,53 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
   </div>
 
   <!-- ROW 1: Col1=library+curation (1fr), Col2=swim lanes (2fr) -->
-  <div id="sp-row1" style="display:grid;grid-template-columns:1fr 2fr;gap:0;align-items:stretch;border-bottom:1px solid rgba(0,0,0,.07);padding-bottom:14px">
+  <div id="sp-row1" style="display:grid;grid-template-columns:1fr 2fr 1fr;gap:0;align-items:stretch;border-bottom:1px solid rgba(0,0,0,.07);padding-bottom:14px">
 
-    <!-- Col 1: Article library + Curation split -->
+    <!-- Col 1: Article library (totals + full text) -->
     <div style="padding-right:24px;border-right:1px solid rgba(0,0,0,.07);display:flex;flex-direction:column">
-      <div style="font-size:9px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:#8a8a8a;border-bottom:1px solid rgba(0,0,0,.1);padding-bottom:5px;margin-bottom:9px;flex-shrink:0">Article library</div>
-      <div style="display:flex;gap:20px;align-items:flex-end;margin-bottom:14px;flex-shrink:0">
-        <div><div id="sp-total" style="font-size:26px;font-weight:700;line-height:1;color:#1a1a1a">–</div><div style="font-size:10px;color:#8a8a8a;text-transform:uppercase;letter-spacing:.5px;margin-top:2px">Total</div></div>
-        <div><div id="sp-saves" style="font-size:26px;font-weight:700;line-height:1;color:#1a1a1a">–</div><div style="font-size:10px;color:#8a8a8a;text-transform:uppercase;letter-spacing:.5px;margin-top:2px">My saves</div></div>
-        <div><div id="sp-ai" style="font-size:26px;font-weight:700;line-height:1;color:#c4783a">–</div><div style="font-size:10px;color:#8a8a8a;text-transform:uppercase;letter-spacing:.5px;margin-top:2px">AI picks</div></div>
-        <div><div id="sp-ft" style="font-size:26px;font-weight:700;line-height:1;color:#2d6b45">–</div><div style="font-size:10px;color:#8a8a8a;text-transform:uppercase;letter-spacing:.5px;margin-top:2px">Full text</div></div>
+      <div style="font-size:9px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:#8a8a8a;border-bottom:1px solid rgba(0,0,0,.1);padding-bottom:5px;margin-bottom:12px;flex-shrink:0">Article library</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;flex-shrink:0">
+        <!-- Left col: counts -->
+        <div style="display:flex;flex-direction:column;gap:12px">
+          <div>
+            <div id="sp-total" style="font-size:28px;font-weight:700;line-height:1;color:#1a1a1a">–</div>
+            <div style="font-size:10px;color:#8a8a8a;text-transform:uppercase;letter-spacing:.5px;margin-top:3px">Total articles</div>
+          </div>
+          <div>
+            <div id="sp-saves" style="font-size:28px;font-weight:700;line-height:1;color:#1a1a1a">–</div>
+            <div style="font-size:10px;color:#8a8a8a;text-transform:uppercase;letter-spacing:.5px;margin-top:3px">My saves</div>
+          </div>
+          <div>
+            <div id="sp-ai" style="font-size:28px;font-weight:700;line-height:1;color:#c4783a">–</div>
+            <div style="font-size:10px;color:#8a8a8a;text-transform:uppercase;letter-spacing:.5px;margin-top:3px">AI picks</div>
+          </div>
+        </div>
+        <!-- Right col: full text -->
+        <div style="display:flex;flex-direction:column;gap:12px;border-left:1px solid rgba(0,0,0,.07);padding-left:12px">
+          <div>
+            <div id="sp-ft" style="font-size:28px;font-weight:700;line-height:1;color:#2d6b45">–</div>
+            <div style="font-size:10px;color:#8a8a8a;text-transform:uppercase;letter-spacing:.5px;margin-top:3px">Full text</div>
+          </div>
+        </div>
       </div>
-      <div style="font-size:9px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:#8a8a8a;border-bottom:1px solid rgba(0,0,0,.1);padding-bottom:5px;margin-bottom:9px;flex-shrink:0">Curation split</div>
-      <div id="sp-cur-bars" style="flex-shrink:0"></div>
-      <div style="display:flex;gap:10px;margin-top:7px;flex-shrink:0">
-        <div style="display:flex;align-items:center;gap:4px;font-size:10px;color:#6a6a6a"><div style="width:8px;height:8px;border-radius:2px;background:#1a1a1a"></div>My saves</div>
-        <div style="display:flex;align-items:center;gap:4px;font-size:10px;color:#6a6a6a"><div style="width:8px;height:8px;border-radius:2px;background:#c4783a"></div>AI picks</div>
-      </div>
+      <div id="sp-cur-bars" style="display:none"></div>
     </div>
 
     <!-- Col 2: Swim lanes — AI picks vs my saves by source, 14 days -->
-    <div style="padding-left:24px;display:flex;flex-direction:column">
+    <div style="padding-left:24px;padding-right:24px;border-right:1px solid rgba(0,0,0,.07);display:flex;flex-direction:column">
       <div style="font-size:9px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:#8a8a8a;border-bottom:1px solid rgba(0,0,0,.1);padding-bottom:5px;margin-bottom:9px;flex-shrink:0">AI picks vs my saves — by source, last 14 days</div>
       <div id="sp-swim-lanes" style="flex-shrink:0"></div>
       <div id="sp-swim-legend" style="display:flex;gap:14px;flex-wrap:wrap;padding-top:8px;flex-shrink:0"></div>
+    </div>
+
+    <!-- Col 3: Curation split — 14 days / 30 days / All time -->
+    <div style="padding-left:24px;display:flex;flex-direction:column">
+      <div style="font-size:9px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:#8a8a8a;border-bottom:1px solid rgba(0,0,0,.1);padding-bottom:5px;margin-bottom:12px;flex-shrink:0">My saves vs AI picks</div>
+      <div id="sp-split-bars" style="flex-shrink:0;display:flex;flex-direction:column;gap:14px"></div>
+      <div style="display:flex;gap:10px;margin-top:10px;flex-shrink:0">
+        <div style="display:flex;align-items:center;gap:4px;font-size:10px;color:#6a6a6a"><div style="width:8px;height:8px;border-radius:2px;background:#1a1a1a"></div>My saves</div>
+        <div style="display:flex;align-items:center;gap:4px;font-size:10px;color:#6a6a6a"><div style="width:8px;height:8px;border-radius:2px;background:#c4783a"></div>AI picks</div>
+      </div>
     </div>
 
   </div>
@@ -3868,6 +3891,38 @@ async function updateActivityBar() {
       if(se('sp-saves')) se('sp-saves').textContent = mySavesN.toLocaleString();
       if(se('sp-ai'))    se('sp-ai').textContent    = aiPicksN.toLocaleString();
       if(se('sp-ft'))    se('sp-ft').textContent    = fullTextN.toLocaleString();
+
+      // ── Curation split bars (new col 3): 14d / 30d / all time ──────────
+      (function renderSplitBars() {
+        var el = se('sp-split-bars');
+        if(!el) return;
+        var t14d = isoDateDaysAgo(14);
+        var t30d = isoDateDaysAgo(30);
+        var periods = [
+          {label:'Last 14 days', cutoff:t14d},
+          {label:'Last 30 days', cutoff:t30d},
+          {label:'All time',     cutoff:null},
+        ];
+        var html = '';
+        periods.forEach(function(p) {
+          var arts = p.cutoff ? allArts.filter(function(a){return (a.pub_date||'')>=p.cutoff;}) : allArts;
+          var total = arts.length;
+          var ai = arts.filter(function(a){return a.auto_saved;}).length;
+          var my = total - ai;
+          var myPct = total > 0 ? Math.round(my/total*100) : 0;
+          var aiPct = total > 0 ? 100 - myPct : 0;
+          var myW = total > 0 ? Math.max(1, Math.round(my/total*100)) : 50;
+          var aiW = 100 - myW;
+          html += '<div>'
+            + '<div style="font-size:9px;color:#8a8a8a;text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px">'+p.label+'</div>'
+            + '<div style="display:flex;height:14px;border-radius:3px;overflow:hidden;background:#e8e4dc">'
+            + (myW>0?'<div style="width:'+myW+'%;background:#1a1a1a;display:flex;align-items:center;justify-content:center"><span style="font-size:9px;font-weight:700;color:#fff">'+myPct+'%</span></div>':'')
+            + (aiW>0?'<div style="width:'+aiW+'%;background:#c4783a;display:flex;align-items:center;justify-content:center"><span style="font-size:9px;font-weight:700;color:#fff">'+aiPct+'%</span></div>':'')
+            + '</div>'
+            + '</div>';
+        });
+        el.innerHTML = html;
+      }());
 
       // ── Curation split bars: all time / 30d / 7d ─────────────────────
       const now = new Date();
