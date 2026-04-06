@@ -2082,8 +2082,8 @@ function renderFeed(){
   const statusFilter=document.getElementById('status-filter')?.value||'all';
   if(statusFilter==='no_date')arts=arts.filter(a=>!a.pub_date||a.pub_date==='');else if(statusFilter==='title_only')arts=arts.filter(a=>a.status==='title_only'||a.status==='fetched');else if(statusFilter!=='all')arts=arts.filter(a=>a.status===statusFilter);
   const curationFilter=document.getElementById('curation-filter')?.value||'all';
-  if(curationFilter==='saved')arts=arts.filter(a=>!a.auto_saved&&a.status!=='agent');
-  else if(curationFilter==='ai')arts=arts.filter(a=>a.auto_saved||a.status==='agent');
+  if(curationFilter==='saved')arts=arts.filter(a=>!a.auto_saved);
+  else if(curationFilter==='ai')arts=arts.filter(a=>a.auto_saved);
   let filtered;
   if(currentView==='feed')filtered=arts.filter(a=>a.ts>=cutoff);
   else if(currentView==='archive')filtered=arts.filter(a=>a.ts<cutoff);
@@ -3517,7 +3517,7 @@ async function clipBloomberg(){
 
 async function deleteArticle(id){
   const art=articles.find(a=>a.id===id);if(!art)return;
-  const isAI=art.auto_saved||art.status==='agent';
+  const isAI=art.auto_saved;
   articles=articles.filter(a=>a.id!==id);
   saveAll();renderAll();
   if(serverOnline){
@@ -3566,8 +3566,8 @@ async function updateActivityBar() {
     const cutoff = Date.now() - 24*60*60*1000;
 
     // ── Tally bar: my saves vs AI picks ──
-    const mySaves = allArts.filter(a => !a.auto_saved && a.status !== 'agent').length;
-    const aiPicks = allArts.filter(a => a.auto_saved || a.status === 'agent').length;
+    const mySaves = allArts.filter(a => !a.auto_saved).length;
+    const aiPicks = allArts.filter(a => a.auto_saved).length;
     const talSaves = document.getElementById('tally-saves');
     const talAI    = document.getElementById('tally-ai');
     const talTotal = document.getElementById('tally-total');
@@ -3606,8 +3606,8 @@ async function updateActivityBar() {
 
     // ── Rich stats panel ──
     const total = allArts.length;
-    const mySavesN = allArts.filter(a=>!a.auto_saved&&a.status!=='agent').length;
-    const aiPicksN = allArts.filter(a=>a.auto_saved||a.status==='agent').length;
+    const mySavesN = allArts.filter(a=>!a.auto_saved).length;
+    const aiPicksN = allArts.filter(a=>a.auto_saved).length;
     const fullTextN = allArts.filter(a=>a.status==='full_text').length;
 
     const se = (id) => document.getElementById(id);
@@ -3753,7 +3753,7 @@ async function updateActivityBar() {
 
       // Build stats payload for Haiku
       const total = allArts.length;
-      const aiN = allArts.filter(a=>a.auto_saved||a.status==='agent').length;
+      const aiN = allArts.filter(a=>a.auto_saved).length;
       const ftN = allArts.filter(a=>a.status==='full_text'||a.status==='agent').length;
       const srcCounts = {}, srcFT = {};
       allArts.forEach(a=>{srcCounts[a.source]=(srcCounts[a.source]||0)+1;if(a.status==='full_text'||a.status==='agent')srcFT[a.source]=(srcFT[a.source]||0)+1;});
@@ -3769,7 +3769,7 @@ async function updateActivityBar() {
         last14d: allArts.filter(a=>a.source===s&&(a.pub_date||'')>=t14d).length,
       }));
       const week7arts = allArts.filter(a=>(a.pub_date||'')>=t7d);
-      const agentRate7 = week7arts.length ? Math.round(week7arts.filter(a=>a.auto_saved||a.status==='agent').length/week7arts.length*100) : 0;
+      const agentRate7 = week7arts.length ? Math.round(week7arts.filter(a=>a.auto_saved).length/week7arts.length*100) : 0;
       const days14 = [];
       for(var di=13; di>=0; di--) days14.push(isoDate(now - di*864e5));
       const dailyBySrc = {};
@@ -3861,7 +3861,7 @@ async function updateActivityBar() {
 
       // ── Headline numbers ──────────────────────────────────────────────
       const total = allArts.length;
-      const aiPicksN = allArts.filter(a=>a.auto_saved||a.status==='agent').length;
+      const aiPicksN = allArts.filter(a=>a.auto_saved).length;
       const mySavesN = total - aiPicksN;
       const fullTextN = allArts.filter(a=>a.status==='full_text'||a.status==='agent').length;
       if(se('sp-total')) se('sp-total').textContent = total.toLocaleString();
@@ -3908,7 +3908,7 @@ async function updateActivityBar() {
         swSrc.forEach(function(s){
           swData[s] = days14sw.map(function(d){
             var arts = allArts.filter(function(a){return a.source===s && a.pub_date===d;});
-            var ai = arts.filter(function(a){return a.auto_saved||a.status==='agent';}).length;
+            var ai = arts.filter(function(a){return a.auto_saved===1||a.auto_saved===true;}).length;
             return {total:arts.length, ai:ai};
           });
         });
