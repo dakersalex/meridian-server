@@ -1585,13 +1585,13 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
       <div id="sp-swim-legend" style="display:flex;gap:14px;flex-wrap:wrap;padding-top:8px;flex-shrink:0"></div>
     </div>
 
-    <!-- Col 3: Curation split — 14 days / 30 days / All time -->
+    <!-- Col 3: 14-day AI vs My save split by source -->
     <div style="padding-left:24px;display:flex;flex-direction:column">
-      <div style="font-size:9px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:#8a8a8a;border-bottom:1px solid rgba(0,0,0,.1);padding-bottom:5px;margin-bottom:12px;flex-shrink:0">My saves vs AI picks</div>
-      <div id="sp-split-bars" style="flex-shrink:0;display:flex;flex-direction:column;gap:14px"></div>
-      <div style="display:flex;gap:10px;margin-top:10px;flex-shrink:0">
-        <div style="display:flex;align-items:center;gap:4px;font-size:10px;color:#6a6a6a"><div style="width:8px;height:8px;border-radius:2px;background:#1a1a1a"></div>My saves</div>
-        <div style="display:flex;align-items:center;gap:4px;font-size:10px;color:#6a6a6a"><div style="width:8px;height:8px;border-radius:2px;background:#c4783a"></div>AI picks</div>
+      <div style="font-size:9px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:#8a8a8a;border-bottom:1px solid rgba(0,0,0,.1);padding-bottom:5px;margin-bottom:9px;flex-shrink:0">Last 14 days — AI vs my saves</div>
+      <div id="sp-split-bars" style="flex-shrink:0;display:flex;flex-direction:column;gap:0"></div>
+      <div style="display:flex;gap:12px;margin-top:8px;flex-shrink:0">
+        <div style="display:flex;align-items:center;gap:4px;font-size:10px;color:#6a6a6a"><div style="width:8px;height:8px;border-radius:1px;background:#1a1a1a;opacity:.18;border:1px solid #999"></div>My saves</div>
+        <div style="display:flex;align-items:center;gap:4px;font-size:10px;color:#6a6a6a"><div style="width:8px;height:8px;border-radius:1px;background:#888"></div>AI pick (source colour)</div>
       </div>
     </div>
 
@@ -3892,35 +3892,66 @@ async function updateActivityBar() {
       if(se('sp-ai'))    se('sp-ai').textContent    = aiPicksN.toLocaleString();
       if(se('sp-ft'))    se('sp-ft').textContent    = fullTextN.toLocaleString();
 
-      // ── Curation split bars (new col 3): 14d / 30d / all time ──────────
+      // ── Source split bars (col 3): swim-lane style, 14d per source ────
       (function renderSplitBars() {
         var el = se('sp-split-bars');
         if(!el) return;
         var t14d = isoDateDaysAgo(14);
-        var t30d = isoDateDaysAgo(30);
-        var periods = [
-          {label:'Last 14 days', cutoff:t14d},
-          {label:'Last 30 days', cutoff:t30d},
-          {label:'All time',     cutoff:null},
+        var sources = [
+          {name:'Financial Times', short:'FT',         col:'#1e4d8c'},
+          {name:'The Economist',   short:'Economist',  col:'#8b1a1a'},
+          {name:'Foreign Affairs', short:'FA',         col:'#2a7a5a'},
         ];
-        var html = '';
-        periods.forEach(function(p) {
-          var arts = p.cutoff ? allArts.filter(function(a){return (a.pub_date||'')>=p.cutoff;}) : allArts;
+        // Lane height matches swim lanes LANE_H=20
+        var LANE_H = 20;
+        var globalMax = 1;
+        var srcData = sources.map(function(s) {
+          var arts = allArts.filter(function(a){ return a.source===s.name && (a.pub_date||'')>=t14d; });
           var total = arts.length;
-          var ai = arts.filter(function(a){return a.auto_saved;}).length;
+          var ai = arts.filter(function(a){ return a.auto_saved; }).length;
           var my = total - ai;
-          var myPct = total > 0 ? Math.round(my/total*100) : 0;
-          var aiPct = total > 0 ? 100 - myPct : 0;
-          var myW = total > 0 ? Math.max(1, Math.round(my/total*100)) : 50;
-          var aiW = 100 - myW;
-          html += '<div>'
-            + '<div style="font-size:9px;color:#8a8a8a;text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px">'+p.label+'</div>'
-            + '<div style="display:flex;height:14px;border-radius:3px;overflow:hidden;background:#e8e4dc">'
-            + (myW>0?'<div style="width:'+myW+'%;background:#1a1a1a;display:flex;align-items:center;justify-content:center"><span style="font-size:9px;font-weight:700;color:#fff">'+myPct+'%</span></div>':'')
-            + (aiW>0?'<div style="width:'+aiW+'%;background:#c4783a;display:flex;align-items:center;justify-content:center"><span style="font-size:9px;font-weight:700;color:#fff">'+aiPct+'%</span></div>':'')
-            + '</div>'
-            + '</div>';
+          if(total > globalMax) globalMax = total;
+          return {name:s.name, short:s.short, col:s.col, total:total, ai:ai, my:my};
         });
+
+        // Same LANE_H + gap structure as swim lanes (LANE_H=20, TICK_H=16, LANE_GAP=10)
+        var TICK_H = 16, LANE_GAP = 10;
+        var laneStride = LANE_H + TICK_H + LANE_GAP;
+        var YAW = 72; // match swim lanes label width
+
+        var html = '<div style="position:relative">';
+        srcData.forEach(function(d, si) {
+          var isLast = si === srcData.length - 1;
+          var totalH = d.total > 0 ? Math.max(3, Math.round(d.total/globalMax*LANE_H)) : 0;
+          var aiH    = d.ai > 0    ? Math.max(2, Math.round(d.ai/globalMax*LANE_H))    : 0;
+          var myH    = totalH - aiH;
+          if(myH > 0 && myH < 2) myH = 2;
+
+          html += '<div style="display:flex;align-items:flex-end;height:'+(LANE_H+TICK_H)+'px;'+(isLast?'':'margin-bottom:'+LANE_GAP+'px;')+'border-bottom:1px solid #e8e4dc;">';
+          // Source label — right-aligned, same width as swim lane YAW
+          html += '<div style="width:'+YAW+'px;flex-shrink:0;font-size:11px;font-weight:600;color:'+d.col+';text-align:right;padding-right:6px;padding-bottom:2px;">'+d.short+'</div>';
+          // Bar column
+          html += '<div style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:flex-start;position:relative;">';
+          // Total label above
+          html += '<div style="font-size:9px;font-weight:700;color:#666;line-height:1;margin-bottom:2px;">'+(d.total>0?d.total:'')+'</div>';
+          // Stacked bar
+          html += '<div style="display:flex;flex-direction:column;width:100%;">';
+          if(d.total === 0) {
+            html += '<div style="height:1px;background:#fee2e2;width:100%;"></div>';
+          } else {
+            if(aiH > 0) html += '<div style="height:'+aiH+'px;background:'+d.col+';opacity:.85;border-radius:1px 1px 0 0;width:100%;"></div>';
+            if(myH > 0) html += '<div style="height:'+myH+'px;background:#1a1a1a;opacity:.18;'+(aiH===0?'border-radius:1px 1px 0 0;':'')+'width:100%;"></div>';
+          }
+          html += '</div>';
+          // AI / My labels below bar
+          html += '<div style="font-size:8px;color:#999;line-height:1;margin-top:3px;">'
+            + (d.ai>0?'<span style="color:'+d.col+';font-weight:600;">'+d.ai+' AI</span>  ':'')
+            + (d.my>0?'<span>'+d.my+' My</span>':'')
+            + '</div>';
+          html += '</div>';
+          html += '</div>';
+        });
+        html += '</div>';
         el.innerHTML = html;
       }());
 
