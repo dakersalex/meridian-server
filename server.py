@@ -2138,7 +2138,10 @@ def score_and_autosave_new_articles():
               AND saved_at >= ?
               AND title != ''
         """, (cutoff_ts,)).fetchall()
-        # Note: only FT/Economist scored here — FA/Bloomberg arrive via scraper/extension
+        # IMPORTANT: Only FT/Economist scored here.
+        # FA = saved articles only (all My saves, no AI picking from homepage yet)
+        # Bloomberg = manual clip only (Chrome extension)
+        # Never add FA or Bloomberg to this scorer without adding homepage scraping first.
         # Non-core sources (CNN, CFR, FP etc) are never auto-saved to Feed, only Suggested
     candidates = [dict(r) for r in rows]
     if not candidates:
