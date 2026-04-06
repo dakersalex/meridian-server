@@ -700,7 +700,12 @@ class FTScraper:
                     cat_el = card.select_one(".o-teaser__tag, .o-teaser__concept")
                     category = cat_el.get_text(strip=True) if cat_el else ""
                     articles.append({"id":art_id,"source":self.name,"url":url,"title":title,"body":"","summary":"","topic":category,"tags":"[]","saved_at":now_ts(),"fetched_at":now_ts(),"status":"fetched","pub_date":""})
-                    log.info(f"FT: scraped '{title[:60]}'")
+                    log.info(f"FT: scraped '{title[:60]}'")  
+                    # If article was previously marked as AI pick, demote to My save — user saved it on FT
+                    with sqlite3.connect(DB_PATH) as _cx:
+                        _cx.execute("UPDATE articles SET auto_saved=0 WHERE id=? AND auto_saved=1", (art_id,))
+                        if _cx.execute("SELECT changes()").fetchone()[0]:
+                            log.info(f"FT: demoted '{title[:50]}' from AI pick to My save (found in myFT saved list)")
                 log.info(f"FT: total {len(articles)} articles scraped")
                 new_arts = [a for a in articles if not article_exists(a["id"])]
                 log.info(f"FT: {len(new_arts)} new articles to enrich")
@@ -2213,7 +2218,7 @@ def score_and_autosave_new_articles():
         # Mark as auto_saved in the existing article record
         with sqlite3.connect(DB_PATH) as cx:
             cx.execute(
-                "UPDATE articles SET auto_saved=1, summary=CASE WHEN summary='' OR summary IS NULL THEN ? ELSE summary END WHERE id=?",
+                "UPDATE articles SET auto_saved=1, summary=CASE WHEN summary='' OR summary IS NULL THEN ? ELSE summary END WHERE id=? AND auto_saved=0",
                 (reason, art["id"])
             )
             cx.execute(
@@ -3523,10 +3528,8 @@ def health_check():
         text = result.get("content", [{}])[0].get("text", "{}")
         text = text.strip()
         if text.startswith("```"):
-            lines = text.split("
-")
-            text = "
-".join(lines[1:]).rstrip("`").strip()
+            lines = text.split("\n")
+            text = "\n".join(lines[1:]).rstrip("`").strip()
         return jsonify({"ok": True, "text": text})
     except Exception as e:
         err_str = str(e)
