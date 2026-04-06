@@ -3902,7 +3902,7 @@ async function updateActivityBar() {
         var days14sw = [];
         for(var di=13;di>=0;di--) days14sw.push(isoDate(now - di*864e5));
         var swSrc = ['Financial Times','The Economist','Foreign Affairs'];
-        var swShort = {'Financial Times':'FT','The Economist':'Eco','Foreign Affairs':'FA'};
+        var swShort = {'Financial Times':'FT','The Economist':'Economist','Foreign Affairs':'FA'};
         var swCol = {'Financial Times':'#1e4d8c','The Economist':'#8b1a1a','Foreign Affairs':'#2a7a5a'};
         var swData = {};
         swSrc.forEach(function(s){
@@ -3934,14 +3934,14 @@ async function updateActivityBar() {
         }
 
         // Build HTML swim lanes instead of SVG for hover support
-        var LANE_H=20, YAW=28, bW=39, bG=3;
+        var LANE_H=20, YAW=72, bW=39, bG=3;
         var html='<div style="display:flex;align-items:stretch;">';
         // Y-axis labels column
-        html+='<div style="width:'+YAW+'px;flex-shrink:0;display:flex;flex-direction:column;">';
+        html+='<div style="width:'+YAW+'px;flex-shrink:0;display:flex;flex-direction:column;padding-right:6px;">';
         swSrc.forEach(function(s,si){
           var col=swCol[s]; var sh=swShort[s];
           html+='<div style="height:'+((LANE_H+24)+(si<swSrc.length-1?10:0))+'px;display:flex;align-items:center;justify-content:flex-end;padding-right:4px;">'
-               +'<span style="font-size:8px;font-weight:500;color:'+col+'">'+sh+'</span></div>';
+               +'<span style="font-size:11px;font-weight:600;color:'+col+'">'+sh+'</span></div>';
         });
         html+='<div style="height:14px;"></div></div>';
 
