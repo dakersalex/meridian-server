@@ -1587,7 +1587,7 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
 
     <!-- Col 3: 14-day AI vs My save totals by source -->
     <div style="padding-left:24px;display:flex;flex-direction:column">
-      <div style="font-size:9px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:#8a8a8a;border-bottom:1px solid rgba(0,0,0,.1);padding-bottom:5px;margin-bottom:9px;flex-shrink:0">AI vs my saves — total</div>
+      <div style="font-size:9px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:#8a8a8a;border-bottom:1px solid rgba(0,0,0,.1);padding-bottom:5px;margin-bottom:9px;flex-shrink:0">14 day total</div>
       <div id="sp-split-bars" style="flex-shrink:0;display:flex;flex-direction:column;gap:0"></div>
     </div>
 
@@ -3926,7 +3926,7 @@ async function updateActivityBar() {
                 + (isLast?'':'margin-bottom:'+LANE_GAP+'px;')
                 + 'border-bottom:1px solid #e8e4dc;">';
           // Bar column — full width, no source label
-          html += '<div style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:flex-start;">';
+          html += '<div style="width:60px;flex-shrink:0;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;">';
           // Total above bar
           html += '<div style="font-size:9px;font-weight:700;color:#666;line-height:1;margin-bottom:2px;">'+(d.total>0?d.total:'')+'</div>';
           // Stacked bar — full width
@@ -3939,7 +3939,7 @@ async function updateActivityBar() {
           }
           html += '</div>';
           // AI/My count below bar — same vertical space as swim lane tick area
-          html += '<div style="font-size:8px;color:#999;line-height:1;margin-top:3px;white-space:nowrap;">'
+          html += '<div style="font-size:8px;color:#999;line-height:1;margin-top:3px;white-space:nowrap;text-align:center;width:100%;">'
             + (d.ai>0?'<span style="color:'+d.col+';font-weight:600;">'+d.ai+' AI</span>':'')
             + (d.ai>0&&d.my>0?' · ':'')
             + (d.my>0?'<span>'+d.my+' My</span>':'')
@@ -4048,7 +4048,7 @@ async function updateActivityBar() {
               +(my>0?'<br>My saves: <b>'+my+'</b>':'');
             html+='<div class="sw-col" style="width:'+bW+'px;flex-shrink:0;margin-right:'+bG+'px;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;">';
             // Total label above bar
-            html+='<div style="font-size:9px;font-weight:700;color:#666;line-height:1;margin-bottom:2px;">'+(d.total>0?d.total:'')+'</div>';
+            html+='<div style="font-size:9px;font-weight:700;color:#666;line-height:1;margin-bottom:2px;text-align:center;width:100%;">'+(d.total>0?d.total:'')+'</div>';
             // Bar
             html+='<div style="width:'+bW+'px;display:flex;flex-direction:column;align-items:stretch;">';
             if(d.total===0){
