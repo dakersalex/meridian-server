@@ -3939,11 +3939,7 @@ async function updateActivityBar() {
           }
           html += '</div>';
           // AI/My count below bar — same vertical space as swim lane tick area
-          html += '<div style="font-size:8px;color:#999;line-height:1;margin-top:3px;white-space:nowrap;text-align:center;width:100%;">'
-            + (d.ai>0?'<span style="color:'+d.col+';font-weight:600;">'+d.ai+' AI</span>':'')
-            + (d.ai>0&&d.my>0?' · ':'')
-            + (d.my>0?'<span>'+d.my+' My</span>':'')
-            + '</div>';
+
           html += '</div>';
           html += '</div>';
         });
@@ -4048,7 +4044,11 @@ async function updateActivityBar() {
               +(my>0?'<br>My saves: <b>'+my+'</b>':'');
             html+='<div class="sw-col" style="width:'+bW+'px;flex-shrink:0;margin-right:'+bG+'px;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;">';
             // Total label above bar
-            html+='<div style="font-size:9px;font-weight:700;color:#666;line-height:1;margin-bottom:2px;text-align:center;width:100%;">'+(d.total>0?d.total:'')+'</div>';
+            var aiPct=d.total>0?Math.round(d.ai/d.total*100):0;
+            html+='<div style="display:flex;justify-content:space-between;align-items:baseline;width:100%;margin-bottom:2px;">'
+              +'<span style="font-size:9px;font-weight:700;color:#666;">'+(d.total>0?d.total:'')+'</span>'
+              +(d.total>0&&d.ai>0?'<span style="font-size:8px;font-weight:600;color:'+d.col+';">'+aiPct+'% AI</span>':'')
+              +'</div>';
             // Bar
             html+='<div style="width:'+bW+'px;display:flex;flex-direction:column;align-items:stretch;">';
             if(d.total===0){
