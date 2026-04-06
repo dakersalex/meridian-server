@@ -1222,7 +1222,7 @@ def enrich_title_only_articles():
     import urllib.request as _ur
     with sqlite3.connect(DB_PATH) as cx:
         cx.row_factory = sqlite3.Row
-        rows = cx.execute("SELECT * FROM articles WHERE status='title_only' AND url!=''").fetchall()
+        rows = cx.execute("SELECT * FROM articles WHERE status IN ('title_only','agent') AND url!=''").fetchall()
     arts = [dict(r) for r in rows]
     if not arts:
         log.info("Enrich title-only: nothing to do")
