@@ -3926,48 +3926,72 @@ async function updateActivityBar() {
           swData[s].forEach(function(d){ if(d.total > globalMax) globalMax = d.total; });
         });
 
-        swSrc.forEach(function(s, si){
-          var col = swCol[s];
-          var sh = swShort[s];
-          var baseY = si * laneStride + TICK_H + LANE_H;
-          svgLines += '<text x="'+(YAW-4)+'" y="'+(baseY-LANE_H/2+4)+'" text-anchor="end" font-size="8" font-weight="500" fill="'+col+'">'+sh+'</text>';
-          svgLines += '<line x1="'+YAW+'" y1="'+baseY+'" x2="'+(YAW+barsW)+'" y2="'+baseY+'" stroke="#e8e4dc" stroke-width="1"/>';
-          swData[s].forEach(function(d, di){
-            var x = YAW + di*(bW+bG);
-            var cx = Math.round(x + bW/2);
-            if(d.total === 0){
-              svgLines += '<rect x="'+x+'" y="'+(baseY-1)+'" width="'+bW+'" height="1" fill="#fee2e2" rx="0"/>';
-              return;
-            }
-            var totalH = Math.max(3, Math.round(d.total/globalMax*LANE_H));
-            var aiH = d.ai > 0 ? Math.max(2, Math.round(d.ai/globalMax*LANE_H)) : 0;
-            var myH = totalH - aiH;
-            if(myH > 0 && myH < 2) myH = 2;
-            var barTop = baseY - totalH;
-            if(myH > 0) svgLines += '<rect x="'+x+'" y="'+(baseY-myH)+'" width="'+bW+'" height="'+myH+'" fill="#1a1a1a" opacity=".18" rx="1"/>';
-            if(aiH > 0){
-              var aiTop = baseY - myH - aiH;
-              svgLines += '<rect x="'+x+'" y="'+aiTop+'" width="'+bW+'" height="'+aiH+'" fill="'+col+'" opacity=".85" rx="1"/>';
-            }
+        // Inject tooltip CSS once
+        if(!document.getElementById('sw-tip-style')){
+          var st=document.createElement('style'); st.id='sw-tip-style';
+          st.textContent='.sw-col{position:relative;display:inline-block;vertical-align:bottom;}.sw-tip{display:none;position:absolute;bottom:calc(100% + 4px);left:50%;transform:translateX(-50%);background:#1a1a1a;color:#fff;font-size:10px;line-height:1.4;white-space:nowrap;padding:5px 8px;border-radius:4px;pointer-events:none;z-index:999;}.sw-col:hover .sw-tip{display:block;}.sw-tip::after{content:"";position:absolute;top:100%;left:50%;transform:translateX(-50%);border:4px solid transparent;border-top-color:#1a1a1a;}';
+          document.head.appendChild(st);
+        }
+
+        // Build HTML swim lanes instead of SVG for hover support
+        var LANE_H=20, YAW=28, bW=39, bG=3;
+        var html='<div style="display:flex;align-items:stretch;">';
+        // Y-axis labels column
+        html+='<div style="width:'+YAW+'px;flex-shrink:0;display:flex;flex-direction:column;">';
+        swSrc.forEach(function(s,si){
+          var col=swCol[s]; var sh=swShort[s];
+          html+='<div style="height:'+((LANE_H+24)+(si<swSrc.length-1?10:0))+'px;display:flex;align-items:center;justify-content:flex-end;padding-right:4px;">'
+               +'<span style="font-size:8px;font-weight:500;color:'+col+'">'+sh+'</span></div>';
+        });
+        html+='<div style="height:14px;"></div></div>';
+
+        // Bars area
+        html+='<div style="flex:1;overflow:hidden;">';
+        // Days columns — one row per source
+        swSrc.forEach(function(s,si){
+          var col=swCol[s];
+          var isLast=(si===swSrc.length-1);
+          html+='<div style="display:flex;align-items:flex-end;height:'+(LANE_H+16)+'px;'+(isLast?'':'margin-bottom:10px;')+'border-bottom:1px solid #e8e4dc;position:relative;">';
+          swData[s].forEach(function(d,di){
+            var totalH = d.total>0 ? Math.max(3, Math.round(d.total/globalMax*LANE_H)) : 0;
+            var aiH    = d.ai>0    ? Math.max(2, Math.round(d.ai/globalMax*LANE_H))    : 0;
+            var myH    = totalH - aiH;
+            if(myH>0&&myH<2) myH=2;
+            var day=days14sw[di];
+            var dt=new Date(day+'T12:00:00');
+            var dayStr=dt.getDate()+'/'+(dt.getMonth()+1);
+            var my=d.total-d.ai;
+            var tipHtml=dayStr+'<br>Total: <b>'+d.total+'</b>'
+              +(d.ai>0?'<br>AI picks: <b style="color:'+col+'">'+d.ai+'</b>':'')
+              +(my>0?'<br>My saves: <b>'+my+'</b>':'');
+            html+='<div class="sw-col" style="width:'+bW+'px;flex-shrink:0;margin-right:'+bG+'px;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;">';
             // Total label above bar
-            var totalLabelY = Math.max(barTop - 2, si * laneStride + 7);
-            svgLines += '<text x="'+cx+'" y="'+totalLabelY+'" text-anchor="middle" font-size="9" font-weight="700" fill="#555">'+d.total+'</text>';
-            // AI label below bar (at baseline + 9px), only if AI > 0
-            if(d.ai > 0){
-              svgLines += '<text x="'+cx+'" y="'+(baseY+9)+'" text-anchor="middle" font-size="8" font-weight="600" fill="'+col+'">'+d.ai+'</text>';
+            html+='<div style="font-size:9px;font-weight:700;color:#666;line-height:1;margin-bottom:2px;">'+(d.total>0?d.total:'')+'</div>';
+            // Bar
+            html+='<div style="width:'+bW+'px;display:flex;flex-direction:column;align-items:stretch;">';
+            if(d.total===0){
+              html+='<div style="height:1px;background:#fee2e2;"></div>';
+            } else {
+              if(aiH>0) html+='<div style="height:'+aiH+'px;background:'+col+';opacity:.85;border-radius:1px 1px 0 0;"></div>';
+              if(myH>0) html+='<div style="height:'+myH+'px;background:#1a1a1a;opacity:.18;'+(aiH===0?'border-radius:1px 1px 0 0;':'')+'"></div>';
             }
+            html+='</div>';
+            // Tooltip
+            html+='<div class="sw-tip">'+tipHtml+'</div>';
+            html+='</div>';
           });
+          html+='</div>';
         });
-        // X-axis date labels
-        var axisY = swSrc.length * laneStride - LANE_GAP + axisH;
-        days14sw.forEach(function(day, di){
-          var x = YAW + di*(bW+bG) + Math.round(bW/2);
-          var dt = new Date(day+'T12:00:00');
-          var isWE = dt.getDay()===0||dt.getDay()===6;
-          var showLabel = true;
-          if(showLabel) svgLines += '<text x="'+x+'" y="'+axisY+'" text-anchor="middle" font-size="7" fill="'+(isWE?'#888':'#bbb')+'" font-weight="'+(isWE?'600':'400')+'">'+dt.getDate()+'/'+(dt.getMonth()+1)+'</text>';
+        // X-axis date row
+        html+='<div style="display:flex;height:14px;">';
+        days14sw.forEach(function(day,di){
+          var dt=new Date(day+'T12:00:00');
+          var isWE=dt.getDay()===0||dt.getDay()===6;
+          html+='<div style="width:'+bW+'px;flex-shrink:0;margin-right:'+bG+'px;font-size:7px;color:'+(isWE?'#888':'#bbb')+';font-weight:'+(isWE?'600':'400')+';text-align:center;">'+dt.getDate()+'/'+(dt.getMonth()+1)+'</div>';
         });
-        swEl.innerHTML = '<svg viewBox="0 0 '+totalW+' '+svgH+'" preserveAspectRatio="xMinYMin meet" style="display:block;width:100%">'+svgLines+'</svg>';
+        html+='</div>';
+        html+='</div></div>';
+        swEl.innerHTML = html;
         if(swLeg) swLeg.innerHTML =
           '<div style="display:flex;align-items:center;gap:4px;font-size:10px;color:#6a6a6a"><div style="width:8px;height:8px;border-radius:1px;background:#1e4d8c"></div>FT</div>'
          +'<div style="display:flex;align-items:center;gap:4px;font-size:10px;color:#6a6a6a"><div style="width:8px;height:8px;border-radius:1px;background:#8b1a1a"></div>Eco</div>'
