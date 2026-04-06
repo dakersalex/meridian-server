@@ -1,5 +1,5 @@
 # Meridian — Technical Notes
-Last updated: 6 April 2026 (Session 45 — Bloomberg health check fix, consolidated to-do list)
+Last updated: 6 April 2026 (Session 45 — major bug fixes, data backfill, stats panel redesign)
 
 ## Overview
 Personal news aggregator. Flask API + SQLite backend running on Hetzner VPS (always-on).
@@ -66,24 +66,36 @@ View logs: cat /opt/meridian-server/meridian.log | tail -50
   cd ~/meridian-server && ./deploy.sh "description"
 (git add -A, commit, push, SSH pull on VPS, systemctl restart meridian)
 
-## Database (6 April 2026 — Mac local)
-| Source | Total | Full text | Enriched |
-|---|---|---|---|
-| The Economist | 277 | 271 | 271 (97%) |
-| Financial Times | 185 | 178 | 153 (82%) |
-| Foreign Affairs | 58 | 58 | 56 (96%) |
-| Bloomberg | 38 | 37 | 36 (94%) |
-| Other sources | 19 | — | — |
-| **Total** | **577** | — | **533** |
+### CRITICAL: VPS git stash poison
+The VPS accumulates local diffs when we SCP patch files directly (bypassing git) to recover from crashes.
+These diffs get stashed and re-applied on subsequent deploys, crashing Flask.
+Fix: always use `git reset --hard HEAD && git pull` (not `git stash && git pull`) on VPS.
+TODO: add `git reset --hard HEAD` to deploy.sh before the pull step to prevent this permanently.
 
-VPS totals are higher (~602 as of Session 44) — VPS is the canonical DB.
+## Database (6 April 2026 — VPS after Session 45 backfill)
+| Source | Total | Full text |
+|---|---|---|
+| The Economist | 304 | ~270 |
+| Financial Times | 191 | ~185 |
+| Foreign Affairs | 69 | 69 |
+| Bloomberg | 38 | 37 |
+| Other | ~41 | — |
+| **Total** | **~643** | **~603** |
+
+VPS is the canonical DB. Mac local DB may differ slightly.
 
 ---
 
-## pub_date Format (normalised Session 41)
-All pub_dates stored as ISO `YYYY-MM-DD` in both Mac and VPS databases.
-`normalize_pub_date()` in server.py handles all incoming formats.
-Typical cadence: FT 3–6/day, Economist 2–8/day (edition drops Tue/Thu/Sat), FA 1–2/day.
+## pub_date Format
+All pub_dates stored as ISO `YYYY-MM-DD`.
+`normalize_pub_date()` in server.py handles incoming formats.
+Session 45: remaining non-ISO stragglers fixed via one-off migration script.
+
+### Economist pub_date issue (Session 45)
+Economist URL dates (e.g. /2026/03/26/) are 1-3 days earlier than the edition date shown on the page.
+Scraper uses URL date extraction — this causes systematic off-by-1-3 day errors for Economist articles.
+Session 45 manually corrected 52 bookmark articles using the bookmarks page as ground truth.
+TODO: fix Economist scraper to read pub_date from the article page (time[datetime] or meta tag) rather than URL.
 
 ---
 
@@ -97,7 +109,17 @@ Typical cadence: FT 3–6/day, Economist 2–8/day (edition drops Tue/Thu/Sat), 
 6. Push newsletters → /api/push-newsletters
 7. Push interviews → /api/push-interviews
 
-Sync windows (Geneva time): 05:35 and 11:35. Third window at ~17:40 is under consideration.
+Sync windows (Geneva time): 05:35 and 11:35.
+
+### CRITICAL: Push script must include title_only articles
+The push script (in wake_and_sync.sh) originally only pushed `status='full_text'` articles.
+This caused 8 Economist title_only articles from the 11-day gap to be missing from VPS.
+Fixed in Session 45: push script now includes `status IN ('full_text','title_only','fetched','agent')`.
+
+### meridian_sync.py — 415 bug (fixed Session 45)
+`meridian_sync.py` was calling `requests.post('/api/sync')` with no body/Content-Type.
+Flask requires Content-Type:application/json for request.json — returned 415 on every call.
+**This broke syncing for 11 days (Mar 26 – Apr 6).** Fixed: added `json={}` to the POST call.
 
 ---
 
@@ -121,29 +143,30 @@ window.shell = (cmd) => fetch('http://localhost:4242/api/dev/shell', {
 - Tab A (localhost:8080/meridian.html): shell bridge
 - Tab B (meridianreader.com/meridian.html): live site verification
 - TabIds change every session — always call tabs_context_mcp first
+- economist.com is blocked for JS execution by MCP extension security rules — cannot touch Economist tabs even with MCP border visible
 
 ### Key patterns
 - Write patch scripts via filesystem:write_file → execute via window.shell()
 - Line-number patches are DANGEROUS — always use exact text str.replace()
-- For large deletions, line-index slicing in Python (lines[:N] + lines[M:]) is safe when anchors are verified first
+- For large deletions, line-index slicing in Python (lines[:N] + lines[M:]) is safe when anchors verified first
 - Syntax check for HTML/JS files: grep for key element IDs and function names — do NOT use ast.parse on HTML files
 - Correct pre-deploy check: grep for key IDs, check HTML_LANG_COUNT=1, check DOCTYPE=1
 - After deploying, verify via live site tab (Tab B)
 - Check for duplicate `<html>` tags: `grep -c "<html lang" meridian.html` should return 1
 
 ### CRITICAL: Regex literals inside JS functions near backtick template literals
-Never use regex literals (e.g. `/pattern/g`) inside any JS function that also contains or is near a backtick template literal string — use `.split('x').join('y')` instead. Use plain string concatenation for multi-line strings instead of template literals.
+Never use regex literals (e.g. `/pattern/g`) inside any JS function that also contains or is near a backtick template literal string — use `.split('x').join('y')` instead.
 
 ### CRITICAL: Single quotes inside single-quoted JS string literals
-Never use single-quoted outer JS strings when the content contains single quotes (CSS font-family values, colour hex strings in hover handlers, etc.) — use double-quoted outer strings for all HTML-building blocks.
+Never use single-quoted outer JS strings containing single quotes — use double-quoted outer strings for HTML-building blocks.
 
 ### CRITICAL: Inline onmouseover/onmouseout for hover states
-Never use inline `onmouseover`/`onmouseout` attribute handlers for hover styling — setting `this.style.background=''` on mouseout does not reliably reset in all browsers and causes the state to stick. Always use a CSS class with `:hover` pseudo-selector instead.
+Never use inline `onmouseover`/`onmouseout` — always use CSS `:hover` classes instead.
 
 ### CRITICAL: Duplicate HTML bug prevention
 After any patch replacing a large HTML block, always verify:
   grep -n "<!DOCTYPE\|<html lang" ~/meridian-server/meridian.html
-Expected: line 1 only. Never deploy if there are two `<html lang` tags.
+Expected: line 1 only.
 
 ### tmp_ files
 - tmp_*.py, tmp_*.txt, *.bak* are all gitignored
@@ -156,14 +179,14 @@ Workaround: write results to tmp_*.txt and read via Filesystem MCP.
 
 ---
 
-## UI Design — Current State (Session 44)
+## UI Design — Current State (Session 45)
 
 ### Colour Palette (Palette 1A)
 ```css
---paper: #faf8f4          /* content zone */
---paper-2: #f0ece3        /* header rows */
---paper-3: #e4dfd4        /* badges, neutral elements */
---accent: #c4783a         /* logo, AI Analysis button, amber accents */
+--paper: #faf8f4
+--paper-2: #f0ece3
+--paper-3: #e4dfd4
+--accent: #c4783a
 --ink: #1a1a1a
 --green: #2d6b45
 --rule: rgba(0,0,0,0.1)
@@ -178,48 +201,37 @@ Row 4: Filter — All articles · All curation · All sources · Last 6 months |
 Row 5: Info-strip (Stats panel, hidden by default, NOT sticky)
 ```
 
-### Stats panel (#info-strip) — Session 44 state
-Background: `#fff`, bottom border: `2px solid #e0dbd0`
-Toggled by 📊 Stats button. Health check fires on open (cached per session).
+### Stats panel (#info-strip) — Session 45 state
 
-**AI Health Check row (Option C layout — Session 44):**
-- Outer container: `border:1px solid rgba(0,0,0,.1); border-radius:6px; overflow:hidden`
-- Header bar: `background:rgba(0,0,0,.03)` — amber dot (written by JS) + eyebrow + score (inline, 15px) left; timestamp + ↻ Refresh right
-- Body: `border-left:3px solid #c4783a; padding:12px 14px` — summary + issue buttons full width
-- Issue buttons use CSS class `.hc-btn` with `:hover` pseudo-selector (NOT inline onmouseover/onmouseout)
-- `.hc-btn:hover` → `background:#f5f1eb; border-color:rgba(0,0,0,.1)`
-- `.hc-btn:hover .hc-arrow` → `opacity:1`
-- `↗ copy` arrow always visible at `opacity:.5`, goes to `1` on hover
-- Clicking an issue button calls `window.sendPrompt(prompt)` which copies to clipboard + shows toast "Prompt copied — paste into Claude"
-- `window.sendPrompt` is defined in the page (not injected externally)
-- DOM IDs: sp-health-row, sp-health-eyebrow, sp-health-score, sp-health-summary, sp-health-issues, sp-health-ts
+**Row 1 — 3 columns (overflow-x:auto, min-width:860px):**
+- Col 1: Article library — two sub-columns: left (Total/My saves/AI picks stacked), right (Full text)
+- Col 2: 14-day swim lanes chart (HTML div, not SVG — supports hover tooltips)
+- Col 3: "14 day total" — three swim-lane-style bars (FT/Economist/FA), 60px wide, centred, no labels/legend
 
-**Health check implementation:**
-- Frontend calls `POST /api/health-check` (Flask endpoint, NOT direct Anthropic API)
-- Flask uses `call_anthropic()` with server-side API key from credentials.json
-- Stats payload includes: total, aiPicks, fullText, ftPct, agentRate7d, sources[], ingestion14d (14-day daily breakdown by source), zeroDaysLast7, trend (prev7avg vs last7avg per source)
-- Haiku system prompt instructs analysis of daily ingestion trends, zero-days, source drop-offs, and backlog
-- Bloomberg is explicitly excluded from all health check analysis — gaps are normal (manual clip source)
-- `allArts` timing guard: if articles not yet loaded when Stats opens, retries up to 3× with 2s delay
-- Result cached in `window._healthCache`; Refresh button forces new call
-- Prompts stored in `window._hcPrompts[idx]` (index store, avoids quoting issues in onclick)
-- Anthropic API account requires separate credits from claude.ai Max plan (pay-as-you-go at console.anthropic.com)
+**Swim lanes (Col 2) — Session 45:**
+- HTML div layout (replaced SVG) — supports CSS :hover tooltips
+- Shared globalMax scale across all three source lanes
+- Total number above each bar; no AI count below
+- Hover tooltip: dark grey bg, all white text, shows date / Total / AI picks / My saves
+- Tooltip uses .sw-col / .sw-tip CSS classes injected into <head>
+- overflow:visible on lane rows and bars wrapper so tooltips escape container
+- Source labels: FT / Economist / FA (not Eco) at 11px bold
 
-**14-day sparkline (Session 44):**
-- Y-axis: fixed gridlines at multiples of 5 (0, 5, 10, 15…)
-- Ceiling: actual daily max rounded UP to nearest 5 (`SPK_CEIL = Math.ceil(spkActualMax/5)*5`)
-- Bars scale accurately against `SPK_CEIL` — no clipping
-- Left margin `YAW=22px` for y-axis labels (#ccc, 8px)
-- 3 horizontal tick lines at each multiple of 5
+**Col 3 summary bars:**
+- 3 lanes: FT (blue #1e4d8c), Economist (dark red #8b1a1a), FA (green #2a7a5a)
+- Same LANE_H=20 / TICK_H=16 / LANE_GAP=10 spacing as swim lanes for row alignment
+- 60px bar width, centred, total above, AI·My count below
+- globalMax shared across all three sources
+- No source labels or legend — reads as visual continuation of Col 2
 
-**Row 1** — 3 equal columns:
-- Col 1: Article library headline numbers + Curation split bars
-- Col 2: New articles ingestion table (24h/48h/7d/14d)
-- Col 3: 14-day stacked bar sparkline with y-axis
-
-**Row 2** — 3 equal columns: By source / Full text coverage / By topic (top 5)
-
+**Row 2** — 3 equal columns: By source / Full text coverage / By topic
 **Row 3** — 4 columns: Last scraped / Unenriched backlog / 7-day rate / Agent activity
+
+**AI Health Check (top of Stats panel):**
+- Flask endpoint POST /api/health-check proxies to Haiku
+- Bloomberg explicitly excluded from all health check analysis (manual clip source, gaps are normal)
+- Haiku system prompt updated to exclude Bloomberg from zero-day/trend/daysSinceLatest checks
+- DOM IDs: sp-health-row, sp-health-eyebrow, sp-health-score, sp-health-summary, sp-health-issues, sp-health-ts
 
 ### Article card layout (Option 3 — fixed date column)
 ```
@@ -230,6 +242,11 @@ Toggled by 📊 Stats button. Health check fires on open (cached per session).
                 [card-footer: Full text badge · AI pick/My save · tags]
 ```
 
+### Curation classification — Session 45 fix
+`auto_saved` is now the single source of truth for AI pick vs My save throughout all UI.
+`status='agent'` is no longer used for UI classification (kept in DB historically but ignored in JS).
+Fixed expressions: all `a.auto_saved || a.status==='agent'` replaced with `a.auto_saved` across feed filters, swim lanes, stats counts, detail panel.
+
 ---
 
 ## Source-Specific Notes
@@ -238,22 +255,33 @@ Toggled by 📊 Stats button. Health check fires on open (cached per session).
 - Scraper: Playwright, `ft_profile/`
 - Session expires periodically — manual re-login needed
 - Typical cadence: 3–6 articles/day
+- Saved articles page: ft.com/myft/saved-articles/... (chronological by save date)
+- Agent picks: FT homepage scored by Haiku ≥8 → auto_saved=1
+- **My save vs AI pick fix (Session 45):** FT scraper now demotes auto_saved=1 to 0 if article found in myFT saved list. score_and_autosave UPDATE now has AND auto_saved=0 guard — never promotes manual saves to AI picks.
+- FT article pub_date: extracted from `meta[property='article:published_time']` or `time[datetime]` — works reliably when FT session is active.
+- FT agent articles (status='agent') now included in enrich_title_only_articles query (was previously excluded, causing missing pub_dates).
 
 ### The Economist
 - Scraper: Playwright, `economist_profile/`
 - headless=False required (Cloudflare detection)
 - Edition drops Tue/Thu/Sat
+- Bookmarks page: economist.com/for-you/bookmarks (ordered by save date, newest first)
+- Stop-on-first-existing logic is correct for bookmark page (chronological by save date)
+- pub_date extracted from URL (/YYYY/MM/DD/) — systematically 1-3 days early vs page date
+- 52 bookmarks manually corrected in Session 45 using actual page dates
+- Cloudflare blocks headless Playwright — only warmed persistent profile at scheduled times works
 
 ### Foreign Affairs
 - Scraper: Playwright, `fa_profile/`
 - Session: Drupal cookie valid until **2026-05-23**
+- Saved articles ordered chronologically by save date
 
 ### Bloomberg
 - **No automated scraper — by design.** Bot detection was too strong; Playwright scraper removed.
-- Articles are added manually via Chrome Extension v1.3 (clip button in logged-in session).
-- Gaps in Bloomberg ingestion are NORMAL and expected — not a system fault.
-- The AI health check is aware of this and will not flag Bloomberg zero-days as issues.
-- Cadence depends entirely on manual clipping activity.
+- Articles added manually via Chrome Extension v1.3 (clip button in logged-in session).
+- Gaps in Bloomberg ingestion are NORMAL — not a system fault.
+- AI health check explicitly excludes Bloomberg from all analysis.
+- Cadence depends entirely on manual clipping.
 
 ---
 
@@ -279,86 +307,98 @@ Toggled by 📊 Stats button. Health check fires on open (cached per session).
 ## Outstanding Issues / Next Steps
 
 ### 🔴 Infrastructure / Stability
-1. **Backup system** — Git tracks code but no automated DB snapshots or rollback mechanism. Need: git tag on each deploy + daily cron copy of meridian.db to dated file (keep 7 days).
-2. **Full code review** — Audit server.py and meridian.html for redundant endpoints, dead code, bugs, improvement opportunities. Dedicate a full session.
+1. **Backup system** — No automated DB snapshots. Need: git tag on each deploy + daily cron copy of meridian.db (keep 7 days).
+2. **deploy.sh — add git reset --hard HEAD** before pull to prevent VPS stash poisoning (crashed Flask 3x this session).
+3. **Full code review** — Audit server.py and meridian.html for redundant endpoints, dead code, bugs. Dedicate a full session.
 
 ### 🔴 Ingestion / Sync
-3. **Economist trend decline — investigate** — Health check flagged −43% vs prior 7 days, 3 zero-days. Possible Cloudflare tightening or launchd misfire.
-4. **FA trend decline — investigate** — Health check flagged −57%, 4 zero-days. May be early cookie degradation ahead of May 23 expiry.
-5. **Zero ingestion Apr 6 — verify** — No FT or Economist articles on Apr 6. Check whether 11:35 sync ran and review logs.
-6. **Third sync window (~17:40)** — Assess value of adding a third launchd sync. Would catch Economist late edition drops and FT afternoon pieces. Low risk to add.
+4. **Third sync window (~17:40)** — Add a third launchd sync window. Low risk, easy win.
+5. **Economist pub_date scraper fix** — Read date from article page (meta tag) not URL. URL dates are 1-3 days early.
 
 ### 🟡 Briefing Generator
-7. **Charts not referenced in briefing body text** — Briefing prose doesn't mention embedded charts. Need chart references woven into text ("as shown in the chart below…") and a relevance check that each chart matches its section.
-8. **Data points need date anchors** — Stats like "down X% YTD" need an explicit date reference (e.g. "as of 6 Apr 2026").
-9. **Briefing source section — add detail grid** — Show articles per source, date range covered, and how the selection sample was drawn. Gives transparency on what the brief is based on.
+6. **Charts not referenced in briefing body text** — Need chart references woven into prose and relevance check per section.
+7. **Data points need date anchors** — Stats like "down X% YTD" need explicit date reference.
+8. **Briefing source section — add detail grid** — Articles per source, date range, sample method.
 
 ### 🟡 UI / Frontend
-10. **Newsletter + Suggested sections — match Feed design** — Both sections have a different visual style to the main Feed. Bring into line with card layout Option 3 (fixed date col, source·topic header, Playfair title, footer badges).
-11. **Sort KT theme articles by relevance** — Detail panel currently sorts by date; should weight by keyword hit count + recency.
-12. **Sub-topics filtering — implement or remove** — Filter chips render but do nothing. Decision needed.
+9. **Newsletter + Suggested sections — match Feed design** — Bring into line with card layout Option 3.
+10. **Sort KT theme articles by relevance** — Currently date-sorted; should weight by keyword hit count + recency.
+11. **Sub-topics filtering — implement or remove** — Filter chips render but do nothing.
 
 ### 🟡 Enrichment / Data
-13. **FT enrichment backfill** — 32 FT articles unenriched (153/185 enriched). Run targeted backfill.
-14. **pub_date normalisation stragglers** — A few old records still in `DD Month YYYY` format. One-off migration script needed.
-15. **KT tag-new wiring into VPS scheduler** — Incremental tagging built, not yet hooked into sync cycle.
+12. **FT enrichment backfill** — Some FT articles still unenriched. Run targeted backfill.
+13. **KT tag-new wiring into VPS scheduler** — Incremental tagging built, not yet hooked into sync cycle.
 
 ### 🟢 Maintenance / Watch
-16. **FA cookie renewal** — Drupal cookie expires 2026-05-23. No action yet.
-17. **Points of Return newsletter gap** — Latest issue is 2 Apr. Check iCloud forwarding rule.
-18. **Haiku markdown fence stripping fix** — Designed in Session 43, still not deployed to VPS.
-19. **Clean up tmp_*.py / tmp_*.txt files** — Periodic purge needed.
+14. **FA cookie renewal** — Drupal cookie expires 2026-05-23.
+15. **Points of Return newsletter gap** — Latest issue 2 Apr. Check iCloud forwarding rule.
+16. **Bloomberg ingestion** — Manual only. Check clipping still works.
+17. **Clean up tmp_*.py / tmp_*.txt files** — rm -f tmp_*.txt tmp_*.py
 
 ---
 
 ## Build History
 
-### 6 April 2026 (Session 45 — Bloomberg health check fix, to-do consolidation)
-- Identified that Bloomberg was being incorrectly flagged as "dead" by Haiku health check
-- Bloomberg has no automated scraper by design (bot detection too strong); articles are manual-only via Chrome Extension
-- Patched `/api/health-check` system prompt in server.py to explicitly exclude Bloomberg from all trend/zero-day analysis
-- Updated NOTES.md Bloomberg section and Outstanding Issues with full consolidated to-do list from session review
+### 6 April 2026 (Session 45 — major bug fixes, data backfill, stats redesign)
+
+**Critical: meridian_sync.py 415 bug fixed**
+- `requests.post('/api/sync')` had no Content-Type header — Flask returned 415 on every call
+- Broken for 11 days (Mar 26 – Apr 6) — all sync attempts silently failed
+- Fix: added `json={}` to POST call. Deployed and verified.
+
+**549 articles bulk-pushed to VPS**
+- Mac local DB had 549 full_text articles not on VPS due to 415 bug
+- Pushed via tmp_push.py using push-articles endpoint
+- Subsequently: push script updated to include title_only/fetched/agent status articles too
+
+**Agent articles fixed: pub_date and curation**
+- `enrich_title_only_articles()` was excluding `status='agent'` articles — now includes them
+- `score_and_autosave` UPDATE now has `AND auto_saved=0` guard — never overrides manual saves
+- FT scraper now demotes auto_saved=1→0 when article found in myFT saved list
+- 5 FT agent articles: pub_dates corrected by navigating to each URL in browser and reading meta tag
+- 3 confirmed My saves (aria-pressed=true on FT), 2 confirmed AI picks
+
+**Economist bookmark backfill (52 articles)**
+- Cross-checked all 52 Economist bookmarks from the bookmark page against DB
+- 19 missing articles inserted as title_only/My save
+- 16 wrong dates corrected (URL date extraction systematic error)
+- 5 wrong curations fixed (AI pick → My save)
+- All pushed to VPS
+
+**pub_date normalisation**
+- 4 Economist articles with non-ISO pub_dates (DD Month YYYY format) fixed
+- normalize_pub_date() now handles all incoming formats; DB clean
+
+**VPS stash poisoning — permanently cleared**
+- VPS had stale `text.split("\n")` broken literal-newline diff in git stash
+- Was re-applied on every deploy, crashing Flask (3 incidents this session)
+- Fixed via SCP patch script; stash cleared with `git stash clear`
+
+**Bloomberg health check fix**
+- Haiku system prompt updated to explicitly exclude Bloomberg from all analysis
+- Bloomberg gaps are normal (manual clip only) — was incorrectly flagged as "dead scraper"
+
+**Stats panel Row 1 redesign**
+- Col 1: Article library restructured — two sub-columns (counts | full text), curation split removed
+- Col 2: Swim lanes converted from SVG to HTML div layout — enables CSS hover tooltips
+- Col 3: New "14 day total" — swim-lane style bars (FT/Eco/FA), 60px wide, centred, no labels
+- Shared globalMax scale across all lanes (was per-lane)
+- Total number above bars only; AI count removed from display
+- Hover tooltip: dark grey bg, all white text, date/Total/AI/My breakdown
+- Tooltip clipping fixed: overflow:visible on lane rows and bars wrapper
+- Row 1 wrapped in overflow-x:auto with min-width:860px — prevents misalignment at narrow widths
+- Source labels updated: Eco → Economist
+
+**auto_saved as single source of truth**
+- All JS expressions `a.auto_saved || a.status==='agent'` replaced with `a.auto_saved`
+- Affects: swim lanes, feed filter, library counts, stats counts, detail panel, agent rate
+
+**Session starter prompt updated**
+- New prompt uses exact tool_search queries for reliable MCP loading
 
 ### 5 April 2026 (Session 44 — AI health check fully operational)
-
-**runHealthCheck SyntaxError fixed (two deploys at session start)**
-- Fix 1: backtick template literal for Haiku `system:` → IIFE + plain string concatenation
-- Fix 2: `.replace(/regex/)` calls in safePrompt → `.split().join()`
-- Fix 3: Issue button builder rewritten with double-quoted outer strings; prompts stored in `window._hcPrompts[idx]` index store
-- Second deploy fixed pre-existing `'IBM Plex Sans'` single-quote SyntaxError in button builder
-
-**Health check API routing fixed**
-- Was calling `https://api.anthropic.com/v1/messages` directly from browser (no API key, CORS blocked)
-- Fixed: new `POST /api/health-check` Flask endpoint proxies call server-side with credentials.json key
-- VPS credentials.json `anthropic_api_key` was empty — synced from Mac credentials.json
-- Anthropic API account needed credit top-up (separate from claude.ai Max plan)
-- Added friendly "credits needed" error message (HTTP 402) when account balance is zero
-
-**Health check enriched with 14-day daily ingestion data**
-- Stats payload now includes `ingestion14d` (daily totals + per-source counts), `zeroDaysLast7`, `trend` (prev7avg vs last7avg)
-- Flask system prompt instructs Haiku to analyse daily trends, spot zero-days, flag drop-offs by name and date
-- `allArts` timing guard added: retries up to 3× with 2s delay if articles not yet loaded on early Stats open
-
-**Option C layout for health check row**
-- Header bar: eyebrow + score inline left, timestamp + Refresh right
-- Body: amber left border, summary + issues full width — no wasted score column
-- `window.sendPrompt` defined in page as clipboard copy + toast ("Prompt copied — paste into Claude")
-- `↗ copy` arrow always visible at opacity:.5, brightens to 1 on hover
-- Hover state fixed: replaced inline `onmouseover`/`onmouseout` with CSS `.hc-btn:hover` (inline handlers caused sticky grey state)
-
-**14-day sparkline y-axis**
-- Added subtle y-axis with gridlines at multiples of 5 (0, 5, 10, 15…)
-- Ceiling auto-scales to actual daily max rounded up to nearest 5
-- Left margin YAW=22px for labels; bars accurately scaled, no clipping
-
-### 5 April 2026 (Session 43 — SyntaxError diagnosed, patch designed but not applied)
-- Confirmed site stuck on "Checking…" due to SyntaxError in runHealthCheck()
-- Fix designed but tool call limit reached before execution
-
-### 5 April 2026 (Session 42 — stats headings unified, AI health check panel added)
-- Stats panel heading unification
-- AI health check panel added (with SyntaxError bug introduced, fixed in Session 44)
-
+### 5 April 2026 (Session 43 — SyntaxError diagnosed)
+### 5 April 2026 (Session 42 — stats headings, health check panel added)
 ### 4 April 2026 (Session 41 — stats panel redesign + pub_date fix + HTML dedup)
 ### 4 April 2026 (Session 40 — filter row, stats fix, cleanup)
 ### 4 April 2026 (Session 39 — Major UI redesign, Palette 1A, card layout Option 3)
@@ -415,3 +455,4 @@ JS syntax check: grep for key element IDs and function names — do NOT use ast.
 NEVER use regex literals inside functions near backtick template literal strings — use .split().join() instead.
 NEVER use single-quoted outer JS strings containing single quotes — use double-quoted outer strings for HTML-building blocks.
 NEVER use inline onmouseover/onmouseout for hover styling — use CSS :hover classes instead.
+economist.com is blocked for JS execution by MCP — cannot run javascript_tool on Economist tabs.
