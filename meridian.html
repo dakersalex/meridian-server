@@ -1546,33 +1546,39 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
   </div>
 
   <!-- ROW 1: Col1=library+curation (1fr), Col2=swim lanes (2fr) -->
-  <div id="sp-row1" style="border-bottom:1px solid rgba(0,0,0,.07);padding-bottom:14px;overflow:visible"><div style="display:grid;grid-template-columns:1fr 2fr 1fr;gap:0;align-items:stretch;min-width:860px;overflow:visible">
+  <div id="sp-row1" style="border-bottom:1px solid rgba(0,0,0,.07);padding-bottom:14px;overflow:visible"><div style="display:grid;grid-template-columns:180px 1fr 1fr;gap:0;align-items:stretch;min-width:860px;overflow:visible">
 
-    <!-- Col 1: Article library (totals + full text) -->
+    <!-- Col 1: Library -->
     <div style="padding-right:24px;border-right:1px solid rgba(0,0,0,.07);display:flex;flex-direction:column">
-      <div style="font-size:9px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:#8a8a8a;border-bottom:1px solid rgba(0,0,0,.1);padding-bottom:5px;margin-bottom:12px;flex-shrink:0">Article library</div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;flex-shrink:0">
-        <!-- Left col: counts -->
-        <div style="display:flex;flex-direction:column;gap:12px">
+      <div style="font-size:9px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:#8a8a8a;border-bottom:1px solid rgba(0,0,0,.1);padding-bottom:5px;margin-bottom:12px;flex-shrink:0">Library</div>
+      <div style="display:flex;flex-direction:column;gap:12px;flex-shrink:0">
+        <div style="display:flex;align-items:center;justify-content:space-between;">
           <div>
-            <div id="sp-total" style="font-size:28px;font-weight:700;line-height:1;color:#1a1a1a">–</div>
-            <div style="font-size:10px;color:#8a8a8a;text-transform:uppercase;letter-spacing:.5px;margin-top:3px">Total articles</div>
+            <div id="sp-total" style="font-size:26px;font-weight:700;line-height:1;color:#1a1a1a">–</div>
+            <div style="font-size:10px;color:#8a8a8a;text-transform:uppercase;letter-spacing:.5px;margin-top:3px">Articles</div>
           </div>
+          <span style="width:32px;text-align:right;flex-shrink:0;"></span>
+        </div>
+        <div style="display:flex;align-items:center;justify-content:space-between;">
           <div>
-            <div id="sp-saves" style="font-size:28px;font-weight:700;line-height:1;color:#1a1a1a">–</div>
+            <div id="sp-saves" style="font-size:26px;font-weight:700;line-height:1;color:#1a1a1a">–</div>
             <div style="font-size:10px;color:#8a8a8a;text-transform:uppercase;letter-spacing:.5px;margin-top:3px">My saves</div>
           </div>
+          <span id="sp-saves-pct" style="font-size:12px;font-weight:500;color:#8a8a8a;width:32px;text-align:right;flex-shrink:0;">–</span>
+        </div>
+        <div style="display:flex;align-items:center;justify-content:space-between;">
           <div>
-            <div id="sp-ai" style="font-size:28px;font-weight:700;line-height:1;color:#c4783a">–</div>
+            <div id="sp-ai" style="font-size:26px;font-weight:700;line-height:1;color:#c4783a">–</div>
             <div style="font-size:10px;color:#8a8a8a;text-transform:uppercase;letter-spacing:.5px;margin-top:3px">AI picks</div>
           </div>
+          <span id="sp-ai-pct" style="font-size:12px;font-weight:500;color:#8a8a8a;width:32px;text-align:right;flex-shrink:0;">–</span>
         </div>
-        <!-- Right col: full text -->
-        <div style="display:flex;flex-direction:column;gap:12px;border-left:1px solid rgba(0,0,0,.07);padding-left:12px">
+        <div style="border-top:1px solid rgba(0,0,0,.07);padding-top:12px;display:flex;align-items:center;justify-content:space-between;">
           <div>
-            <div id="sp-ft" style="font-size:28px;font-weight:700;line-height:1;color:#2d6b45">–</div>
+            <div id="sp-ft" style="font-size:26px;font-weight:700;line-height:1;color:#2d6b45">–</div>
             <div style="font-size:10px;color:#8a8a8a;text-transform:uppercase;letter-spacing:.5px;margin-top:3px">Full text</div>
           </div>
+          <span id="sp-ft-pct" style="font-size:12px;font-weight:500;color:#8a8a8a;width:32px;text-align:right;flex-shrink:0;">–</span>
         </div>
       </div>
       <div id="sp-cur-bars" style="display:none"></div>
@@ -3887,6 +3893,11 @@ async function updateActivityBar() {
       if(se('sp-saves')) se('sp-saves').textContent = mySavesN.toLocaleString();
       if(se('sp-ai'))    se('sp-ai').textContent    = aiPicksN.toLocaleString();
       if(se('sp-ft'))    se('sp-ft').textContent    = fullTextN.toLocaleString();
+      if(total > 0) {
+        if(se('sp-saves-pct')) se('sp-saves-pct').textContent = Math.round(mySavesN/total*100)+'%';
+        if(se('sp-ai-pct'))    se('sp-ai-pct').textContent    = Math.round(aiPicksN/total*100)+'%';
+        if(se('sp-ft-pct'))    se('sp-ft-pct').textContent    = Math.round(fullTextN/total*100)+'%';
+      }
 
       // ── Source split bars (col 3): swim-lane style, 14d per source ────
       (function renderSplitBars() {
