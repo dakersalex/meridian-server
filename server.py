@@ -2199,9 +2199,16 @@ def score_and_autosave_new_articles():
             "messages": [{"role": "user", "content": score_prompt}]
         })
         score_text = "".join(b.get("text", "") for b in score_data.get("content", []) if b.get("type") == "text")
-        score_match = re.search(r'\[[\s\S]*\]', score_text)
+        # Strip markdown fences if Haiku wraps response (e.g. ```json ... ```)
+        clean_text = score_text.strip()
+        if clean_text.startswith("```"):
+            clean_text = clean_text.split("```", 2)[1]
+            if clean_text.startswith("json"):
+                clean_text = clean_text[4:]
+            clean_text = clean_text.rsplit("```", 1)[0].strip()
+        score_match = re.search(r'\[[\s\S]*\]', clean_text)
         if not score_match:
-            log.warning("score_and_autosave: could not parse scores")
+            log.warning(f"score_and_autosave: could not parse scores — raw response: {score_text[:300]}")
             return []
         scores = json.loads(score_match.group(0))
         # Map scores back by id
