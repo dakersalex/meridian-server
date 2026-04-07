@@ -48,6 +48,9 @@ Frontend served via nginx with HTTPS. Accessible from anywhere at https://meridi
 - To restart Flask safely: kill the PID on 4242 and launchd will respawn
   `lsof -ti tcp:4242 | xargs kill -9`
 - NEVER rely on shell endpoint surviving a Flask kill — it dies with the process
+- **CRITICAL: Mac Flask must be restarted after every deploy to load new code.**
+  `deploy.sh` restarts Flask on VPS automatically, but NOT on Mac. The Mac process
+  keeps running old in-memory code until killed. Always kill after Mac-side patches.
 
 ## Daily Use
 Open in browser (any device, any network):
