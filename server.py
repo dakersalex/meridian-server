@@ -982,6 +982,11 @@ class EconomistScraper:
                 log.info(f"Economist: {len(articles)} new bookmark articles")
 
                 # ── Step 2: Pull from homepage, score, keep only >=8 (agent picks) ─
+                # Human-like pause between navigations to reduce Cloudflare detection risk
+                import random as _random
+                _pause = _random.randint(8000, 15000)
+                log.info(f"Economist: pausing {_pause}ms before homepage")
+                page.wait_for_timeout(_pause)
                 log.info("Economist: opening homepage for agent picks")
                 page.goto("https://www.economist.com", wait_until="domcontentloaded", timeout=45000)
                 page.wait_for_timeout(4000)
