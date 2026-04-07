@@ -876,6 +876,7 @@ class EconomistScraper:
         articles = []
         profile_dir = BASE_DIR / "economist_profile"
         profile_dir.mkdir(exist_ok=True)
+        _clear_stale_profile_lock(profile_dir)
         with sync_playwright() as p:
             browser = p.chromium.launch_persistent_context(
                 str(profile_dir), headless=False,
@@ -1423,6 +1424,7 @@ def enrich_title_only_articles():
             eco_profile = BASE_DIR / "economist_profile"
             if not eco_profile.exists():
                 eco_profile = BASE_DIR / "ft_profile"
+            _clear_stale_profile_lock(eco_profile)
             with sync_playwright() as pw:
                 browser = pw.chromium.launch_persistent_context(
                     str(eco_profile),
@@ -1763,6 +1765,7 @@ def scrape_economist_most_read(limit=8):
     profile_dir = BASE_DIR / "economist_profile"
     if not profile_dir.exists():
         return []
+    _clear_stale_profile_lock(profile_dir)
 
     # Known Economist section paths — used to validate article URLs
     SECTION_PATHS = (
@@ -1808,6 +1811,7 @@ def scrape_economist_most_read(limit=8):
 
     articles = []
     try:
+        _clear_stale_profile_lock(profile_dir)
         with sync_playwright() as p:
             browser = p.chromium.launch_persistent_context(
                 str(profile_dir), headless=False,
@@ -3084,6 +3088,7 @@ def images_backfill():
                 _backfill_job["error"] = "economist_profile not found"
                 _backfill_job["running"] = False
                 return
+            _clear_stale_profile_lock(eco_profile)
 
             with sync_playwright() as pw:
                 browser = pw.chromium.launch_persistent_context(
