@@ -147,7 +147,7 @@ Structure: `div.headline.js-teaser-headline` → `a[href*="/content/"]` → `<sp
 
 ---
 
-## Economist Scraper — Current State (Session 46, commit c410a6de)
+## Economist Scraper — Current State (Session 46, commit 296818ea)
 
 ### Bookmark pass (Step 1)
 - Opens economist_profile (headless=False — required for Cloudflare)
@@ -159,7 +159,6 @@ Structure: `div.headline.js-teaser-headline` → `a[href*="/content/"]` → `<sp
   - CRITICAL: The "For You" nav contains Feed / Topics / Bookmarks tab links with date URLs.
     These appear earlier in the DOM than bookmark cards and corrupt iteration order if not excluded.
 - Early exit: stops after 3 CONSECUTIVE existing articles (not 1). Counter resets on any new article.
-  This allows new bookmarks to be found even when they are newest-first at the top of the page.
 
 ### Cloudflare behaviour
 - The economist_profile normally passes Cloudflare (warm persistent session, headless=False)
@@ -167,24 +166,27 @@ Structure: `div.headline.js-teaser-headline` → `a[href*="/content/"]` → `<sp
 - After Cloudflare challenges, the profile needs ~30-60 min to recover
 - Scheduled syncs (05:35, 11:35) work reliably because there's a long gap between attempts
 - Do NOT trigger multiple manual syncs in quick succession — it poisons the session
+- **Root cause of Apr 7 Cloudflare issues:** Step 2 homepage was the trigger. Multiple rapid
+  manual retries after the initial challenge made it unrecoverable for the session.
+  Topics page is authenticated → far less bot-detectable.
 
 ### SingletonLock fix
 - `_clear_stale_profile_lock(profile_dir)` called before every economist_profile launch (5 sites)
 - Removes stale lock if no Chrome process owns the profile — prevents ProcessSingleton errors
 
-### Homepage pass (Step 2) — SINGLE BROWSER
-- Runs within the same persistent browser session after bookmarks
-- Random 8-15s pause between bookmark navigation and homepage navigation
-- Scores homepage candidates with Haiku ≥8 → auto_saved=1
-- NOTE: attempted fresh-context architecture (separate browser for homepage) but abandoned:
-  - `sync_playwright()` cannot be nested (asyncio conflict)
-  - headless=False opens visible Chrome windows that all hit Cloudflare
-  - Single-browser approach with delay is the correct solution
-- **TODO (next session): replace homepage with /for-you/feed or /for-you/topics**
-  - These are personalised authenticated pages (same session, no extra login needed)
-  - Far less Cloudflare-exposed than the public homepage
-  - Already filtered to reading interests — better quality candidates than homepage
-  - Feed and Topics tabs sit next to Bookmarks in the For You nav
+### Topics pass (Step 2) — SINGLE BROWSER, commit 296818ea
+- Replaced homepage entirely with `/for-you/topics` (personalised, authenticated)
+- Random 3-6s pause between bookmark navigation and Topics navigation (shorter, less risk)
+- **Extraction method: `__next_f` JSON parsing, not HTML scraping**
+  - The Topics page is Next.js SSR — article cards are NOT in the rendered HTML
+  - Article data is embedded in `self.__next_f.push([1, "..."])` script tags as inline JSON
+  - Data block keyed as `2f:{"data":[...]}` — parsed directly from `page.content()`
+  - Each topic entry contains 4 articles with full metadata: url, headline, date_published, is_saved
+  - Podcasts filtered out (identity=="podcast")
+  - Articles already in DB skipped via `article_exists()`
+- Topics page shows articles from topics you follow (e.g. Geopolitics, AI, Economy, War in Middle East)
+- Scored by Haiku ≥8 → auto_saved=1; topic name stored in article's topic field
+- No Haiku scoring was needed on homepage before; now it's even better — pre-filtered by interest
 
 ---
 
@@ -338,12 +340,8 @@ Col 3: 14 Day Total — 3 swim-lane bars, AI% adjacent, summary below
 3. **8 missing Economist bookmarks** — Will be picked up at next successful sync (fixes deployed)
 4. **Third sync window (~17:40)** — Easy addition to launchd
 5. **FA homepage AI scoring** — Add Playwright homepage pass using fa_profile
-6. **Economist homepage scoring** — Currently works within single browser session with 8-15s pause.
-   Monitor whether Cloudflare continues to block.
-   **Better alternative: use /for-you/feed or /for-you/topics instead of homepage.**
-   These are personalised, logged-in pages based on reading history — already filtered to interests,
-   far less bot-targeted than the public homepage, and in the same authenticated session as bookmarks.
-   Feed and Topics tabs visible in the For You nav adjacent to Bookmarks tab.
+6. ~~**Economist homepage scoring**~~ — **DONE (commit 296818ea):** Replaced with /for-you/topics
+   authenticated JSON extraction. No more homepage visits, no Cloudflare risk from Step 2.
 7. **Newsletter push connection reset** — Reduce batch size from 67 to 20/batch
 
 ### 🟡 Briefing Generator
