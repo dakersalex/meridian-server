@@ -864,28 +864,6 @@ class FTScraper:
         return articles
 
 
-def _clear_stale_profile_lock(profile_dir):
-    """Remove a stale SingletonLock from a Playwright persistent profile directory.
-    Safe to call before any launch_persistent_context. Only removes the lock if no
-    live Chrome process is currently using that profile directory."""
-    import subprocess as _sp
-    lock_path = str(profile_dir) + "/SingletonLock"
-    if not os.path.exists(lock_path):
-        return
-    try:
-        result = _sp.run(["pgrep", "-f", str(profile_dir)], capture_output=True, text=True)
-        if result.returncode == 0 and result.stdout.strip():
-            log.warning(f"SingletonLock present and Chrome process live for {profile_dir} — not clearing")
-            return
-    except Exception:
-        pass
-    try:
-        os.remove(lock_path)
-        log.info(f"Cleared stale SingletonLock from {profile_dir}")
-    except Exception as e:
-        log.warning(f"Could not remove SingletonLock at {lock_path}: {e}")
-
-
 class EconomistScraper:
     name = "The Economist"
     SAVED_URL = "https://www.economist.com/for-you/bookmarks"
@@ -1003,80 +981,33 @@ class EconomistScraper:
                     log.info(f"Economist bookmark: '{title[:60]}'")
                 log.info(f"Economist: {len(articles)} new bookmark articles")
 
-                # ── Step 2a: Clip previously fetched articles (persistent browser still open) ─
-                import sqlite3 as _sq
-                _cx = _sq.connect(DB_PATH)
-                pending = _cx.execute(
-                    "SELECT id, url, title FROM articles WHERE source='The Economist' AND status='fetched' AND url!=''").fetchall()
-                _cx.close()
-                if pending:
-                    log.info(f"Economist: {len(pending)} previously fetched articles to clip")
-                for pid, purl, ptitle in (pending or []):
+                # ── Step 2: Pull from homepage, score, keep only >=8 (agent picks) ─
+                # Human-like pause between navigations to reduce Cloudflare detection risk
+                import random as _random
+                _pause = _random.randint(8000, 15000)
+                log.info(f"Economist: pausing {_pause}ms before homepage")
+                page.wait_for_timeout(_pause)
+                log.info("Economist: opening homepage for agent picks")
+                page.goto("https://www.economist.com", wait_until="domcontentloaded", timeout=45000)
+                page.wait_for_timeout(4000)
+
+                # Click Load more a few times to get more articles
+                for _ in range(5):
                     try:
-                        text, pub_date = fetch_economist_article_text(page, purl)
-                        if text:
-                            art = {"id": pid, "source": "The Economist", "url": purl,
-                                   "title": ptitle, "body": text, "summary": "", "topic": "",
-                                   "tags": "[]", "status": "fetched", "pub_date": pub_date or ""}
-                            enrich_article_with_ai(art)
-                            log.info(f"Economist: clipped existing '{ptitle[:50]}'")
-                        else:
-                            log.info(f"Economist: no text for existing '{ptitle[:50]}'")
+                        btn = (
+                            page.locator("button[data-test-id='load-more']").first
+                            if page.locator("button[data-test-id='load-more']").count() > 0
+                            else page.locator("button").filter(has_text="Load more").first
+                            if page.locator("button").filter(has_text="Load more").count() > 0
+                            else None
+                        )
+                        if btn is None: break
+                        btn.click()
+                        page.wait_for_timeout(2000)
                     except Exception as _e:
-                        log.warning(f"Economist: clip error for '{ptitle[:50]}': {_e}")
+                        break
 
-                # ── Step 2b: Export session state, close persistent browser ────────
-                # Homepage pass runs in a FRESH separate browser — different process,
-                # different Cloudflare fingerprint. Persistent browser is done after
-                # bookmarks + clip; we export its session state then close it cleanly.
-                import random as _random, time as _time2
-                _state_path = str(profile_dir / "playwright_state.json")
-                browser.storage_state(path=_state_path)
-                browser.close()  # persistent browser closed — state safely exported
-
-                # Human-like pause before opening fresh context
-                _pause_s = _random.uniform(8, 15)
-                log.info(f"Economist: pausing {_pause_s:.1f}s before homepage (fresh context)")
-                _time2.sleep(_pause_s)
-
-                # ── Step 2c: Homepage pass in fresh non-persistent context ──────────
-                log.info("Economist: opening homepage for agent picks (fresh context)")
-                _clear_stale_profile_lock(profile_dir)
-                _hp_content = ""
-                with sync_playwright() as _pw_hp:
-                    _b_hp = _pw_hp.chromium.launch(
-                        headless=False,
-                        args=["--no-sandbox", "--disable-blink-features=AutomationControlled"]
-                    )
-                    _ctx_hp = _b_hp.new_context(
-                        storage_state=_state_path,
-                        user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-                    )
-                    _pg_hp = _ctx_hp.new_page()
-                    try:
-                        _pg_hp.goto("https://www.economist.com", wait_until="domcontentloaded", timeout=45000)
-                        _pg_hp.wait_for_timeout(4000)
-                        for _ in range(5):
-                            try:
-                                _btn = (
-                                    _pg_hp.locator("button[data-test-id='load-more']").first
-                                    if _pg_hp.locator("button[data-test-id='load-more']").count() > 0
-                                    else _pg_hp.locator("button").filter(has_text="Load more").first
-                                    if _pg_hp.locator("button").filter(has_text="Load more").count() > 0
-                                    else None
-                                )
-                                if _btn is None: break
-                                _btn.click()
-                                _pg_hp.wait_for_timeout(2000)
-                            except Exception:
-                                break
-                        _hp_content = _pg_hp.content()
-                    except Exception as _hpe:
-                        log.warning(f"Economist: homepage navigation failed: {_hpe}")
-                    finally:
-                        _b_hp.close()
-
-                soup = BeautifulSoup(_hp_content, "html.parser")
+                soup = BeautifulSoup(page.content(), "html.parser")
                 seen_urls = bookmark_urls.copy()
                 homepage_candidates = []  # (url, title)
                 for a in soup.select("a[href*='/20']"):
@@ -1126,6 +1057,7 @@ class EconomistScraper:
                         score_data = call_anthropic({"model": "claude-haiku-4-5-20251001", "max_tokens": 800,
                             "messages": [{"role": "user", "content": score_prompt}]})
                         score_text = "".join(b.get("text","") for b in score_data.get("content",[]) if b.get("type")=="text")
+                        # Strip markdown fences if Haiku wraps response
                         _eco_clean = score_text.strip()
                         if _eco_clean.startswith("```"):
                             _eco_clean = _eco_clean.split("```", 2)[1]
@@ -1147,12 +1079,12 @@ class EconomistScraper:
                                            "body": "", "summary": reason, "topic": "", "tags": "[]",
                                            "saved_at": now_ts(), "fetched_at": now_ts(),
                                            "status": "title_only", "pub_date": extract_pub_date_from_url(url),
-                                           "auto_saved": 1}
+                                           "auto_saved": 1}  # 1 = agent selected
                                     articles.append(art)
                                     log.info(f"Economist agent pick (score {score}): '{title[:55]}'")
                             log.info(f"Economist: {sum(1 for a in articles if a.get('auto_saved')==1)} agent picks from homepage")
                         else:
-                            log.warning(f"Economist: could not parse homepage scores — raw: {score_text[:200]}")
+                            log.warning("Economist: could not parse homepage scores")
                     except Exception as _se:
                         log.warning(f"Economist: homepage scoring failed: {_se}")
 
@@ -1163,11 +1095,30 @@ class EconomistScraper:
                 log.info(f"Economist: {len(new_arts)} new articles to save")
                 for art in new_arts:
                     log.info(f"Economist: saving '{art['title'][:55]}' (auto_saved={art['auto_saved']})")
-                # Note: persistent browser already closed in Step 2b above
+
+                # Clip previously fetched articles still missing full text
+                import sqlite3 as _sq
+                _cx = _sq.connect(DB_PATH)
+                pending = _cx.execute(
+                    "SELECT id, url, title FROM articles WHERE source='The Economist' AND status='fetched' AND url!=''").fetchall()
+                _cx.close()
+                if pending:
+                    log.info(f"Economist: {len(pending)} previously fetched articles to clip")
+                for pid, purl, ptitle in (pending or []):
+                    try:
+                        text, pub_date = fetch_economist_article_text(page, purl)
+                        if text:
+                            art = {"id": pid, "source": "The Economist", "url": purl,
+                                   "title": ptitle, "body": text, "summary": "", "topic": "",
+                                   "tags": "[]", "status": "fetched", "pub_date": pub_date or ""}
+                            enrich_article_with_ai(art)
+                            log.info(f"Economist: clipped existing '{ptitle[:50]}'")
+                        else:
+                            log.info(f"Economist: no text for existing '{ptitle[:50]}'")
+                    except Exception as _e:
+                        log.warning(f"Economist: clip error for '{ptitle[:50]}': {_e}")
             except Exception as e: log.error(f"Economist error: {e}", exc_info=True)
-            finally:
-                try: browser.close()  # no-op if already closed in Step 2b
-                except Exception: pass
+            finally: browser.close()
         return articles
 
 
