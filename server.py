@@ -1226,6 +1226,7 @@ class ForeignAffairsScraper:
                 cards = soup.select("h3.body-m, div.article-preview, li.saved-article")
                 log.info(f"FA: found {len(cards)} cards")
                 found_existing = False
+                consecutive_existing = 0
                 for card in cards:
                     if consecutive_existing >= 3: break
                     a = card if card.name == "a" else card.select_one("a[href*='foreignaffairs.com']")
@@ -1240,8 +1241,12 @@ class ForeignAffairsScraper:
                     if not title or len(title) < 5: continue
                     art_id = make_id(self.name, url)
                     if article_exists(art_id):
-                        log.info("FA: hit existing article, stopping")
-                        found_existing = True; break
+                        consecutive_existing += 1
+                        log.info(f"FA: hit existing article ({consecutive_existing}/3), continuing")
+                        if consecutive_existing >= 3:
+                            found_existing = True; break
+                        continue
+                    consecutive_existing = 0  # reset on any new article
                     articles.append({"id":art_id,"source":self.name,"url":url,"title":title,"body":"","summary":"","topic":"","tags":"[]","saved_at":now_ts(),"fetched_at":now_ts(),"status":"fetched","pub_date":""})
                     log.info(f"FA: scraped '{title[:60]}'")
                 log.info(f"FA: total {len(articles)} articles scraped")
