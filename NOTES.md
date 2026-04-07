@@ -147,16 +147,19 @@ Structure: `div.headline.js-teaser-headline` → `a[href*="/content/"]` → `<sp
 
 ---
 
-## Economist Scraper — Current State (Session 46, commit 7442f5b4)
+## Economist Scraper — Current State (Session 46, commit c410a6de)
 
 ### Bookmark pass (Step 1)
 - Opens economist_profile (headless=False — required for Cloudflare)
 - Navigates to /for-you/bookmarks
-- **Selector: `_main.select("a[href*='/20']")` where `_main = soup.find("main") or soup`**
-  - CRITICAL: must scope to `<main>` only. `soup.select(...)` on the full document returns
-    nav/header links that appear earlier in the DOM than the bookmark cards, corrupting order.
+- Bookmark page order: **newest-saved first**
+- **Selector: scope to `<main>` with nav-stripping fallback**
+  - `_main = soup.find("main") or soup`
+  - Check if `<main>` contains date links; if not (JS-rendered), strip `nav/header` elements first
+  - CRITICAL: The "For You" nav contains Feed / Topics / Bookmarks tab links with date URLs.
+    These appear earlier in the DOM than bookmark cards and corrupt iteration order if not excluded.
 - Early exit: stops after 3 CONSECUTIVE existing articles (not 1). Counter resets on any new article.
-  This allows new bookmarks to be found even when interspersed with already-known articles.
+  This allows new bookmarks to be found even when they are newest-first at the top of the page.
 
 ### Cloudflare behaviour
 - The economist_profile normally passes Cloudflare (warm persistent session, headless=False)
@@ -177,7 +180,11 @@ Structure: `div.headline.js-teaser-headline` → `a[href*="/content/"]` → `<sp
   - `sync_playwright()` cannot be nested (asyncio conflict)
   - headless=False opens visible Chrome windows that all hit Cloudflare
   - Single-browser approach with delay is the correct solution
-- TODO: explore using Economist's /latest page or section pages as alternative to homepage
+- **TODO (next session): replace homepage with /for-you/feed or /for-you/topics**
+  - These are personalised authenticated pages (same session, no extra login needed)
+  - Far less Cloudflare-exposed than the public homepage
+  - Already filtered to reading interests — better quality candidates than homepage
+  - Feed and Topics tabs sit next to Bookmarks in the For You nav
 
 ---
 
@@ -363,13 +370,15 @@ Col 3: 14 Day Total — 3 swim-lane bars, AI% adjacent, summary below
 
 ### 7 April 2026 (Session 46 continued — Economist scraper overhaul)
 
-**Economist bookmark scraper — two root cause fixes:**
+**Economist bookmark scraper — three root cause fixes:**
 
-1. **Wrong selector scope (commit 7442f5b4):**
-   - BUG: `soup.select("a[href*='/20']")` scanned entire HTML document including nav/header/footer
-   - Nav links appear earlier in DOM than bookmark cards → scraper processed them first
-   - This caused apparently random early exits that missed genuine new bookmarks
-   - FIX: `_main = soup.find("main") or soup` then `_main.select(...)` — scopes to content only
+1. **Wrong selector scope (commit 7442f5b4 + c410a6de):**
+   - BUG: `soup.select("a[href*='/20']")` scanned entire HTML document
+   - The For You nav (Feed / Topics / Bookmarks tabs) contains dated article links that appear
+     earlier in the DOM than the actual bookmark cards, corrupting iteration order entirely
+   - FIX: scope to `<main>` first; if `<main>` empty (JS-rendered), strip nav/header elements
+   - Bookmark page order is newest-saved first — new bookmarks ARE at the top visually,
+     but nav DOM links were being processed before them
 
 2. **Aggressive early-exit (commit 8ebb4ffa):**
    - BUG: stopped at the FIRST existing article, never looking further
@@ -377,8 +386,8 @@ Col 3: 14 Day Total — 3 swim-lane bars, AI% adjacent, summary below
    - Same pattern as ForeignAffairsScraper which had always used 3-consecutive
 
 **Confirmed missing bookmarks:** Audit against Alex's bookmark page showed 8/29 articles missing.
-All 8 at positions 1-7 and 9, which were new bookmarks the scraper had never seen due to the
-selector scope bug. Will be ingested at next successful Economist sync.
+All 8 were new bookmarks (newest-saved, at top of page) missed due to the selector scope bug.
+Will be ingested at next successful Economist sync.
 
 **Cloudflare session poisoning:** Multiple manual sync attempts during Session 46 caused Cloudflare
 to challenge the economist_profile session. Profile needs ~30-60 min to recover. Scheduled syncs
