@@ -332,8 +332,11 @@ Col 3: 14 Day Total — 3 swim-lane bars, AI% adjacent, summary below
 4. **Third sync window (~17:40)** — Easy addition to launchd
 5. **FA homepage AI scoring** — Add Playwright homepage pass using fa_profile
 6. **Economist homepage scoring** — Currently works within single browser session with 8-15s pause.
-   Monitor whether Cloudflare continues to block. Alternative: probe /latest or section pages
-   instead of homepage (less bot-targeted).
+   Monitor whether Cloudflare continues to block.
+   **Better alternative: use /for-you/feed or /for-you/topics instead of homepage.**
+   These are personalised, logged-in pages based on reading history — already filtered to interests,
+   far less bot-targeted than the public homepage, and in the same authenticated session as bookmarks.
+   Feed and Topics tabs visible in the For You nav adjacent to Bookmarks tab.
 7. **Newsletter push connection reset** — Reduce batch size from 67 to 20/batch
 
 ### 🟡 Briefing Generator
