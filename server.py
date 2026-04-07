@@ -1001,75 +1001,67 @@ class EconomistScraper:
                     log.info(f"Economist bookmark: '{title[:60]}'")
                 log.info(f"Economist: {len(articles)} new bookmark articles")
 
-                # ── Step 2: Pull from homepage, score, keep only >=8 (agent picks) ─
-                # Human-like pause between navigations to reduce Cloudflare detection risk
+                # ── Step 2: Pull from /for-you/topics — personalised, authenticated ─
+                # Much lower Cloudflare risk than public homepage.
+                # The page is Next.js SSR: article data is embedded as JSON in __next_f
+                # script tags, not in HTML card elements. Parse it directly.
                 import random as _random
-                _pause = _random.randint(8000, 15000)
-                log.info(f"Economist: pausing {_pause}ms before homepage")
+                _pause = _random.randint(3000, 6000)
+                log.info(f"Economist: pausing {_pause}ms before Topics page")
                 page.wait_for_timeout(_pause)
-                log.info("Economist: opening homepage for agent picks")
-                page.goto("https://www.economist.com", wait_until="domcontentloaded", timeout=45000)
-                page.wait_for_timeout(4000)
+                log.info("Economist: opening /for-you/topics for agent picks")
+                page.goto("https://www.economist.com/for-you/topics", wait_until="domcontentloaded", timeout=45000)
+                page.wait_for_timeout(5000)
 
-                # Click Load more a few times to get more articles
-                for _ in range(5):
-                    try:
-                        btn = (
-                            page.locator("button[data-test-id='load-more']").first
-                            if page.locator("button[data-test-id='load-more']").count() > 0
-                            else page.locator("button").filter(has_text="Load more").first
-                            if page.locator("button").filter(has_text="Load more").count() > 0
-                            else None
-                        )
-                        if btn is None: break
-                        btn.click()
-                        page.wait_for_timeout(2000)
-                    except Exception as _e:
-                        break
-
-                soup = BeautifulSoup(page.content(), "html.parser")
-                seen_urls = bookmark_urls.copy()
                 homepage_candidates = []  # (url, title)
-                for a in soup.select("a[href*='/20']"):
-                    href = a.get("href", "")
-                    if not re.search(r'/\d{4}/\d{2}/\d{2}/', href): continue
-                    url = ("https://www.economist.com" + href if href.startswith("/") else href).split("?")[0]
-                    if url in seen_urls: continue
-                    if article_exists(make_id(self.name, url)): continue
-                    title = ""
-                    parent = a.parent
-                    for _ in range(4):
-                        if parent is None: break
-                        heading = parent.select_one("h3, h2, [class*='headline'], [class*='title']")
-                        if heading:
-                            title = heading.get_text(strip=True); break
-                        parent = parent.parent
-                    if not title: title = a.get_text(strip=True)
-                    if not title or len(title) < 20: continue
-                    if len(title.split()) <= 4: continue
-                    if is_junk(url, title): continue
-                    seen_urls.add(url)
-                    homepage_candidates.append((url, title))
+                try:
+                    # Extract embedded __next_f JSON payload from page source
+                    _page_src = page.content()
+                    # Find all __next_f.push([1,"...  chunks that contain article data
+                    # The topics data is in the chunk starting with "2f:{"data":
+                    _chunks = re.findall(r'self\.__next_f\.push\(\[1,"((?:[^"\\]|\\.)*)"\]\)', _page_src)
+                    _combined = ""
+                    for chunk in _chunks:
+                        _combined += chunk.encode().decode('unicode_escape')
+
+                    # Find the 2f: data block which contains topic articles
+                    _m = re.search(r'2f:(\{.*\})', _combined, re.DOTALL)
+                    if _m:
+                        _topics_data = json.loads(_m.group(1))
+                        _seen_topics_urls = bookmark_urls.copy()
+                        for _topic in _topics_data.get("data", []):
+                            _topic_name = _topic.get("name", "")
+                            for _art in _topic.get("articles", []):
+                                _url_path = _art.get("url", "")
+                                if not _url_path: continue
+                                _url = "https://www.economist.com" + _url_path if _url_path.startswith("/") else _url_path
+                                _url = _url.split("?")[0]
+                                _title = _art.get("headline", "")
+                                if not _title or len(_title) < 15: continue
+                                if _url in _seen_topics_urls: continue
+                                if article_exists(make_id(self.name, _url)): continue
+                                if is_junk(_url, _title): continue
+                                # Skip podcasts (identity=podcast)
+                                if _art.get("identity") == "podcast": continue
+                                _seen_topics_urls.add(_url)
+                                homepage_candidates.append((_url, _title, _topic_name))
+                        log.info(f"Economist: {len(homepage_candidates)} Topics candidates (from {_topics_data.get('meta',{}).get('item',{}).get('overall_total',0)} total)")
+                    else:
+                        log.warning("Economist: could not find 2f: data block in Topics page source")
+                except Exception as _te:
+                    log.warning(f"Economist: Topics page extraction failed: {_te}")
 
                 log.info(f"Economist: {len(homepage_candidates)} homepage candidates to score")
 
                 if homepage_candidates:
                     # Score with Claude — only keep >=8 (these become auto_saved=1)
-                    with sqlite3.connect(DB_PATH) as _cx:
-                        _rows = _cx.execute("SELECT topic, tags FROM articles ORDER BY saved_at DESC LIMIT 100").fetchall()
-                    topic_counts = {}
-                    for _r in _rows:
-                        if _r[0]: topic_counts[_r[0]] = topic_counts.get(_r[0], 0) + 1
-                        try:
-                            for _t in json.loads(_r[1] or "[]"): topic_counts[_t] = topic_counts.get(_t, 0) + 1
-                        except: pass
-                    top_interests = ", ".join(sorted(topic_counts, key=lambda x: -topic_counts[x])[:12]) or "geopolitics, economics, finance, markets"
-                    titles_str = json.dumps([{"title": t.replace("\u2019", "'").replace("\u2018", "'"), "url": u} for u, t in homepage_candidates], ensure_ascii=True)
+                    titles_str = json.dumps([{"title": t.replace("\u2019", "'").replace("\u2018", "'"), "url": u, "topic": tp} for u, t, tp in homepage_candidates], ensure_ascii=True)
                     score_prompt = (
-                        f"You are scoring Economist articles for a senior analyst. Interests: {top_interests}. "
+                        "You are scoring Economist articles for a senior analyst. "
+                        "These articles come from topics the analyst personally follows. "
                         "Score 0-10 strictly. 9-10: essential geopolitics/war/markets/energy/diplomacy/central banking. "
-                        "7-8: highly relevant business/finance/politics. 5-6: moderate. 0-4: lifestyle/health/culture/sport/science. "
-                        "Only articles scoring >=8 will be added to the feed as auto-selected. Be selective. "
+                        "7-8: highly relevant business/finance/politics. 5-6: moderate. 0-4: lifestyle/culture/sport/light science. "
+                        "Only articles scoring >=8 will be added to the feed as auto-selected. Be selective — most should score 5-7. "
                         f"Articles: {titles_str} "
                         'Respond ONLY with a JSON array (same order): [{"score":8,"reason":"one sentence"}]'
                     )
@@ -1089,24 +1081,24 @@ class EconomistScraper:
                         score_match = re.search(r'\[[\s\S]*\]', _eco_clean)
                         if score_match:
                             scores = json.loads(score_match.group(0))
-                            for i, (url, title) in enumerate(homepage_candidates):
+                            for i, (url, title, topic_name) in enumerate(homepage_candidates):
                                 if i >= len(scores): break
                                 score = scores[i].get("score", 0)
                                 reason = scores[i].get("reason", "")
                                 if score >= 8:
                                     art_id = make_id(self.name, url)
                                     art = {"id": art_id, "source": self.name, "url": url, "title": title,
-                                           "body": "", "summary": reason, "topic": "", "tags": "[]",
+                                           "body": "", "summary": reason, "topic": topic_name, "tags": "[]",
                                            "saved_at": now_ts(), "fetched_at": now_ts(),
                                            "status": "title_only", "pub_date": extract_pub_date_from_url(url),
-                                           "auto_saved": 1}  # 1 = agent selected
+                                           "auto_saved": 1}  # 1 = agent selected from Topics
                                     articles.append(art)
-                                    log.info(f"Economist agent pick (score {score}): '{title[:55]}'")
-                            log.info(f"Economist: {sum(1 for a in articles if a.get('auto_saved')==1)} agent picks from homepage")
+                                    log.info(f"Economist agent pick (score {score}, topic={topic_name}): '{title[:50]}'")
+                            log.info(f"Economist: {sum(1 for a in articles if a.get('auto_saved')==1)} agent picks from Topics")
                         else:
-                            log.warning("Economist: could not parse homepage scores")
+                            log.warning("Economist: could not parse Topics scores")
                     except Exception as _se:
-                        log.warning(f"Economist: homepage scoring failed: {_se}")
+                        log.warning(f"Economist: Topics scoring failed: {_se}")
 
                 log.info(f"Economist: total {len(articles)} articles (bookmarks + agent picks)")
 
