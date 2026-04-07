@@ -955,7 +955,18 @@ class EconomistScraper:
 
                 # Scope to <main> only — avoids nav/header/footer links that appear
                 # earlier in the DOM than the actual bookmark cards and corrupt ordering.
+                # The For You nav (Feed / Topics / Bookmarks tabs) contains date links
+                # that appear before bookmark cards in DOM order.
+                # Fallback: if <main> has no date links (JS-rendered page), use full soup.
                 _main = soup.find("main") or soup
+                _main_links = [a for a in _main.select("a[href*='/20']")
+                               if re.search(r'/\d{4}/\d{2}/\d{2}/', a.get("href",""))]
+                # If <main> scoping found nothing but full doc has links, fall back carefully
+                # by excluding the nav element
+                if not _main_links:
+                    for _nav in soup.select("nav, header, [class*='navigation'], [class*='nav-']"):
+                        _nav.decompose()
+                    _main = soup
                 for a in _main.select("a[href*='/20']"):
                     href = a.get("href", "")
                     if not re.search(r'/\d{4}/\d{2}/\d{2}/', href): continue
