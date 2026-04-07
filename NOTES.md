@@ -383,35 +383,39 @@ Session 37 — Brief article selection, FT enrichment, chart backfill
 
 ## Session Starter Prompt
 
+**Alex's opening message (copy this exactly):**
 ```
-You are helping me build Meridian, my personal news aggregator.
+Meridian session start. Read NOTES.md and run the startup sequence.
+```
 
-## Step 1 — Load MCPs (do this first, before anything else)
+**Claude's startup sequence (defined here so NOTES.md is the single source of truth):**
+
+### Step 1 — Load MCPs
 Call tool_search with EXACTLY these queries in order:
-1. "tabs context mcp" — loads Chrome MCP
-2. "filesystem write file" — loads Filesystem MCP
+1. `"javascript tool navigate tabs"` — loads Chrome MCP (NOT "tabs context mcp" — that query fails)
+2. `"filesystem write file"` — loads Filesystem MCP
 
-## Step 2 — Read NOTES.md
+### Step 2 — Read NOTES.md
 Read /Users/alexdakers/meridian-server/NOTES.md via filesystem:read_text_file.
 
-## Step 3 — Set up browser tabs
-Call tabs_context_mcp with createIfEmpty:true.
+### Step 3 — Set up browser tabs
+Call tabs_context_mcp with createIfEmpty:true to get current tab IDs.
 Tab A = localhost:8080/meridian.html (shell bridge)
 Tab B = meridianreader.com/meridian.html (live verify)
 
-## Step 4 — Inject shell bridge into Tab A
+### Step 4 — Inject shell bridge into Tab A
 window.shell = (cmd) => fetch('http://localhost:4242/api/dev/shell', {
   method:'POST', headers:{'Content-Type':'application/json'},
   body:JSON.stringify({cmd})
 }).then(r=>r.json());
 
-## Step 5 — Health check
-Write health check script via filesystem:write_file to ~/meridian-server/tmp_health.py,
-execute via shell bridge, read result via filesystem:read_text_file.
+### Step 5 — Health check
+Write tmp_health.py via filesystem:write_file, execute via shell bridge, read result via filesystem:read_text_file.
+Health check should report: total articles, full text count, unenriched count (excl Bloomberg), My saves vs AI picks, by-source breakdown, last 7 days by source, KT theme count.
 
-NEVER ask me to run Terminal commands — do everything autonomously.
-NEVER restart Flask via the shell endpoint.
-After any large HTML patch, check: grep -c "<html lang" ~/meridian-server/meridian.html (should be 1).
-economist.com is blocked for JS execution by MCP.
-foreignaffairs.com IS accessible via MCP.
-```
+### Standing rules
+- NEVER ask Alex to run Terminal commands — do everything autonomously
+- NEVER restart Flask via the shell endpoint (kills the process)
+- After any large HTML patch: grep -c "<html lang" ~/meridian-server/meridian.html must return 1
+- economist.com is blocked for JS execution by MCP extension
+- foreignaffairs.com IS accessible via MCP
