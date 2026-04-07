@@ -717,6 +717,148 @@ class FTScraper:
                         enrich_article_with_ai(art)
                     else:
                         art["status"] = "title_only"
+                # ── Step 2: Homepage agent picks ────────────────────────────────────
+                log.info("FT: opening homepage for agent picks")
+                page.goto("https://www.ft.com", wait_until="domcontentloaded", timeout=45000)
+                page.wait_for_timeout(3000)
+
+                hp_soup = BeautifulSoup(page.content(), "html.parser")
+                # Remove nav/header to avoid duplicate nav links
+                for _nav in hp_soup.select("header, [class*='o-header'], nav"):
+                    _nav.decompose()
+
+                JUNK_URL_PATHS_FT = ("/podcasts/", "/newsletters/", "/video/", "/htsi/", "/house-home/",
+                                     "/life-arts/", "/travel/", "/food-drink/", "/style/")
+                JUNK_PREFIXES_FT = ("FT quiz:", "Letter:", "FTAV's further reading", "FT News Briefing",
+                                    "Correction:", "The best books", "Crossword", "How to spend it",
+                                    "Behind the Money", "FT Weekend")
+                JUNK_SUBSTRINGS_FT = (" live:", " as it happened", "live blog", "in pictures")
+
+                def _ft_is_junk(url, title):
+                    if any(p in url for p in JUNK_URL_PATHS_FT): return True
+                    if any(title.startswith(p) for p in JUNK_PREFIXES_FT): return True
+                    if any(s in title.lower() for s in JUNK_SUBSTRINGS_FT): return True
+                    return False
+
+                # Already-known URLs (from saved list pass above + DB)
+                known_urls = {a["url"] for a in articles}
+
+                hp_candidates = []
+                seen_hp = set()
+                for h in hp_soup.select("div.headline, [class*='js-teaser-headline']"):
+                    a_tag = h.select_one("a[href*='/content/']")
+                    if not a_tag:
+                        continue
+                    href = a_tag.get("href", "")
+                    url = ("https://www.ft.com" + href if href.startswith("/") else href).split("?")[0]
+                    if url in seen_hp or url in known_urls:
+                        continue
+                    if article_exists(make_id("Financial Times", url)):
+                        continue  # already in DB — saved by user or previous AI pick; skip
+                    seen_hp.add(url)
+
+                    # Title: span text, but strip "opinion content." accessibility prefix
+                    span = a_tag.select_one("span")
+                    raw_title = span.get_text(strip=True) if span else a_tag.get_text(strip=True)
+                    # Opinion cards prefix their span with "opinion content." — strip it
+                    if raw_title.lower().startswith("opinion content."):
+                        raw_title = raw_title[len("opinion content."):].strip()
+                    # If still no good title, check parent container for a full anchor text
+                    if len(raw_title) < 15:
+                        container = h.parent
+                        for _ in range(4):
+                            if not container:
+                                break
+                            for lnk in container.select("a[href*='/content/']"):
+                                lt = lnk.get_text(strip=True)
+                                if lt.lower().startswith("opinion content."):
+                                    lt = lt[len("opinion content."):].strip()
+                                if len(lt) > 15 and lnk.get("href","").rstrip("/").split("/")[-1] in url:
+                                    raw_title = lt
+                                    break
+                            if len(raw_title) >= 15:
+                                break
+                            container = container.parent if container else None
+
+                    # Strip FT section prefixes that bleed into title
+                    # e.g. "The Big Read.Title" / "Interview.Title" / "The FT View.Title"
+                    _FT_SECTION_PREFIXES = (
+                        "The Big Read.", "Interview.", "The FT View.", "Analysis.",
+                        "Opinion.", "Explainer.", "Special Report.", "Long Read.",
+                    )
+                    for _pfx in _FT_SECTION_PREFIXES:
+                        if raw_title.startswith(_pfx):
+                            raw_title = raw_title[len(_pfx):].strip()
+                            break
+
+                    title = raw_title.strip()
+                    if len(title) < 15:
+                        continue
+                    if _ft_is_junk(url, title):
+                        continue
+
+                    hp_candidates.append((url, title))
+
+                log.info(f"FT: {len(hp_candidates)} homepage candidates to score")
+
+                if hp_candidates:
+                    # Build interest profile (same as Economist)
+                    with sqlite3.connect(DB_PATH) as _cx:
+                        _rows = _cx.execute("SELECT topic, tags FROM articles ORDER BY saved_at DESC LIMIT 100").fetchall()
+                    topic_counts = {}
+                    for _r in _rows:
+                        if _r[0]: topic_counts[_r[0]] = topic_counts.get(_r[0], 0) + 1
+                        try:
+                            for _t in json.loads(_r[1] or "[]"):
+                                topic_counts[_t] = topic_counts.get(_t, 0) + 1
+                        except: pass
+                    top_interests = ", ".join(sorted(topic_counts, key=lambda x: -topic_counts[x])[:12]) or "geopolitics, economics, finance, markets"
+
+                    titles_str = json.dumps([{"title": t, "url": u} for u, t in hp_candidates], ensure_ascii=True)
+                    ft_score_prompt = (
+                        f"You are scoring FT articles for a senior analyst. Interests: {top_interests}. "
+                        "Score 0-10 strictly. 9-10: essential geopolitics/war/sanctions/markets/energy/diplomacy/central banking. "
+                        "7-8: highly relevant business/finance/politics. 5-6: moderate. 0-4: lifestyle/health/culture/sport/science/technology. "
+                        "Only articles scoring >=8 will be added to the feed as AI picks. Be selective. "
+                        f"Articles: {titles_str} "
+                        'Respond ONLY with a JSON array (same order): [{"score":8,"reason":"one sentence"}]'
+                    )
+                    try:
+                        score_data = call_anthropic({"model": "claude-haiku-4-5-20251001", "max_tokens": 800,
+                            "messages": [{"role": "user", "content": ft_score_prompt}]})
+                        score_text = "".join(b.get("text","") for b in score_data.get("content",[]) if b.get("type")=="text")
+                        # Strip markdown fences
+                        _ft_clean = score_text.strip()
+                        if _ft_clean.startswith("```"):
+                            _ft_clean = _ft_clean.split("```", 2)[1]
+                            if _ft_clean.startswith("json"):
+                                _ft_clean = _ft_clean[4:]
+                            _ft_clean = _ft_clean.rsplit("```", 1)[0].strip()
+                        score_match = re.search(r'\[[\s\S]*\]', _ft_clean)
+                        if score_match:
+                            scores = json.loads(score_match.group(0))
+                            ai_picks = 0
+                            for i, (url, title) in enumerate(hp_candidates):
+                                if i >= len(scores): break
+                                score = scores[i].get("score", 0)
+                                reason = scores[i].get("reason", "")
+                                if score >= 8:
+                                    art_id = make_id("Financial Times", url)
+                                    art = {"id": art_id, "source": "Financial Times", "url": url,
+                                           "title": title, "body": "", "summary": reason,
+                                           "topic": "", "tags": "[]",
+                                           "saved_at": now_ts(), "fetched_at": now_ts(),
+                                           "status": "title_only", "pub_date": "",
+                                           "auto_saved": 1}
+                                    articles.append(art)
+                                    ai_picks += 1
+                                    log.info(f"FT agent pick (score {score}): '{title[:55]}'")
+                            log.info(f"FT: {ai_picks} agent picks from homepage")
+                        else:
+                            log.warning(f"FT: could not parse homepage scores — raw: {score_text[:200]}")
+                    except Exception as _se:
+                        log.warning(f"FT: homepage scoring failed: {_se}")
+
             except Exception as e: log.error(f"FT error: {e}", exc_info=True)
             finally: browser.close()
         return articles
