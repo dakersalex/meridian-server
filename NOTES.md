@@ -413,6 +413,11 @@ window.shell = (cmd) => fetch('http://localhost:4242/api/dev/shell', {
 Write tmp_health.py via filesystem:write_file, execute via shell bridge, read result via filesystem:read_text_file.
 Health check should report: total articles, full text count, unenriched count (excl Bloomberg), My saves vs AI picks, by-source breakdown, last 7 days by source, KT theme count.
 
+CRITICAL — Last scraped check: Query MAX(saved_at) per source and compare to today's date (Geneva time).
+If FT or Economist show >1 day ago AND current time is after 07:00 Geneva, flag as SCRAPE FAILURE — morning sync likely did not run.
+FA showing >2 days is worth noting. Bloomberg is manual-only, ignore.
+Report last scraped as: "Today", "Yesterday", "Xd ago" with a WARNING if FT/Economist missed today.
+
 ### Standing rules
 - NEVER ask Alex to run Terminal commands — do everything autonomously
 - NEVER restart Flask via the shell endpoint (kills the process)
