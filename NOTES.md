@@ -1,5 +1,5 @@
 # Meridian — Technical Notes
-Last updated: 6 April 2026 (Session 45 — major bug fixes, data backfill, stats panel redesign)
+Last updated: 7 April 2026 (Session 46 — curation model overhaul, FT homepage AI picks)
 
 ## Overview
 Personal news aggregator. Flask API + SQLite backend running on Hetzner VPS (always-on).
@@ -72,15 +72,15 @@ These diffs get stashed and re-applied on subsequent deploys, crashing Flask.
 Fix: always use `git reset --hard HEAD && git pull` (not `git stash && git pull`) on VPS.
 TODO: add `git reset --hard HEAD` to deploy.sh before the pull step to prevent this permanently.
 
-## Database (6 April 2026 — VPS after Session 45 backfill)
+## Database (7 April 2026 — Mac after Session 46)
 | Source | Total | Full text |
 |---|---|---|
-| The Economist | 306 | ~270 |
-| Financial Times | 191 | ~185 |
-| Foreign Affairs | 61 | 59 |
+| The Economist | 306 | ~271 |
+| Financial Times | 188 | ~179 |
+| Foreign Affairs | 61 | 60 |
 | Bloomberg | 38 | 37 |
-| Other | ~51 | — |
-| **Total** | **~647** | **~603** |
+| Other | ~19 | ~8 |
+| **Total** | **~612** | **~555** |
 
 VPS is the canonical DB. Mac local DB may differ slightly.
 
@@ -101,16 +101,36 @@ Use whichever date is shown on the actual article page.
 
 ---
 
-## Curation Classification — IMPORTANT
-`auto_saved` is the single source of truth for AI pick vs My save:
-- `auto_saved=1` = AI pick (scored ≥8 by Haiku on FT/Economist homepage)
-- `auto_saved=0` = My save (manually saved by user, or any FA/Bloomberg article)
+## Curation Classification — IMPORTANT (revised Session 46)
 
-### FA and Bloomberg — NEVER auto_saved=1
-FA: scraper reads saved articles page only — all FA articles must be auto_saved=0 (My saves).
-Bloomberg: manual Chrome extension only — all Bloomberg articles must be auto_saved=0.
-`score_and_autosave` only scores `source IN ('Financial Times', 'The Economist')`.
-Session 45: 14 FA articles incorrectly marked auto_saved=1 — all reset to 0.
+`auto_saved` is the single source of truth for AI pick vs My save:
+- `auto_saved=1` = AI pick — article found on source homepage, scored ≥8 by Haiku, NOT in DB at time of scrape
+- `auto_saved=0` = My save — article came from user's saved/bookmark list on that source
+
+### Core principle (decided Session 46)
+**AI picks come exclusively from homepage scraping. My saves come exclusively from saved lists.**
+These are fully independent pipelines. The AI never re-scores articles from saved lists.
+
+**auto_saved=1 is permanent.** If the AI picked an article first (found on homepage, scored ≥8), it
+retains auto_saved=1 forever — even if the user later saves it manually. Being saved later is
+confirmation of quality, not a reclassification.
+
+**Homepage scraper skip rule:** If a homepage candidate URL already exists in the DB (user saved it
+first, or previous AI pick), skip it entirely — no DB write, no auto_saved change.
+
+### Per-source rules
+- **FT:** saved list scraper → auto_saved=0. Homepage scraper → auto_saved=1 if ≥8 and not in DB.
+- **Economist:** bookmarks → auto_saved=0. Homepage → auto_saved=1 if ≥8 and not in DB. (unchanged)
+- **FA:** saved articles page only — ALL auto_saved=0. No homepage scoring yet.
+- **Bloomberg:** manual Chrome extension only — ALL auto_saved=0.
+
+### What was removed (Session 46)
+- `score_and_autosave_new_articles()` removed from post-sync pipeline — was retrospectively scoring
+  saved-list articles and promoting them to auto_saved=1. This violated the curation model.
+  The function still exists in server.py as dead code but is never called.
+- FT demotion logic removed — scraper no longer flips auto_saved=1→0 when article found in saved list.
+- 38 FT articles (Mac) and 43 FT articles (VPS) reset from auto_saved=1→0: none were homepage-sourced,
+  all were promoted by score_and_autosave from saved list. Clean break.
 
 ### FA AI picks — future plan
 To add AI picking for FA, need to:
@@ -121,10 +141,37 @@ FA homepage is JS-rendered — need Playwright, not DOM scraping.
 
 ---
 
+## FT Homepage Scraping (added Session 46)
+
+FT homepage is accessible logged-in via ft_profile (headless=True).
+Structure: `div.headline.js-teaser-headline` contains `a[href*="/content/"]` with `<span>` title text.
+
+**Title extraction rules:**
+- Opinion cards: span text starts with "opinion content." — strip this prefix
+- Section prefix cards: "The Big Read.", "Interview.", "The FT View.", "Analysis." etc — strip prefix
+- Fallback: walk up to parent container and find full anchor text for the same URL
+
+**Junk URL paths excluded:** /podcasts/, /newsletters/, /video/, /htsi/, /house-home/, /life-arts/,
+/travel/, /food-drink/, /style/
+
+**Junk title prefixes excluded:** FT quiz:, Letter:, FTAV's further reading, FT News Briefing,
+Correction:, The best books, Crossword, How to spend it, Behind the Money, FT Weekend
+
+**Scoring:** Same Haiku model, same ≥8 threshold, same interest profile as Economist homepage.
+JSON fence stripping applied (same pattern as all other scoring calls).
+
+**article_exists guard:** Uses `make_id("Financial Times", url)` = SHA1[:16] — correctly identifies
+articles already in DB from saved list, preventing duplicates.
+
+---
+
 ## Sync Architecture
 ### Mac → VPS (wake_and_sync.sh)
 1. Playwright scrapers (FT, Economist, FA)
-2. AI enrichment of title-only articles
+   - FT: reads saved list (auto_saved=0) + homepage AI picks (auto_saved=1)
+   - Economist: reads bookmarks (auto_saved=0) + homepage AI picks (auto_saved=1)
+   - FA: reads saved articles only (auto_saved=0)
+2. AI enrichment of title-only articles (enrich_title_only_articles)
 3. Newsletter IMAP sync from iCloud
 4. Push articles → /api/push-articles
 5. Push images → /api/push-images
@@ -260,18 +307,19 @@ All gitignored. Clean up at end of session: `rm -f tmp_*.txt tmp_*.py`
 ## Source-Specific Notes
 
 ### Financial Times
-- Scraper: Playwright, `ft_profile/`
-- Agent picks: FT homepage scored by Haiku ≥8 → auto_saved=1
-- FT scraper demotes auto_saved=1→0 if article found in myFT saved list
-- score_and_autosave has AND auto_saved=0 guard
+- Scraper: Playwright, `ft_profile/`, headless=True
+- Step 1: reads myFT saved articles → auto_saved=0
+- Step 2: reads FT homepage → scores with Haiku ≥8 → auto_saved=1 for new articles not in DB
+- Homepage structure: `div.headline.js-teaser-headline` → `a[href*="/content/"]` → `span` title
+- make_id = SHA1(source:url)[:16]
 
 ### The Economist
-- Scraper: Playwright, `economist_profile/`, headless=False required
+- Scraper: Playwright, `economist_profile/`, headless=False required (Cloudflare)
 - Edition drops Tue/Thu/Sat
 - pub_date: URL date is ground truth (/YYYY/MM/DD/)
-- Bookmark page dates are print edition dates — NOT used
+- Step 1: bookmarks → auto_saved=0
+- Step 2: homepage → scores with Haiku ≥8 → auto_saved=1 for new articles
 - Cloudflare blocks headless — only warmed persistent profile works
-- Homepage scoring: Haiku ≥8 → auto_saved=1
 
 ### Foreign Affairs
 - Scraper: Playwright, `fa_profile/`
@@ -279,7 +327,6 @@ All gitignored. Clean up at end of session: `rm -f tmp_*.txt tmp_*.py`
 - Reads saved articles page only — ALL FA articles are My saves (auto_saved=0)
 - No homepage AI scoring (yet) — see FA AI picks plan above
 - FA homepage is JS-rendered, needs Playwright for scraping
-- Session 45: 14 FA articles incorrectly marked AI pick — all fixed to My save
 
 ### Bloomberg
 - Manual Chrome extension clip only — all My saves (auto_saved=0)
@@ -304,66 +351,78 @@ All gitignored. Clean up at end of session: `rm -f tmp_*.txt tmp_*.py`
 
 ### 🔴 Ingestion / Sync
 4. **Third sync window (~17:40)** — Easy addition to launchd
-5. **FA homepage AI scoring** — Add Playwright homepage pass using fa_profile (logged in). FA homepage is JS-rendered. Score with Haiku ≥8 → auto_saved=1. Do NOT add without homepage scraping.
-6. **Economist pub_date scraper fix** — Scraper currently uses URL date which IS correct per policy. No fix needed.
+5. **FA homepage AI scoring** — Add Playwright homepage pass using fa_profile (logged in).
+   FA homepage is JS-rendered. Score with Haiku ≥8 → auto_saved=1.
+   Do NOT add without homepage scraping first.
+6. **Issue 2: Economist profile lock** — enrichment opens economist_profile ~90s after scraper closes it.
+   Sometimes profile lock not yet released → enrichment fails silently. Options: increase sleep to 180s
+   in wake_and_sync.sh (simplest), or add SingletonLock check with retry.
+7. **Issue 3: Newsletter push connection reset** — batch size 67 may exceed nginx limit. Reduce to 20/batch.
 
 ### 🟡 Briefing Generator
-7. **Charts not referenced in briefing prose**
-8. **Data points need date anchors**
-9. **Briefing source section detail grid**
+8. **Charts not referenced in briefing prose**
+9. **Data points need date anchors**
+10. **Briefing source section detail grid**
 
 ### 🟡 UI / Frontend
-10. **Newsletter + Suggested sections — match Feed design**
-11. **Sort KT theme articles by relevance**
-12. **Sub-topics filtering — implement or remove**
+11. **Newsletter + Suggested sections — match Feed design**
+12. **Sort KT theme articles by relevance**
+13. **Sub-topics filtering — implement or remove**
 
 ### 🟡 Enrichment / Data
-13. **FT enrichment backfill** — Some FT articles still unenriched
-14. **KT tag-new wiring into VPS scheduler**
+14. **FT enrichment backfill** — Some FT articles still unenriched
+15. **KT tag-new wiring into VPS scheduler**
 
 ### 🟢 Maintenance / Watch
-15. **FA cookie renewal** — Drupal cookie expires 2026-05-23
-16. **Points of Return newsletter gap** — Check iCloud forwarding rule
-17. **Bloomberg ingestion** — Check clipping still works
-18. **Clean up tmp_*.py / tmp_*.txt files**
+16. **FA cookie renewal** — Drupal cookie expires 2026-05-23
+17. **Points of Return newsletter gap** — Check iCloud forwarding rule
+18. **Bloomberg ingestion** — Check clipping still works
+19. **score_and_autosave_new_articles()** — Dead code in server.py, safe to delete in future cleanup
 
 ---
 
 ## Build History
 
+### 7 April 2026 (Session 46 — curation model overhaul, FT homepage AI picks)
+
+**Curation model clarified and enforced:**
+- AI picks come from homepage scraping only — never from retrospective scoring of saved lists
+- auto_saved=1 is permanent — AI pick status never overwritten even if user saves later
+- Homepage scraper skips articles already in DB (saved first by user or previous AI pick)
+- Documented as the canonical model in NOTES.md
+
+**score_and_autosave bug fixes:**
+- Markdown fence stripping added to score_and_autosave JSON parse (was silently failing)
+- Raw response now logged on parse failure for diagnosis
+
+**Pipeline changes:**
+- score_and_autosave_new_articles() removed from _enrich_after_sync — no longer called post-sync
+- FT demotion logic removed from FTScraper (was flipping auto_saved=1→0 for saved articles)
+
+**Economist homepage scoring:**
+- Markdown fence stripping added to Economist homepage score_text parse
+
+**DB cleanup:**
+- Mac: 38 FT articles reset auto_saved=1→0 (all were score_and_autosave promotions, not homepage picks)
+- VPS: 43 FT articles reset auto_saved=1→0
+
+**FT homepage scraping — new feature:**
+- FT homepage scraped after saved-list pass within FTScraper.scrape()
+- Selectors: div.headline.js-teaser-headline → a[href*="/content/"] → span text
+- Opinion prefix stripping: "opinion content." stripped from span text
+- Section prefix stripping: "The Big Read.", "Interview.", "The FT View.", etc.
+- Junk URL/title filtering (podcasts, newsletters, lifestyle, live blogs)
+- Scores with Haiku ≥8 → auto_saved=1, saves as title_only for enrichment
+- article_exists() guard prevents duplicating articles already saved by user
+- Committed: b023f177, deployed Mac + VPS
+
+**Log findings (04-07 sync):**
+- score_and_autosave parse failure (34 articles unscored) — root cause confirmed, fixed above
+- Economist profile lock during enrichment — documented as Issue 6, not yet fixed
+- Newsletter push connection reset — documented as Issue 7, not yet fixed
+
 ### 6 April 2026 (Session 45 — major bug fixes, data backfill, stats redesign)
-
-**Critical: meridian_sync.py 415 bug fixed** — broken 11 days, 549 articles bulk-pushed to VPS
-
-**Curation classification fixes:**
-- auto_saved is single source of truth everywhere
-- FA: all 14 incorrectly marked AI picks reset to My saves (on Mac and VPS directly)
-- score_and_autosave: confirmed FA/Bloomberg excluded, clarifying comment added
-- FT scraper: demotes auto_saved=1→0 when found in myFT saved list
-- score_and_autosave: AND auto_saved=0 guard added
-
-**Economist bookmark backfill (62 bookmarks total):**
-- 52 corrected in earlier pass (19 missing, 16 wrong dates, 5 wrong curation)
-- 10 more from second page paste: 2 missing inserted, 4 date fixes confirmed correct (URL date policy)
-- URL date = ground truth for Economist (decided and documented)
-
-**FA investigation:**
-- All 36 FA saved articles confirmed in DB
-- 3 "ghost" FA articles kept — likely older saves that scrolled off FA page
-- FA homepage is JS-rendered, sparse via DOM scraping — needs Playwright for future AI scoring
-- FA saved articles page accessible via MCP (foreignaffairs.com not blocked)
-
-**Stats panel Row 1 — full redesign:**
-- Col 1: "Library" — single column, 150px fixed, Total/My saves/AI picks/Full text with right-aligned %
-- Col 2: Swim lanes — LANE_H=40, LANE_GAP=20, HTML div, hover tooltips, shared scale
-- Col 3: "14 Day Total" — 3 swim-lane bars, AI% adjacent to bar, summary (total+AI%) below
-- Grid: 150px 1fr 1fr, overflow:visible, min-width:860px
-- Tooltip: dark grey #444 bg, all white text, overflow:visible on all containers
-- Source labels: Economist (not Eco)
-
-**VPS stash poisoning — cleared** — git stash clear, recovered via direct SSH python3 fix
-
-**Bloomberg health check fix** — Haiku system prompt excludes Bloomberg from all analysis
+See previous NOTES.md for full Session 45 details.
 
 ### Previous sessions
 Session 44 — AI health check fully operational
