@@ -908,6 +908,7 @@ class EconomistScraper:
                 bookmark_urls = set()
                 soup = BeautifulSoup(page.content(), "html.parser")
                 found_existing = False
+                consecutive_existing = 0
 
                 # Known Economist section labels — these appear as link text but are NOT article titles
                 SECTION_LABELS = {
@@ -960,8 +961,13 @@ class EconomistScraper:
                     art_id = make_id(self.name, url)
                     if art_id in bookmark_urls: continue
                     if article_exists(art_id):
-                        log.info("Economist: hit existing bookmark, stopping")
-                        found_existing = True; break
+                        consecutive_existing += 1
+                        log.info(f"Economist: hit existing bookmark ({consecutive_existing}/3), continuing")
+                        if consecutive_existing >= 3:
+                            log.info("Economist: 3 consecutive existing bookmarks — stopping")
+                            found_existing = True; break
+                        continue
+                    consecutive_existing = 0  # reset on any new article
                     bookmark_urls.add(art_id)
 
                     title = extract_bookmark_title(a, url)
