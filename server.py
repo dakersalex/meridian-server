@@ -717,148 +717,6 @@ class FTScraper:
                         enrich_article_with_ai(art)
                     else:
                         art["status"] = "title_only"
-                # ── Step 2: Homepage agent picks ────────────────────────────────────
-                log.info("FT: opening homepage for agent picks")
-                page.goto("https://www.ft.com", wait_until="domcontentloaded", timeout=45000)
-                page.wait_for_timeout(3000)
-
-                hp_soup = BeautifulSoup(page.content(), "html.parser")
-                # Remove nav/header to avoid duplicate nav links
-                for _nav in hp_soup.select("header, [class*='o-header'], nav"):
-                    _nav.decompose()
-
-                JUNK_URL_PATHS_FT = ("/podcasts/", "/newsletters/", "/video/", "/htsi/", "/house-home/",
-                                     "/life-arts/", "/travel/", "/food-drink/", "/style/")
-                JUNK_PREFIXES_FT = ("FT quiz:", "Letter:", "FTAV's further reading", "FT News Briefing",
-                                    "Correction:", "The best books", "Crossword", "How to spend it",
-                                    "Behind the Money", "FT Weekend")
-                JUNK_SUBSTRINGS_FT = (" live:", " as it happened", "live blog", "in pictures")
-
-                def _ft_is_junk(url, title):
-                    if any(p in url for p in JUNK_URL_PATHS_FT): return True
-                    if any(title.startswith(p) for p in JUNK_PREFIXES_FT): return True
-                    if any(s in title.lower() for s in JUNK_SUBSTRINGS_FT): return True
-                    return False
-
-                # Already-known URLs (from saved list pass above + DB)
-                known_urls = {a["url"] for a in articles}
-
-                hp_candidates = []
-                seen_hp = set()
-                for h in hp_soup.select("div.headline, [class*='js-teaser-headline']"):
-                    a_tag = h.select_one("a[href*='/content/']")
-                    if not a_tag:
-                        continue
-                    href = a_tag.get("href", "")
-                    url = ("https://www.ft.com" + href if href.startswith("/") else href).split("?")[0]
-                    if url in seen_hp or url in known_urls:
-                        continue
-                    if article_exists(make_id("Financial Times", url)):
-                        continue  # already in DB — saved by user or previous AI pick; skip
-                    seen_hp.add(url)
-
-                    # Title: span text, but strip "opinion content." accessibility prefix
-                    span = a_tag.select_one("span")
-                    raw_title = span.get_text(strip=True) if span else a_tag.get_text(strip=True)
-                    # Opinion cards prefix their span with "opinion content." — strip it
-                    if raw_title.lower().startswith("opinion content."):
-                        raw_title = raw_title[len("opinion content."):].strip()
-                    # If still no good title, check parent container for a full anchor text
-                    if len(raw_title) < 15:
-                        container = h.parent
-                        for _ in range(4):
-                            if not container:
-                                break
-                            for lnk in container.select("a[href*='/content/']"):
-                                lt = lnk.get_text(strip=True)
-                                if lt.lower().startswith("opinion content."):
-                                    lt = lt[len("opinion content."):].strip()
-                                if len(lt) > 15 and lnk.get("href","").rstrip("/").split("/")[-1] in url:
-                                    raw_title = lt
-                                    break
-                            if len(raw_title) >= 15:
-                                break
-                            container = container.parent if container else None
-
-                    # Strip FT section prefixes that bleed into title
-                    # e.g. "The Big Read.Title" / "Interview.Title" / "The FT View.Title"
-                    _FT_SECTION_PREFIXES = (
-                        "The Big Read.", "Interview.", "The FT View.", "Analysis.",
-                        "Opinion.", "Explainer.", "Special Report.", "Long Read.",
-                    )
-                    for _pfx in _FT_SECTION_PREFIXES:
-                        if raw_title.startswith(_pfx):
-                            raw_title = raw_title[len(_pfx):].strip()
-                            break
-
-                    title = raw_title.strip()
-                    if len(title) < 15:
-                        continue
-                    if _ft_is_junk(url, title):
-                        continue
-
-                    hp_candidates.append((url, title))
-
-                log.info(f"FT: {len(hp_candidates)} homepage candidates to score")
-
-                if hp_candidates:
-                    # Build interest profile (same as Economist)
-                    with sqlite3.connect(DB_PATH) as _cx:
-                        _rows = _cx.execute("SELECT topic, tags FROM articles ORDER BY saved_at DESC LIMIT 100").fetchall()
-                    topic_counts = {}
-                    for _r in _rows:
-                        if _r[0]: topic_counts[_r[0]] = topic_counts.get(_r[0], 0) + 1
-                        try:
-                            for _t in json.loads(_r[1] or "[]"):
-                                topic_counts[_t] = topic_counts.get(_t, 0) + 1
-                        except: pass
-                    top_interests = ", ".join(sorted(topic_counts, key=lambda x: -topic_counts[x])[:12]) or "geopolitics, economics, finance, markets"
-
-                    titles_str = json.dumps([{"title": t, "url": u} for u, t in hp_candidates], ensure_ascii=True)
-                    ft_score_prompt = (
-                        f"You are scoring FT articles for a senior analyst. Interests: {top_interests}. "
-                        "Score 0-10 strictly. 9-10: essential geopolitics/war/sanctions/markets/energy/diplomacy/central banking. "
-                        "7-8: highly relevant business/finance/politics. 5-6: moderate. 0-4: lifestyle/health/culture/sport/science/technology. "
-                        "Only articles scoring >=8 will be added to the feed as AI picks. Be selective. "
-                        f"Articles: {titles_str} "
-                        'Respond ONLY with a JSON array (same order): [{"score":8,"reason":"one sentence"}]'
-                    )
-                    try:
-                        score_data = call_anthropic({"model": "claude-haiku-4-5-20251001", "max_tokens": 800,
-                            "messages": [{"role": "user", "content": ft_score_prompt}]})
-                        score_text = "".join(b.get("text","") for b in score_data.get("content",[]) if b.get("type")=="text")
-                        # Strip markdown fences
-                        _ft_clean = score_text.strip()
-                        if _ft_clean.startswith("```"):
-                            _ft_clean = _ft_clean.split("```", 2)[1]
-                            if _ft_clean.startswith("json"):
-                                _ft_clean = _ft_clean[4:]
-                            _ft_clean = _ft_clean.rsplit("```", 1)[0].strip()
-                        score_match = re.search(r'\[[\s\S]*\]', _ft_clean)
-                        if score_match:
-                            scores = json.loads(score_match.group(0))
-                            ai_picks = 0
-                            for i, (url, title) in enumerate(hp_candidates):
-                                if i >= len(scores): break
-                                score = scores[i].get("score", 0)
-                                reason = scores[i].get("reason", "")
-                                if score >= 8:
-                                    art_id = make_id("Financial Times", url)
-                                    art = {"id": art_id, "source": "Financial Times", "url": url,
-                                           "title": title, "body": "", "summary": reason,
-                                           "topic": "", "tags": "[]",
-                                           "saved_at": now_ts(), "fetched_at": now_ts(),
-                                           "status": "title_only", "pub_date": "",
-                                           "auto_saved": 1}
-                                    articles.append(art)
-                                    ai_picks += 1
-                                    log.info(f"FT agent pick (score {score}): '{title[:55]}'")
-                            log.info(f"FT: {ai_picks} agent picks from homepage")
-                        else:
-                            log.warning(f"FT: could not parse homepage scores — raw: {score_text[:200]}")
-                    except Exception as _se:
-                        log.warning(f"FT: homepage scoring failed: {_se}")
-
             except Exception as e: log.error(f"FT error: {e}", exc_info=True)
             finally: browser.close()
         return articles
@@ -1001,106 +859,8 @@ class EconomistScraper:
                     log.info(f"Economist bookmark: '{title[:60]}'")
                 log.info(f"Economist: {len(articles)} new bookmark articles")
 
-                # ── Step 2: Pull from /for-you/topics — personalised, authenticated ─
-                # Much lower Cloudflare risk than public homepage.
-                # The page is Next.js SSR: article data is embedded as JSON in __next_f
-                # script tags, not in HTML card elements. Parse it directly.
-                import random as _random
-                _pause = _random.randint(3000, 6000)
-                log.info(f"Economist: pausing {_pause}ms before Topics page")
-                page.wait_for_timeout(_pause)
-                log.info("Economist: opening /for-you/topics for agent picks")
-                page.goto("https://www.economist.com/for-you/topics", wait_until="domcontentloaded", timeout=45000)
-                page.wait_for_timeout(5000)
+                log.info(f"Economist: total {len(articles)} articles (bookmarks only)")
 
-                homepage_candidates = []  # (url, title)
-                try:
-                    # Extract embedded __next_f JSON payload from page source
-                    _page_src = page.content()
-                    # Find all __next_f.push([1,"...  chunks that contain article data
-                    # The topics data is in the chunk starting with "2f:{"data":
-                    _chunks = re.findall(r'self\.__next_f\.push\(\[1,"((?:[^"\\]|\\.)*)"\]\)', _page_src)
-                    _combined = ""
-                    for chunk in _chunks:
-                        _combined += chunk.encode().decode('unicode_escape')
-
-                    # Find the 2f: data block which contains topic articles
-                    _m = re.search(r'2f:(\{.*\})', _combined, re.DOTALL)
-                    if _m:
-                        _topics_data = json.loads(_m.group(1))
-                        _seen_topics_urls = bookmark_urls.copy()
-                        for _topic in _topics_data.get("data", []):
-                            _topic_name = _topic.get("name", "")
-                            for _art in _topic.get("articles", []):
-                                _url_path = _art.get("url", "")
-                                if not _url_path: continue
-                                _url = "https://www.economist.com" + _url_path if _url_path.startswith("/") else _url_path
-                                _url = _url.split("?")[0]
-                                _title = _art.get("headline", "")
-                                if not _title or len(_title) < 15: continue
-                                if _url in _seen_topics_urls: continue
-                                if article_exists(make_id(self.name, _url)): continue
-                                if is_junk(_url, _title): continue
-                                # Skip podcasts (identity=podcast)
-                                if _art.get("identity") == "podcast": continue
-                                _seen_topics_urls.add(_url)
-                                homepage_candidates.append((_url, _title, _topic_name))
-                        log.info(f"Economist: {len(homepage_candidates)} Topics candidates (from {_topics_data.get('meta',{}).get('item',{}).get('overall_total',0)} total)")
-                    else:
-                        log.warning("Economist: could not find 2f: data block in Topics page source")
-                except Exception as _te:
-                    log.warning(f"Economist: Topics page extraction failed: {_te}")
-
-                log.info(f"Economist: {len(homepage_candidates)} homepage candidates to score")
-
-                if homepage_candidates:
-                    # Score with Claude — only keep >=8 (these become auto_saved=1)
-                    titles_str = json.dumps([{"title": t.replace("\u2019", "'").replace("\u2018", "'"), "url": u, "topic": tp} for u, t, tp in homepage_candidates], ensure_ascii=True)
-                    score_prompt = (
-                        "You are scoring Economist articles for a senior analyst. "
-                        "These articles come from topics the analyst personally follows. "
-                        "Score 0-10 strictly. 9-10: essential geopolitics/war/markets/energy/diplomacy/central banking. "
-                        "7-8: highly relevant business/finance/politics. 5-6: moderate. 0-4: lifestyle/culture/sport/light science. "
-                        "Only articles scoring >=8 will be added to the feed as auto-selected. Be selective — most should score 5-7. "
-                        f"Articles: {titles_str} "
-                        'Respond ONLY with a JSON array (same order): [{"score":8,"reason":"one sentence"}]'
-                    )
-                    try:
-                        score_data = call_anthropic({"model": "claude-haiku-4-5-20251001", "max_tokens": 800,
-                            "messages": [{"role": "user", "content": score_prompt}]})
-                        score_text = "".join(b.get("text","") for b in score_data.get("content",[]) if b.get("type")=="text")
-                        # Strip markdown fences if Haiku wraps response
-                        _eco_clean = score_text.strip()
-                        if _eco_clean.startswith("```"):
-                            _eco_clean = _eco_clean.split("```", 2)[1]
-                            if _eco_clean.startswith("json"):
-                                _eco_clean = _eco_clean[4:]
-                            _eco_clean = _eco_clean.rsplit("```", 1)[0].strip()
-                        else:
-                            _eco_clean = score_text
-                        score_match = re.search(r'\[[\s\S]*\]', _eco_clean)
-                        if score_match:
-                            scores = json.loads(score_match.group(0))
-                            for i, (url, title, topic_name) in enumerate(homepage_candidates):
-                                if i >= len(scores): break
-                                score = scores[i].get("score", 0)
-                                reason = scores[i].get("reason", "")
-                                if score >= 8:
-                                    art_id = make_id(self.name, url)
-                                    art = {"id": art_id, "source": self.name, "url": url, "title": title,
-                                           "body": "", "summary": reason, "topic": topic_name, "tags": "[]",
-                                           "saved_at": now_ts(), "fetched_at": now_ts(),
-                                           "status": "title_only", "pub_date": extract_pub_date_from_url(url),
-                                           "auto_saved": 1}  # 1 = agent selected from Topics
-                                    articles.append(art)
-                                    log.info(f"Economist agent pick (score {score}, topic={topic_name}): '{title[:50]}'")
-                            log.info(f"Economist: {sum(1 for a in articles if a.get('auto_saved')==1)} agent picks from Topics")
-                        else:
-                            log.warning("Economist: could not parse Topics scores")
-                    except Exception as _se:
-                        log.warning(f"Economist: Topics scoring failed: {_se}")
-
-                log.info(f"Economist: total {len(articles)} articles (bookmarks + agent picks)")
 
                 # Enrich all new articles as title_only — full text fetched later
                 new_arts = [a for a in articles if not article_exists(a["id"])]
@@ -1740,133 +1500,209 @@ def fetch_interview_meta():
 # ── Suggested Articles ────────────────────────────────────────────────────────
 
 
-def scrape_ft_most_read(limit=8):
-    """Scrape FT most-read using logged-in Playwright profile."""
-    if not PLAYWRIGHT_OK:
-        return []
-    profile_dir = BASE_DIR / "ft_profile"
-    if not profile_dir.exists():
-        return []
-    articles = []
-    try:
-        with sync_playwright() as p:
-            browser = p.chromium.launch_persistent_context(
-                str(profile_dir), headless=True,
-                user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-                args=["--disable-blink-features=AutomationControlled"])
-            page = browser.new_page()
+
+def ai_pick_web_search():
+    """Find AI picks for all 4 trusted sources + external high-quality sources via
+    Claude web_search. No Playwright — no Cloudflare risk.
+
+    Trusted sources (Economist, FT, Foreign Affairs, Bloomberg):
+      score >=8  -> articles table, auto_saved=1 (Feed, immediate)
+      score 6-7  -> suggested_articles table (Suggested inbox)
+
+    External sources (Al Jazeera, Brookings, Foreign Policy, RAND, etc.):
+      all results -> suggested_articles table (Suggested inbox)
+    """
+    import urllib.request as _ur
+    import json as _j
+    import time as _time2
+
+    api_key = load_creds().get("anthropic_api_key", "")
+    if not api_key:
+        log.warning("AI pick web search: no API key")
+        return [], []
+
+    # Build interest profile from recent saves
+    with sqlite3.connect(DB_PATH) as _cx:
+        _rows = _cx.execute("SELECT topic, tags FROM articles ORDER BY saved_at DESC LIMIT 150").fetchall()
+        saved_urls = set(r[0] for r in _cx.execute("SELECT url FROM articles WHERE url!=''").fetchall())
+        suggested_urls = set(r[0] for r in _cx.execute("SELECT url FROM suggested_articles WHERE url!=''").fetchall())
+    all_known_urls = saved_urls | suggested_urls
+
+    topic_counts = {}
+    for _r in _rows:
+        if _r[0]: topic_counts[_r[0]] = topic_counts.get(_r[0], 0) + 1
+        try:
+            for _t2 in _j.loads(_r[1] or "[]"):
+                topic_counts[_t2] = topic_counts.get(_t2, 0) + 1
+        except: pass
+    interests = ", ".join(sorted(topic_counts, key=lambda x: -topic_counts[x])[:15]) or "geopolitics, economics, finance, markets"
+    log.info(f"AI pick web search: interests = {interests[:80]}")
+
+    TRUSTED_DOMAINS = ["economist.com", "ft.com", "foreignaffairs.com", "bloomberg.com"]
+
+    def _is_trusted_url(url):
+        return any(d in url for d in TRUSTED_DOMAINS)
+
+    def _run_agentic_search(prompt, max_attempts=6):
+        messages = [{"role": "user", "content": prompt}]
+        for attempt in range(max_attempts):
+            payload = _j.dumps({
+                "model": "claude-sonnet-4-6",
+                "max_tokens": 2500,
+                "tools": [{"type": "web_search_20250305", "name": "web_search"}],
+                "messages": messages
+            }).encode()
+            req = _ur.Request(
+                "https://api.anthropic.com/v1/messages",
+                data=payload,
+                headers={"Content-Type": "application/json", "x-api-key": api_key,
+                         "anthropic-version": "2023-06-01"},
+                method="POST"
+            )
             try:
-                # Homepage has 186 article links when logged in; most-read page returns 0
-                page.goto("https://www.ft.com", wait_until="domcontentloaded", timeout=20000)
-                page.wait_for_timeout(3000)
-                soup = BeautifulSoup(page.content(), "html.parser")
-                seen = set()
-                for a in soup.select("a[href*='/content/']"):
-                    title = a.get_text(strip=True)
-                    href = a.get("href", "")
-                    if not title or len(title) < 10: continue
-                    url = ("https://www.ft.com" + href if href.startswith("/") else href).split("?")[0]
-                    if url in seen: continue
-                    seen.add(url)
-                    articles.append({"source": "Financial Times", "title": title, "url": url})
-                    if len(articles) >= limit: break
-                log.info(f"Suggested: FT most-read scraped {len(articles)} articles")
-            finally:
-                browser.close()
-    except Exception as e:
-        log.warning(f"Suggested: FT Playwright error: {e}")
-    return articles
+                with _ur.urlopen(req, timeout=60) as resp:
+                    data = _j.loads(resp.read())
+            except Exception as e:
+                log.warning(f"AI pick web search: attempt {attempt+1} failed: {e}")
+                break
+            stop_reason = data.get("stop_reason", "")
+            blocks = data.get("content", [])
+            messages.append({"role": "assistant", "content": blocks})
+            if stop_reason == "end_turn":
+                return "".join(b.get("text","") for b in blocks if b.get("type")=="text")
+            if stop_reason == "tool_use":
+                tool_results = [{"type": "tool_result", "tool_use_id": b["id"], "content": "Search completed."}
+                                for b in blocks if b.get("type") == "tool_use"]
+                if tool_results:
+                    messages.append({"role": "user", "content": tool_results})
+            else:
+                break
+        log.warning("AI pick web search: agentic loop exhausted")
+        return ""
 
+    def _parse_json_array(text):
+        text = text.strip()
+        if text.startswith("```"):
+            text = text.split("```", 2)[1]
+            if text.startswith("json"): text = text[4:]
+            text = text.rsplit("```", 1)[0].strip()
+        m = re.search(r'\[[\s\S]*\]', text)
+        return _j.loads(m.group(0)) if m else []
 
-def scrape_economist_most_read(limit=8):
-    """Scrape Economist most-read using logged-in Playwright profile.
-    Tries 3 URLs in order: most-read page, /latest, homepage.
-    Uses headless=False to avoid Cloudflare challenge pages."""
-    if not PLAYWRIGHT_OK:
-        return []
-    profile_dir = BASE_DIR / "economist_profile"
-    if not profile_dir.exists():
-        return []
-    _clear_stale_profile_lock(profile_dir)
+    feed_articles = []
+    suggested_out = []
 
-    # Known Economist section paths — used to validate article URLs
-    SECTION_PATHS = (
-        "/briefing/", "/leaders/", "/finance-and-economics/", "/united-states/",
-        "/china/", "/middle-east-and-africa/", "/asia/", "/europe/", "/britain/",
-        "/international/", "/business/", "/science-and-technology/", "/culture/",
-        "/graphic-detail/", "/the-world-ahead/", "/special-report/",
+    # Search 1: Trusted sources
+    i1 = interests[:80]
+    i2 = interests[:60]
+    trusted_prompt = (
+        "You are finding the most important recent articles for a senior intelligence analyst. "
+        f"Their key interests: {interests}. "
+        "Search for the latest articles (last 7 days) from ONLY these four sources: "
+        "The Economist (economist.com), Financial Times (ft.com), "
+        "Foreign Affairs (foreignaffairs.com), Bloomberg (bloomberg.com). "
+        "Do THREE searches: "
+        f"1. site:economist.com OR site:ft.com {i1} last 7 days "
+        f"2. site:foreignaffairs.com OR site:bloomberg.com {i1} last 7 days "
+        f"3. {i2} geopolitics analysis site:economist.com OR site:ft.com "
+        "Find 4-6 articles per search. Exclude: podcasts, newsletters, live blogs, quizzes, recipes, sport, obituaries, crosswords. "
+        "Score each article 0-10 for relevance to the analyst interests. "
+        "9-10: essential (geopolitics, war, sanctions, central banking, energy crisis, major diplomacy). "
+        "7-8: highly relevant (business strategy, finance, politics, economics). "
+        "5-6: moderate. 0-4: lifestyle, culture, non-strategic science. "
+        "Be SELECTIVE — most articles should score 5-7. Only exceptional pieces score 9-10. "
+        "Respond ONLY with a JSON array sorted by score descending: "
+        '[{"title":"...","url":"...","source":"The Economist","score":8,"reason":"one sentence","pub_date":"6 April 2026"}]'
     )
-    SKIP_PATHS = (
-        "/podcasts/", "/newsletters/", "/events/", "/shop/", "/subscribe",
-        "/login", "/register", "/search", "/topics/", "/authors/",
+    log.info("AI pick web search: searching trusted sources...")
+    trusted_text = _run_agentic_search(trusted_prompt)
+    if trusted_text:
+        try:
+            trusted_results = _parse_json_array(trusted_text)
+            log.info(f"AI pick web search: {len(trusted_results)} trusted candidates found")
+            for art in trusted_results:
+                url = art.get("url", "").split("?")[0]
+                title = art.get("title", "")
+                score = art.get("score", 0)
+                source = art.get("source", "")
+                reason = art.get("reason", "")
+                pub_date = art.get("pub_date", "")
+                if not url or not title or len(title) < 10: continue
+                if url in all_known_urls: continue
+                if not _is_trusted_url(url): continue
+                all_known_urls.add(url)
+                art_id = make_id(source or "The Economist", url)
+                if score >= 8:
+                    feed_articles.append({
+                        "id": art_id, "source": source, "url": url, "title": title,
+                        "body": "", "summary": reason, "topic": "", "tags": "[]",
+                        "saved_at": now_ts(), "fetched_at": now_ts(),
+                        "status": "title_only", "pub_date": pub_date,
+                        "auto_saved": 1
+                    })
+                    log.info(f"AI pick -> Feed (score {score}, {source}): '{title[:60]}'")
+                elif score >= 6:
+                    suggested_out.append({
+                        "title": title, "url": url, "source": source,
+                        "score": score, "reason": reason, "pub_date": pub_date
+                    })
+                    log.info(f"AI pick -> Suggested (score {score}, {source}): '{title[:60]}'")
+        except Exception as e:
+            log.warning(f"AI pick web search: could not parse trusted results: {e}")
+    else:
+        log.warning("AI pick web search: no trusted results returned")
+
+    _time2.sleep(3)
+
+    # Search 2: External high-quality sources
+    external_prompt = (
+        "You are finding articles for a senior intelligence analyst. "
+        f"Their key interests: {interests}. "
+        "Search for the latest articles (last 7 days) from ONLY these high-quality sources: "
+        "Al Jazeera English (aljazeera.com), Brookings Institution (brookings.edu), "
+        "Foreign Policy (foreignpolicy.com), RAND Corporation (rand.org), "
+        "Atlantic Council (atlanticcouncil.org), Carnegie Endowment (carnegieendowment.org), "
+        "Council on Foreign Relations (cfr.org), Chatham House (chathamhouse.org), "
+        "Project Syndicate (project-syndicate.org), War on the Rocks (warontherocks.com). "
+        "Do TWO searches: "
+        f"1. {i1} analysis last 7 days brookings OR foreignpolicy OR cfr OR rand "
+        f"2. {i1} aljazeera OR atlanticcouncil OR carnegie OR chathamhouse last 7 days "
+        "Find 4-6 articles per search. Only substantive analytical pieces, not short news briefs. "
+        "Exclude: press releases, job postings, events listings, podcasts. "
+        "Score each article 0-10 for relevance to the analyst interests. "
+        "Respond ONLY with a JSON array sorted by score descending: "
+        '[{"title":"...","url":"...","source":"Brookings Institution","score":7,"reason":"one sentence","pub_date":"5 April 2026"}]'
     )
+    log.info("AI pick web search: searching external sources...")
+    external_text = _run_agentic_search(external_prompt)
+    if external_text:
+        try:
+            external_results = _parse_json_array(external_text)
+            log.info(f"AI pick web search: {len(external_results)} external candidates found")
+            for art in external_results:
+                url = art.get("url", "").split("?")[0]
+                title = art.get("title", "")
+                score = art.get("score", 0)
+                source = art.get("source", "")
+                reason = art.get("reason", "")
+                pub_date = art.get("pub_date", "")
+                if not url or not title or len(title) < 10: continue
+                if url in all_known_urls: continue
+                if _is_trusted_url(url): continue
+                all_known_urls.add(url)
+                suggested_out.append({
+                    "title": title, "url": url, "source": source,
+                    "score": score, "reason": reason, "pub_date": pub_date
+                })
+                log.info(f"AI pick -> Suggested/external (score {score}, {source}): '{title[:60]}'")
+        except Exception as e:
+            log.warning(f"AI pick web search: could not parse external results: {e}")
+    else:
+        log.warning("AI pick web search: no external results returned")
 
-    def extract_articles(soup, seen, limit):
-        """Extract valid article links from soup — strict selector."""
-        results = []
-        # Target anchor tags that contain a headline element or are inside article cards
-        for a in soup.select("a[href]"):
-            href = a.get("href", "")
-            if not href: continue
-            url = ("https://www.economist.com" + href if href.startswith("/") else href).split("?")[0]
-            # Must be economist.com
-            if "economist.com" not in url: continue
-            # Must be a known section path or year-based URL
-            path = url.replace("https://www.economist.com", "")
-            is_section = any(path.startswith(s) for s in SECTION_PATHS)
-            is_dated = "/20" in path and len(path) > 15
-            if not (is_section or is_dated): continue
-            # Skip non-article paths
-            if any(skip in path for skip in SKIP_PATHS): continue
-            # Skip very short paths (section index pages like /china)
-            if len(path.strip("/").split("/")) < 2: continue
-            if url in seen: continue
-            title = a.get_text(strip=True)
-            # Title must be meaningful — not a nav label
-            if not title or len(title) < 15: continue
-            # Skip if title looks like a section label (all caps, very short)
-            if title.isupper() and len(title) < 30: continue
-            seen.add(url)
-            results.append({"source": "The Economist", "title": title, "url": url})
-            if len(results) >= limit: break
-        return results
+    log.info(f"AI pick web search complete: {len(feed_articles)} -> Feed, {len(suggested_out)} -> Suggested")
+    return feed_articles, suggested_out
 
-    articles = []
-    try:
-        _clear_stale_profile_lock(profile_dir)
-        with sync_playwright() as p:
-            browser = p.chromium.launch_persistent_context(
-                str(profile_dir), headless=False,
-                user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-                args=["--disable-blink-features=AutomationControlled"])
-            page = browser.new_page()
-            seen = set()
-            try:
-                urls_to_try = [
-                    ("most-read", "https://www.economist.com/most-read"),
-                    ("latest",    "https://www.economist.com/latest"),
-                    ("homepage",  "https://www.economist.com"),
-                ]
-                for label, url in urls_to_try:
-                    if len(articles) >= 3:
-                        break
-                    try:
-                        log.info(f"Suggested: Economist trying {label}")
-                        page.goto(url, wait_until="domcontentloaded", timeout=20000)
-                        page.wait_for_timeout(3000)
-                        soup = BeautifulSoup(page.content(), "html.parser")
-                        found = extract_articles(soup, seen, limit - len(articles))
-                        articles.extend(found)
-                        log.info(f"Suggested: Economist {label} yielded {len(found)} articles (total {len(articles)})")
-                    except Exception as e:
-                        log.warning(f"Suggested: Economist {label} failed: {e}")
-                        continue
-            finally:
-                browser.close()
-    except Exception as e:
-        log.warning(f"Suggested: Economist Playwright error: {e}")
-    log.info(f"Suggested: Economist scraped {len(articles)} articles total")
-    return articles
 
 def extract_pub_date_from_url(url):
     """Extract publication date from URL patterns used by FT, Economist, FA."""
@@ -1891,17 +1727,24 @@ def scrape_suggested_articles():
         rows = cx.execute("SELECT topic, tags FROM articles ORDER BY saved_at DESC LIMIT 100").fetchall()
         saved_urls = set(r[0] for r in cx.execute("SELECT url FROM articles WHERE url!=''").fetchall())
 
-    # Scrape FT and Economist via logged-in Playwright (runs in background threads)
+    # Run unified AI pick web search (replaces Playwright scraping)
+    # Returns (feed_articles, suggested_articles)
+    _feed_picks, _suggested_picks = ai_pick_web_search()
+    if _feed_picks:
+        with sqlite3.connect(DB_PATH) as _cx:
+            for _fp in _feed_picks:
+                if not article_exists(_fp['id']):
+                    _cx.execute(
+                        'INSERT OR IGNORE INTO articles '
+                        '(id,source,url,title,body,summary,topic,tags,saved_at,fetched_at,status,pub_date,auto_saved) '
+                        'VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
+                        (_fp['id'],_fp['source'],_fp['url'],_fp['title'],_fp['body'],
+                         _fp['summary'],_fp['topic'],_fp['tags'],_fp['saved_at'],
+                         _fp['fetched_at'],_fp['status'],_fp['pub_date'],1)
+                    )
+        log.info(f"Suggested: saved {len(_feed_picks)} AI picks -> Feed")
     ft_results = []
     eco_results = []
-    import threading as _threading
-    ft_thread = _threading.Thread(target=lambda: ft_results.extend(scrape_ft_most_read(8)))
-    eco_thread = _threading.Thread(target=lambda: eco_results.extend(scrape_economist_most_read(8)))
-    ft_thread.start()
-    eco_thread.start()
-    ft_thread.join(timeout=45)
-    eco_thread.join(timeout=45)
-    log.info(f"Suggested: Playwright got {len(ft_results)} FT, {len(eco_results)} Economist")
     topic_counts = {}
     for row in rows:
         if row[0]: topic_counts[row[0]] = topic_counts.get(row[0],0) + 1
@@ -1911,6 +1754,14 @@ def scrape_suggested_articles():
         except: pass
     top_interests = sorted(topic_counts, key=lambda x: -topic_counts[x])[:15]
     interests_str = ", ".join(top_interests) if top_interests else "geopolitics, economics, finance, markets"
+
+    # Seed suggested results from ai_pick_web_search (already run above)
+    _initial_suggested = [
+        {'title': a['title'], 'url': a['url'], 'source': a['source'],
+         'score': a.get('score', 6), 'reason': a.get('reason', ''),
+         'pub_date': a.get('pub_date', '')}
+        for a in _suggested_picks
+    ]
 
     # Build negative signal from dismissed suggested articles
     avoid_counts = {}
@@ -2014,6 +1865,12 @@ def scrape_suggested_articles():
                 results = json.loads(json_match.group(0))
                 results = [a for a in results if a.get("url","") not in saved_urls and a.get("title","")]
                 log.info(f"Suggested: Claude found {len(results)} articles via web search")
+                _seen_in_results = set(a.get('url','') for a in results)
+                for _ip in _initial_suggested:
+                    if _ip['url'] not in _seen_in_results and _ip['url'] not in saved_urls:
+                        results.append(_ip)
+                        _seen_in_results.add(_ip['url'])
+                log.info(f"Suggested: {len(results)} total after merging web search + AI picks")
                 # Score FT/Economist via Claude (same quality as web search results)
                 seen_urls = set(a['url'] for a in results)
                 playwright_arts = [a for a in ft_results + eco_results
