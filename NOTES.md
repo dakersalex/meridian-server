@@ -1,5 +1,5 @@
 # Meridian — Technical Notes
-Last updated: 7 April 2026 (Session 46 — curation model overhaul, FT homepage AI picks)
+Last updated: 7 April 2026 (Session 46 continued — Economist scraper overhaul)
 
 ## Overview
 Personal news aggregator. Flask API + SQLite backend running on Hetzner VPS (always-on).
@@ -82,6 +82,9 @@ TODO: add `git reset --hard HEAD` to deploy.sh before the pull step to prevent t
 | Other | ~19 | ~8 |
 | **Total** | **~612** | **~555** |
 
+Note: 8 Economist bookmarks confirmed missing from DB (scraper bug, now fixed).
+They will be picked up at next successful sync.
+
 VPS is the canonical DB. Mac local DB may differ slightly.
 
 ---
@@ -111,57 +114,70 @@ Use whichever date is shown on the actual article page.
 **AI picks come exclusively from homepage scraping. My saves come exclusively from saved lists.**
 These are fully independent pipelines. The AI never re-scores articles from saved lists.
 
-**auto_saved=1 is permanent.** If the AI picked an article first (found on homepage, scored ≥8), it
-retains auto_saved=1 forever — even if the user later saves it manually. Being saved later is
-confirmation of quality, not a reclassification.
+**auto_saved=1 is permanent.** If the AI picked an article first, it retains auto_saved=1 even if
+the user later saves it manually. The saved-list scraper never downgrades auto_saved.
 
-**Homepage scraper skip rule:** If a homepage candidate URL already exists in the DB (user saved it
-first, or previous AI pick), skip it entirely — no DB write, no auto_saved change.
+**Homepage scraper skip rule:** If a homepage candidate URL already exists in the DB, skip it entirely.
 
 ### Per-source rules
-- **FT:** saved list scraper → auto_saved=0. Homepage scraper → auto_saved=1 if ≥8 and not in DB.
-- **Economist:** bookmarks → auto_saved=0. Homepage → auto_saved=1 if ≥8 and not in DB. (unchanged)
+- **FT:** saved list → auto_saved=0. Homepage → auto_saved=1 if ≥8 and not in DB.
+- **Economist:** bookmarks → auto_saved=0. Homepage → auto_saved=1 if ≥8 and not in DB.
 - **FA:** saved articles page only — ALL auto_saved=0. No homepage scoring yet.
 - **Bloomberg:** manual Chrome extension only — ALL auto_saved=0.
 
 ### What was removed (Session 46)
-- `score_and_autosave_new_articles()` removed from post-sync pipeline — was retrospectively scoring
-  saved-list articles and promoting them to auto_saved=1. This violated the curation model.
-  The function still exists in server.py as dead code but is never called.
-- FT demotion logic removed — scraper no longer flips auto_saved=1→0 when article found in saved list.
-- 38 FT articles (Mac) and 43 FT articles (VPS) reset from auto_saved=1→0: none were homepage-sourced,
-  all were promoted by score_and_autosave from saved list. Clean break.
-
-### FA AI picks — future plan
-To add AI picking for FA, need to:
-1. Add Playwright homepage pass for foreignaffairs.com using fa_profile
-2. Score visible articles with Haiku ≥8
-3. Only then set auto_saved=1 for FA articles
-FA homepage is JS-rendered — need Playwright, not DOM scraping.
+- `score_and_autosave_new_articles()` removed from post-sync pipeline
+- FT demotion logic removed
+- 38 FT (Mac) and 43 FT (VPS) articles reset from auto_saved=1→0
 
 ---
 
 ## FT Homepage Scraping (added Session 46)
 
-FT homepage is accessible logged-in via ft_profile (headless=True).
-Structure: `div.headline.js-teaser-headline` contains `a[href*="/content/"]` with `<span>` title text.
+FT homepage accessible logged-in via ft_profile (headless=True).
+Structure: `div.headline.js-teaser-headline` → `a[href*="/content/"]` → `<span>` title text.
 
-**Title extraction rules:**
-- Opinion cards: span text starts with "opinion content." — strip this prefix
-- Section prefix cards: "The Big Read.", "Interview.", "The FT View.", "Analysis." etc — strip prefix
-- Fallback: walk up to parent container and find full anchor text for the same URL
+**Title extraction:**
+- Opinion cards: strip "opinion content." prefix from span text
+- Section prefix cards: strip "The Big Read.", "Interview.", "The FT View.", "Analysis." etc.
 
-**Junk URL paths excluded:** /podcasts/, /newsletters/, /video/, /htsi/, /house-home/, /life-arts/,
-/travel/, /food-drink/, /style/
+**Junk filters:** /podcasts/, /newsletters/, /video/, /htsi/, /house-home/, /life-arts/, etc.
 
-**Junk title prefixes excluded:** FT quiz:, Letter:, FTAV's further reading, FT News Briefing,
-Correction:, The best books, Crossword, How to spend it, Behind the Money, FT Weekend
+**Scoring:** Haiku ≥8 → auto_saved=1. JSON fence stripping applied. article_exists() guard prevents dupes.
 
-**Scoring:** Same Haiku model, same ≥8 threshold, same interest profile as Economist homepage.
-JSON fence stripping applied (same pattern as all other scoring calls).
+---
 
-**article_exists guard:** Uses `make_id("Financial Times", url)` = SHA1[:16] — correctly identifies
-articles already in DB from saved list, preventing duplicates.
+## Economist Scraper — Current State (Session 46, commit 7442f5b4)
+
+### Bookmark pass (Step 1)
+- Opens economist_profile (headless=False — required for Cloudflare)
+- Navigates to /for-you/bookmarks
+- **Selector: `_main.select("a[href*='/20']")` where `_main = soup.find("main") or soup`**
+  - CRITICAL: must scope to `<main>` only. `soup.select(...)` on the full document returns
+    nav/header links that appear earlier in the DOM than the bookmark cards, corrupting order.
+- Early exit: stops after 3 CONSECUTIVE existing articles (not 1). Counter resets on any new article.
+  This allows new bookmarks to be found even when interspersed with already-known articles.
+
+### Cloudflare behaviour
+- The economist_profile normally passes Cloudflare (warm persistent session, headless=False)
+- Repeated rapid sync attempts within a session cause Cloudflare to challenge the profile
+- After Cloudflare challenges, the profile needs ~30-60 min to recover
+- Scheduled syncs (05:35, 11:35) work reliably because there's a long gap between attempts
+- Do NOT trigger multiple manual syncs in quick succession — it poisons the session
+
+### SingletonLock fix
+- `_clear_stale_profile_lock(profile_dir)` called before every economist_profile launch (5 sites)
+- Removes stale lock if no Chrome process owns the profile — prevents ProcessSingleton errors
+
+### Homepage pass (Step 2) — SINGLE BROWSER
+- Runs within the same persistent browser session after bookmarks
+- Random 8-15s pause between bookmark navigation and homepage navigation
+- Scores homepage candidates with Haiku ≥8 → auto_saved=1
+- NOTE: attempted fresh-context architecture (separate browser for homepage) but abandoned:
+  - `sync_playwright()` cannot be nested (asyncio conflict)
+  - headless=False opens visible Chrome windows that all hit Cloudflare
+  - Single-browser approach with delay is the correct solution
+- TODO: explore using Economist's /latest page or section pages as alternative to homepage
 
 ---
 
@@ -171,7 +187,7 @@ articles already in DB from saved list, preventing duplicates.
    - FT: reads saved list (auto_saved=0) + homepage AI picks (auto_saved=1)
    - Economist: reads bookmarks (auto_saved=0) + homepage AI picks (auto_saved=1)
    - FA: reads saved articles only (auto_saved=0)
-2. AI enrichment of title-only articles (enrich_title_only_articles)
+2. AI enrichment of title-only articles
 3. Newsletter IMAP sync from iCloud
 4. Push articles → /api/push-articles
 5. Push images → /api/push-images
@@ -182,11 +198,9 @@ Sync windows (Geneva time): 05:35 and 11:35.
 
 ### CRITICAL: Push script must include title_only articles
 The push script must include `status IN ('full_text','title_only','fetched','agent')`.
-Session 45: fixed after 415 bug recovery.
 
 ### meridian_sync.py — 415 bug (fixed Session 45)
-`requests.post('/api/sync')` had no Content-Type — Flask returned 415.
-Fix: added `json={}`. Was broken 11 days (Mar 26–Apr 6).
+`requests.post('/api/sync')` had no Content-Type — Flask returned 415. Fix: added `json={}`.
 
 ---
 
@@ -219,12 +233,11 @@ window.shell = (cmd) => fetch('http://localhost:4242/api/dev/shell', {
 - Pre-deploy check: `grep -c "<html lang" meridian.html` must return 1
 - Shell bridge filters output containing "api", "fetch" etc — write to tmp_*.txt
 - After any HTML patch, verify with grep for key element IDs
+- For file-to-file patches: write OLD and NEW to separate .txt files, read both in patch script
+  This avoids Python string escaping issues with quotes and regex characters.
 
 ### CRITICAL: Regex literals inside JS functions near backtick template literals
 Use `.split('x').join('y')` instead of regex literals.
-
-### CRITICAL: Single quotes inside single-quoted JS string literals
-Use double-quoted outer strings for HTML-building blocks.
 
 ### CRITICAL: Duplicate HTML bug prevention
 After any large patch: `grep -n "<!DOCTYPE\|<html lang" ~/meridian-server/meridian.html`
@@ -249,49 +262,17 @@ All gitignored. Clean up at end of session: `rm -f tmp_*.txt tmp_*.py`
 ```
 
 ### Stats Panel — Row 1 (final state after Session 45)
-
 **Grid: `150px 1fr 1fr` with `overflow:visible`, `min-width:860px`**
-
-**Col 1 — "Library" (150px fixed):**
-- Single column layout, no sub-columns
-- Title: "Library"
-- 647 / Articles (no %)
-- 560 / My saves / 87% (right-aligned, fixed 32px width)
-- 87 / AI picks / 13% (right-aligned, fixed 32px width)
-- Divider
-- 603 / Full text / 93% (right-aligned, fixed 32px width)
-- % figures are vertically centred alongside numbers (align-items:center)
-- JS populates: sp-total, sp-saves, sp-saves-pct, sp-ai, sp-ai-pct, sp-ft, sp-ft-pct
-
-**Col 2 — Swim lanes (1fr):**
-- HTML div layout (not SVG) — supports CSS :hover tooltips
-- LANE_H=40, TICK_H=16, LANE_GAP=20, YAW=72, bW=39, bG=3
-- Shared globalMax scale across all three source lanes
-- Total number above each bar (centred), no AI count below
-- Hover tooltip: dark grey bg (#444), all white text, shows date/Total/AI/My
-- Tooltip CSS injected into <head> as #sw-tip-style
-- overflow:visible on sp-row1, lane rows, and bars wrapper
-- Source labels: FT / Economist / FA at 11px bold (not Eco)
-- Legend: centred below chart
-
-**Col 3 — "14 Day Total" (1fr):**
-- 3 swim-lane-style bars: FT (blue #1e4d8c), Economist (dark red #8b1a1a), FA (green #2a7a5a)
-- LANE_H=40, TICK_H=16, LANE_GAP=20
-- 60px bar width, total centred above, AI% in source colour to right of bar on same line
-- globalMax shared across all 3 sources
-- No source labels — reads as continuation of Col 2
-- Summary below bars (after divider):
-  - Total count centred in 60px, label "Total" to right
-  - AI% centred in 60px, label "AI selected" to right
-- DOM: sp-split-bars, sp-split-summary
+Col 1: Library — Total/My saves/AI picks/Full text with right-aligned %
+Col 2: Swim lanes — LANE_H=40, LANE_GAP=20, HTML div, hover tooltips, shared scale
+Col 3: 14 Day Total — 3 swim-lane bars, AI% adjacent, summary below
 
 **Row 2** — 3 equal columns: By source / Full text coverage / By topic
 **Row 3** — 4 columns: Last scraped / Unenriched backlog / 7-day rate / Agent activity
 
 **AI Health Check (top of Stats panel):**
-- Bloomberg explicitly excluded from all health check analysis
-- max_tokens: 1800, brevity constraints in system prompt
-- DOM IDs: sp-health-row, sp-health-score, sp-health-summary, sp-health-issues
+- Bloomberg excluded from all health check analysis
+- max_tokens: 1800, DOM IDs: sp-health-row, sp-health-score, sp-health-summary, sp-health-issues
 
 ### Article card layout (Option 3 — fixed date column)
 ```
@@ -309,28 +290,26 @@ All gitignored. Clean up at end of session: `rm -f tmp_*.txt tmp_*.py`
 ### Financial Times
 - Scraper: Playwright, `ft_profile/`, headless=True
 - Step 1: reads myFT saved articles → auto_saved=0
-- Step 2: reads FT homepage → scores with Haiku ≥8 → auto_saved=1 for new articles not in DB
-- Homepage structure: `div.headline.js-teaser-headline` → `a[href*="/content/"]` → `span` title
+- Step 2: reads FT homepage → scores Haiku ≥8 → auto_saved=1 for new articles not in DB
+- Homepage structure: `div.headline.js-teaser-headline` → `a[href*="/content/"]` → `<span>` title
 - make_id = SHA1(source:url)[:16]
 
 ### The Economist
 - Scraper: Playwright, `economist_profile/`, headless=False required (Cloudflare)
 - Edition drops Tue/Thu/Sat
 - pub_date: URL date is ground truth (/YYYY/MM/DD/)
-- Step 1: bookmarks → auto_saved=0
-- Step 2: homepage → scores with Haiku ≥8 → auto_saved=1 for new articles
-- Cloudflare blocks headless — only warmed persistent profile works
+- Step 1: bookmarks — scope to `<main>`, 3-consecutive early exit, auto_saved=0
+- Step 2: homepage — same browser session, 8-15s random pause, Haiku ≥8 → auto_saved=1
+- SingletonLock cleared before all 5 economist_profile launch sites
 
 ### Foreign Affairs
 - Scraper: Playwright, `fa_profile/`
 - Session: Drupal cookie valid until **2026-05-23**
 - Reads saved articles page only — ALL FA articles are My saves (auto_saved=0)
-- No homepage AI scoring (yet) — see FA AI picks plan above
-- FA homepage is JS-rendered, needs Playwright for scraping
+- No homepage AI scoring yet
 
 ### Bloomberg
 - Manual Chrome extension clip only — all My saves (auto_saved=0)
-- Gaps in Bloomberg ingestion are NORMAL
 - Bloomberg excluded from all health check analysis
 
 ---
@@ -347,81 +326,78 @@ All gitignored. Clean up at end of session: `rm -f tmp_*.txt tmp_*.py`
 ### 🔴 Infrastructure / Stability
 1. **Backup system** — No automated DB snapshots
 2. **deploy.sh — add git reset --hard HEAD** before pull to prevent VPS stash poisoning
-3. **Full code review** — Audit server.py and meridian.html for redundant code
 
 ### 🔴 Ingestion / Sync
+3. **8 missing Economist bookmarks** — Will be picked up at next successful sync (fixes deployed)
 4. **Third sync window (~17:40)** — Easy addition to launchd
-5. **FA homepage AI scoring** — Add Playwright homepage pass using fa_profile (logged in).
-   FA homepage is JS-rendered. Score with Haiku ≥8 → auto_saved=1.
-   Do NOT add without homepage scraping first.
-6. **Issue 2: Economist profile lock** — enrichment opens economist_profile ~90s after scraper closes it.
-   Sometimes profile lock not yet released → enrichment fails silently. Options: increase sleep to 180s
-   in wake_and_sync.sh (simplest), or add SingletonLock check with retry.
-7. **Issue 3: Newsletter push connection reset** — batch size 67 may exceed nginx limit. Reduce to 20/batch.
+5. **FA homepage AI scoring** — Add Playwright homepage pass using fa_profile
+6. **Economist homepage scoring** — Currently works within single browser session with 8-15s pause.
+   Monitor whether Cloudflare continues to block. Alternative: probe /latest or section pages
+   instead of homepage (less bot-targeted).
+7. **Newsletter push connection reset** — Reduce batch size from 67 to 20/batch
 
 ### 🟡 Briefing Generator
 8. **Charts not referenced in briefing prose**
 9. **Data points need date anchors**
-10. **Briefing source section detail grid**
 
 ### 🟡 UI / Frontend
-11. **Newsletter + Suggested sections — match Feed design**
-12. **Sort KT theme articles by relevance**
-13. **Sub-topics filtering — implement or remove**
+10. **Newsletter + Suggested sections — match Feed design**
+11. **Sort KT theme articles by relevance**
+12. **Sub-topics filtering — implement or remove**
 
 ### 🟡 Enrichment / Data
-14. **FT enrichment backfill** — Some FT articles still unenriched
-15. **KT tag-new wiring into VPS scheduler**
+13. **FT enrichment backfill** — Some FT articles still unenriched
+14. **KT tag-new wiring into VPS scheduler**
 
 ### 🟢 Maintenance / Watch
-16. **FA cookie renewal** — Drupal cookie expires 2026-05-23
-17. **Points of Return newsletter gap** — Check iCloud forwarding rule
-18. **Bloomberg ingestion** — Check clipping still works
-19. **score_and_autosave_new_articles()** — Dead code in server.py, safe to delete in future cleanup
+15. **FA cookie renewal** — Drupal cookie expires 2026-05-23
+16. **Bloomberg ingestion** — Check clipping still works
+17. **score_and_autosave_new_articles()** — Dead code in server.py, safe to delete
 
 ---
 
 ## Build History
 
-### 7 April 2026 (Session 46 — curation model overhaul, FT homepage AI picks)
+### 7 April 2026 (Session 46 continued — Economist scraper overhaul)
 
-**Curation model clarified and enforced:**
-- AI picks come from homepage scraping only — never from retrospective scoring of saved lists
-- auto_saved=1 is permanent — AI pick status never overwritten even if user saves later
-- Homepage scraper skips articles already in DB (saved first by user or previous AI pick)
-- Documented as the canonical model in NOTES.md
+**Economist bookmark scraper — two root cause fixes:**
 
-**score_and_autosave bug fixes:**
-- Markdown fence stripping added to score_and_autosave JSON parse (was silently failing)
-- Raw response now logged on parse failure for diagnosis
+1. **Wrong selector scope (commit 7442f5b4):**
+   - BUG: `soup.select("a[href*='/20']")` scanned entire HTML document including nav/header/footer
+   - Nav links appear earlier in DOM than bookmark cards → scraper processed them first
+   - This caused apparently random early exits that missed genuine new bookmarks
+   - FIX: `_main = soup.find("main") or soup` then `_main.select(...)` — scopes to content only
 
-**Pipeline changes:**
-- score_and_autosave_new_articles() removed from _enrich_after_sync — no longer called post-sync
-- FT demotion logic removed from FTScraper (was flipping auto_saved=1→0 for saved articles)
+2. **Aggressive early-exit (commit 8ebb4ffa):**
+   - BUG: stopped at the FIRST existing article, never looking further
+   - FIX: stop after 3 CONSECUTIVE existing articles, counter resets on any new article
+   - Same pattern as ForeignAffairsScraper which had always used 3-consecutive
 
-**Economist homepage scoring:**
-- Markdown fence stripping added to Economist homepage score_text parse
+**Confirmed missing bookmarks:** Audit against Alex's bookmark page showed 8/29 articles missing.
+All 8 at positions 1-7 and 9, which were new bookmarks the scraper had never seen due to the
+selector scope bug. Will be ingested at next successful Economist sync.
 
-**DB cleanup:**
-- Mac: 38 FT articles reset auto_saved=1→0 (all were score_and_autosave promotions, not homepage picks)
-- VPS: 43 FT articles reset auto_saved=1→0
+**Cloudflare session poisoning:** Multiple manual sync attempts during Session 46 caused Cloudflare
+to challenge the economist_profile session. Profile needs ~30-60 min to recover. Scheduled syncs
+(05:35, 11:35) are reliable because they run with a long gap.
 
-**FT homepage scraping — new feature:**
-- FT homepage scraped after saved-list pass within FTScraper.scrape()
-- Selectors: div.headline.js-teaser-headline → a[href*="/content/"] → span text
-- Opinion prefix stripping: "opinion content." stripped from span text
-- Section prefix stripping: "The Big Read.", "Interview.", "The FT View.", etc.
-- Junk URL/title filtering (podcasts, newsletters, lifestyle, live blogs)
-- Scores with Haiku ≥8 → auto_saved=1, saves as title_only for enrichment
-- article_exists() guard prevents duplicating articles already saved by user
-- Committed: b023f177, deployed Mac + VPS
+**Fresh-context homepage experiment (abandoned):**
+Attempted to run homepage pass in a separate non-persistent browser (different Cloudflare fingerprint).
+Abandoned because sync_playwright() cannot be nested within an existing playwright context.
+Reverted to single-browser approach with random 8-15s pause. Commit f3ec3037.
 
-**Log findings (04-07 sync):**
-- score_and_autosave parse failure (34 articles unscored) — root cause confirmed, fixed above
-- Economist profile lock during enrichment — documented as Issue 6, not yet fixed
-- Newsletter push connection reset — documented as Issue 7, not yet fixed
+**SingletonLock fix (commit fbd77cde):**
+`_clear_stale_profile_lock()` helper added, called before all 5 economist_profile launch sites.
+Prevents ProcessSingleton errors from stale locks after unexpected Chrome exits.
 
-### 6 April 2026 (Session 45 — major bug fixes, data backfill, stats redesign)
+**score_and_autosave fixes:**
+- Markdown fence stripping added (commit 64a60f20)
+- Removed from post-sync pipeline entirely (commit 30a60674)
+
+**FT homepage AI picks (commit b023f177):**
+Full homepage scraping pass added to FTScraper — first genuine FT AI picks from homepage.
+
+### 6 April 2026 (Session 45)
 See previous NOTES.md for full Session 45 details.
 
 ### Previous sessions
@@ -451,7 +427,7 @@ Meridian session start. Read NOTES.md and run the startup sequence.
 
 ### Step 1 — Load MCPs
 Call tool_search with EXACTLY these queries in order:
-1. `"javascript tool navigate tabs"` — loads Chrome MCP (NOT "tabs context mcp" — that query fails)
+1. `"javascript tool navigate tabs"` — loads Chrome MCP
 2. `"filesystem write file"` — loads Filesystem MCP
 
 ### Step 2 — Read NOTES.md
@@ -459,12 +435,11 @@ Read /Users/alexdakers/meridian-server/NOTES.md via filesystem:read_text_file.
 
 ### Step 3 — Set up browser tabs
 Call tabs_context_mcp with createIfEmpty:true to get current tab IDs.
-Tab IDs CHANGE every session — never reuse IDs from NOTES.md or memory. Always call tabs_context_mcp fresh.
+Tab IDs CHANGE every session — never reuse IDs from NOTES.md or memory.
 Tab A = localhost:8080/meridian.html (shell bridge)
 Tab B = meridianreader.com/meridian.html (live verify)
 
 ### Step 4 — Inject shell bridge into Tab A
-WAIT for Step 3 tool call to return before starting this step. NEVER run in parallel with any other step.
 window.shell = (cmd) => fetch('http://localhost:4242/api/dev/shell', {
   method:'POST', headers:{'Content-Type':'application/json'},
   body:JSON.stringify({cmd})
@@ -472,14 +447,10 @@ window.shell = (cmd) => fetch('http://localhost:4242/api/dev/shell', {
 Confirm it returned "shell bridge ok" before proceeding.
 
 ### Step 5 — Health check
-WAIT for Step 4 to complete before starting this step. NEVER run in parallel with Step 4.
-Write tmp_health.py via filesystem:write_file, execute via shell bridge, read result via filesystem:read_text_file.
-The tmp_health.py script already exists on disk from a prior session — just execute and read it.
+Write tmp_health.py via filesystem:write_file, execute via shell bridge, read result.
 
-CRITICAL — Print the FULL raw output of tmp_hc_out.txt verbatim in your response. Do NOT summarise,
-paraphrase, or prettify the last scraped section. The raw ⚠️ warning flags must be visible to Alex.
-If the output shows "⚠️ SCRAPE MAY HAVE MISSED" for FT or Economist, call it out explicitly at the top
-of your health report — do not bury or omit it.
+CRITICAL — Print the FULL raw output of tmp_hc_out.txt verbatim. Do NOT summarise.
+If output shows "⚠️ SCRAPE MAY HAVE MISSED" for FT or Economist, call it out explicitly.
 
-Last scraped uses saved_at column which is stored in MILLISECONDS (divide by 1000 for fromtimestamp).
+Last scraped uses saved_at in MILLISECONDS (divide by 1000 for fromtimestamp).
 If FT or Economist show Yesterday or older AND current time is after 07:00 Geneva → SCRAPE FAILURE.
