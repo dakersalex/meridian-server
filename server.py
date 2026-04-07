@@ -700,12 +700,9 @@ class FTScraper:
                     cat_el = card.select_one(".o-teaser__tag, .o-teaser__concept")
                     category = cat_el.get_text(strip=True) if cat_el else ""
                     articles.append({"id":art_id,"source":self.name,"url":url,"title":title,"body":"","summary":"","topic":category,"tags":"[]","saved_at":now_ts(),"fetched_at":now_ts(),"status":"fetched","pub_date":""})
-                    log.info(f"FT: scraped '{title[:60]}'")  
-                    # If article was previously marked as AI pick, demote to My save — user saved it on FT
-                    with sqlite3.connect(DB_PATH) as _cx:
-                        _cx.execute("UPDATE articles SET auto_saved=0 WHERE id=? AND auto_saved=1", (art_id,))
-                        if _cx.execute("SELECT changes()").fetchone()[0]:
-                            log.info(f"FT: demoted '{title[:50]}' from AI pick to My save (found in myFT saved list)")
+                    log.info(f"FT: scraped '{title[:60]}'")
+                    # AI pick status (auto_saved=1) is permanent — if AI picked it first, that stands
+                    # even if user later saves it. Saved list scraper never downgrades auto_saved.
                 log.info(f"FT: total {len(articles)} articles scraped")
                 new_arts = [a for a in articles if not article_exists(a["id"])]
                 log.info(f"FT: {len(new_arts)} new articles to enrich")
@@ -912,7 +909,16 @@ class EconomistScraper:
                         score_data = call_anthropic({"model": "claude-haiku-4-5-20251001", "max_tokens": 800,
                             "messages": [{"role": "user", "content": score_prompt}]})
                         score_text = "".join(b.get("text","") for b in score_data.get("content",[]) if b.get("type")=="text")
-                        score_match = re.search(r'\[[\s\S]*\]', score_text)
+                        # Strip markdown fences if Haiku wraps response
+                        _eco_clean = score_text.strip()
+                        if _eco_clean.startswith("```"):
+                            _eco_clean = _eco_clean.split("```", 2)[1]
+                            if _eco_clean.startswith("json"):
+                                _eco_clean = _eco_clean[4:]
+                            _eco_clean = _eco_clean.rsplit("```", 1)[0].strip()
+                        else:
+                            _eco_clean = score_text
+                        score_match = re.search(r'\[[\s\S]*\]', _eco_clean)
                         if score_match:
                             scores = json.loads(score_match.group(0))
                             for i, (url, title) in enumerate(homepage_candidates):
@@ -1203,8 +1209,8 @@ def sync_all():
             t.join()
         log.info("Sync all complete — running title-only enrichment")
         enrich_title_only_articles()
-        log.info("Sync all complete — scoring new FT/Economist articles")
-        score_and_autosave_new_articles()
+        # score_and_autosave_new_articles() removed — AI picks sourced from
+        # homepage scraping only, never retrospectively from saved lists.
     if threads:
         threading.Thread(target=_enrich_after_sync, daemon=True).start()
     return jsonify({"ok": True, "started": started})
