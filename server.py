@@ -953,7 +953,10 @@ class EconomistScraper:
                         return slug.title()
                     return ""
 
-                for a in soup.select("a[href*='/20']"):
+                # Scope to <main> only — avoids nav/header/footer links that appear
+                # earlier in the DOM than the actual bookmark cards and corrupt ordering.
+                _main = soup.find("main") or soup
+                for a in _main.select("a[href*='/20']"):
                     href = a.get("href", "")
                     if not re.search(r'/\d{4}/\d{2}/\d{2}/', href): continue
                     url = ("https://www.economist.com" + href if href.startswith("/") else href).split("?")[0]
