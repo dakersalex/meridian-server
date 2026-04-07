@@ -405,27 +405,22 @@ Tab A = localhost:8080/meridian.html (shell bridge)
 Tab B = meridianreader.com/meridian.html (live verify)
 
 ### Step 4 — Inject shell bridge into Tab A
-WAIT for Step 3 to complete before running this. Do NOT run steps in parallel.
+WAIT for Step 3 tool call to return before starting this step. NEVER run in parallel with any other step.
 window.shell = (cmd) => fetch('http://localhost:4242/api/dev/shell', {
   method:'POST', headers:{'Content-Type':'application/json'},
   body:JSON.stringify({cmd})
 }).then(r=>r.json());
+Confirm it returned "shell bridge ok" before proceeding.
 
 ### Step 5 — Health check
-WAIT for Step 4 to complete before running this. Shell bridge must exist first.
+WAIT for Step 4 to complete before starting this step. NEVER run in parallel with Step 4.
 Write tmp_health.py via filesystem:write_file, execute via shell bridge, read result via filesystem:read_text_file.
-Health check should report: total articles, full text count, unenriched count (excl Bloomberg), My saves vs AI picks, by-source breakdown, last 7 days by source, KT theme count.
+The tmp_health.py script already exists on disk from a prior session — just execute and read it.
 
-CRITICAL — Last scraped check: Query MAX(saved_at) per source (saved_at is stored in milliseconds).
-Compare to today's date (Geneva time). If FT or Economist show >1 day ago AND current time is after 07:00 Geneva,
-flag as SCRAPE FAILURE — morning sync likely did not run.
-FA showing >2 days is worth noting. Bloomberg is manual-only, ignore.
-Report last scraped as: "Today", "Yesterday", "Xd ago" with a WARNING if FT/Economist missed today.
+CRITICAL — Print the FULL raw output of tmp_hc_out.txt verbatim in your response. Do NOT summarise,
+paraphrase, or prettify the last scraped section. The raw ⚠️ warning flags must be visible to Alex.
+If the output shows "⚠️ SCRAPE MAY HAVE MISSED" for FT or Economist, call it out explicitly at the top
+of your health report — do not bury or omit it.
 
-### Standing rules
-- Run ALL startup steps sequentially — never in parallel. Each step depends on the previous.
-- NEVER ask Alex to run Terminal commands — do everything autonomously
-- NEVER restart Flask via the shell endpoint (kills the process)
-- After any large HTML patch: grep -c "<html lang" ~/meridian-server/meridian.html must return 1
-- economist.com is blocked for JS execution by MCP extension
-- foreignaffairs.com IS accessible via MCP
+Last scraped uses saved_at column which is stored in MILLISECONDS (divide by 1000 for fromtimestamp).
+If FT or Economist show Yesterday or older AND current time is after 07:00 Geneva → SCRAPE FAILURE.
