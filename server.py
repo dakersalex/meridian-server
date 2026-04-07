@@ -864,6 +864,28 @@ class FTScraper:
         return articles
 
 
+def _clear_stale_profile_lock(profile_dir):
+    """Remove a stale SingletonLock from a Playwright persistent profile directory.
+    Safe to call before any launch_persistent_context. Only removes the lock if no
+    live Chrome process is currently using that profile directory."""
+    import subprocess as _sp
+    lock_path = str(profile_dir) + "/SingletonLock"
+    if not os.path.exists(lock_path):
+        return
+    try:
+        result = _sp.run(["pgrep", "-f", str(profile_dir)], capture_output=True, text=True)
+        if result.returncode == 0 and result.stdout.strip():
+            log.warning(f"SingletonLock present and Chrome process live for {profile_dir} — not clearing")
+            return
+    except Exception:
+        pass
+    try:
+        os.remove(lock_path)
+        log.info(f"Cleared stale SingletonLock from {profile_dir}")
+    except Exception as e:
+        log.warning(f"Could not remove SingletonLock at {lock_path}: {e}")
+
+
 class EconomistScraper:
     name = "The Economist"
     SAVED_URL = "https://www.economist.com/for-you/bookmarks"
