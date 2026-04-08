@@ -681,9 +681,8 @@ class FTScraper:
                 log.info(f"FT: found {len(cards)} cards")
                 JUNK_PREFIXES = ("FT quiz:", "Letter:", "FTAV's further reading", "FT News Briefing", "Correction:", "The best books of the week")
                 JUNK_SUBSTRINGS = (" live:", " as it happened", "live blog", "htsi stories", "how to spend it")
-                found_existing = False
-                for card in cards:
-                    if found_existing: break
+                # Scan first 20 cards only — unlikely to save >20/day
+                for card in cards[:20]:
                     a = card.select_one("a[href*='/content/']")
                     if not a: continue
                     url = "https://www.ft.com" + a["href"] if a["href"].startswith("/") else a["href"]
@@ -694,9 +693,7 @@ class FTScraper:
                     if any(title.startswith(p) for p in JUNK_PREFIXES): continue
                     if any(s in title.lower() for s in JUNK_SUBSTRINGS): continue
                     art_id = make_id(self.name, url)
-                    if article_exists(art_id):
-                        log.info("FT: hit existing article, stopping")
-                        found_existing = True; break
+                    if article_exists(art_id): continue
                     cat_el = card.select_one(".o-teaser__tag, .o-teaser__concept")
                     category = cat_el.get_text(strip=True) if cat_el else ""
                     articles.append({"id":art_id,"source":self.name,"url":url,"title":title,"body":"","summary":"","topic":category,"tags":"[]","saved_at":now_ts(),"fetched_at":now_ts(),"status":"fetched","pub_date":""})
@@ -753,6 +750,11 @@ class EconomistScraper:
                 return False
 
             try:
+                # ── Economist Playwright scraper TEMPORARILY DISABLED ────────────
+                # Cloudflare blocking profile. Use Chrome extension to manually clip.
+                # To re-enable: remove the "return []" line below.
+                log.info("Economist: scraper disabled — manual clip workflow active")
+                return []
                 # ── Step 1: Pull from bookmarks (your explicit saves) ──────────────
                 log.info("Economist: opening bookmarks")
                 page.goto(self.SAVED_URL, wait_until="domcontentloaded", timeout=45000)
@@ -985,10 +987,8 @@ class ForeignAffairsScraper:
                 soup = BeautifulSoup(page.content(), "html.parser")
                 cards = soup.select("h3.body-m, div.article-preview, li.saved-article")
                 log.info(f"FA: found {len(cards)} cards")
-                found_existing = False
-                consecutive_existing = 0
-                for card in cards:
-                    if consecutive_existing >= 3: break
+                # Scan first 20 cards only
+                for card in cards[:20]:
                     a = card if card.name == "a" else card.select_one("a[href*='foreignaffairs.com']")
                     if not a:
                         a = card.find_parent("a") or card.select_one("a")
@@ -1000,13 +1000,7 @@ class ForeignAffairsScraper:
                     title = card.get_text(strip=True) if card.name != "a" else card.get_text(strip=True)
                     if not title or len(title) < 5: continue
                     art_id = make_id(self.name, url)
-                    if article_exists(art_id):
-                        consecutive_existing += 1
-                        log.info(f"FA: hit existing article ({consecutive_existing}/3), continuing")
-                        if consecutive_existing >= 3:
-                            found_existing = True; break
-                        continue
-                    consecutive_existing = 0  # reset on any new article
+                    if article_exists(art_id): continue
                     articles.append({"id":art_id,"source":self.name,"url":url,"title":title,"body":"","summary":"","topic":"","tags":"[]","saved_at":now_ts(),"fetched_at":now_ts(),"status":"fetched","pub_date":""})
                     log.info(f"FA: scraped '{title[:60]}'")
                 log.info(f"FA: total {len(articles)} articles scraped")
@@ -1548,7 +1542,7 @@ def ai_pick_web_search():
         for attempt in range(max_attempts):
             payload = _j.dumps({
                 "model": "claude-sonnet-4-6",
-                "max_tokens": 2500,
+                "max_tokens": 5000,
                 "tools": [{"type": "web_search_20250305", "name": "web_search"}],
                 "messages": messages
             }).encode()
@@ -1560,7 +1554,7 @@ def ai_pick_web_search():
                 method="POST"
             )
             try:
-                with _ur.urlopen(req, timeout=60) as resp:
+                with _ur.urlopen(req, timeout=120) as resp:
                     data = _j.loads(resp.read())
             except Exception as e:
                 log.warning(f"AI pick web search: attempt {attempt+1} failed: {e}")
@@ -1592,27 +1586,24 @@ def ai_pick_web_search():
     feed_articles = []
     suggested_out = []
 
-    # Search 1: Trusted sources
-    i1 = interests[:80]
-    i2 = interests[:60]
+    # Search 1: Trusted sources -- no site: operator, broader topics
+    i1 = interests[:100]
     trusted_prompt = (
         "You are finding the most important recent articles for a senior intelligence analyst. "
         f"Their key interests: {interests}. "
-        "Search for the latest articles (last 7 days) from ONLY these four sources: "
-        "The Economist (economist.com), Financial Times (ft.com), "
-        "Foreign Affairs (foreignaffairs.com), Bloomberg (bloomberg.com). "
-        "Do THREE searches: "
-        f"1. site:economist.com OR site:ft.com {i1} last 7 days "
-        f"2. site:foreignaffairs.com OR site:bloomberg.com {i1} last 7 days "
-        f"3. {i2} geopolitics analysis site:economist.com OR site:ft.com "
-        "Find 4-6 articles per search. Exclude: podcasts, newsletters, live blogs, quizzes, recipes, sport, obituaries, crosswords. "
-        "Score each article 0-10 for relevance to the analyst interests. "
-        "9-10: essential (geopolitics, war, sanctions, central banking, energy crisis, major diplomacy). "
-        "7-8: highly relevant (business strategy, finance, politics, economics). "
+        "Do TWO searches for articles published in the LAST 7 DAYS: "
+        f"1. {i1} geopolitics war diplomacy sanctions energy markets last 7 days "
+        f"2. {i1} macroeconomics finance central banking trade markets last 7 days "
+        "Return articles from these four sources ONLY: "
+        "The Economist, Financial Times, Foreign Affairs, Bloomberg. "
+        "Find 4-6 articles total. Exclude: podcasts, newsletters, live blogs, sport, lifestyle, quizzes. "
+        "Score each 0-10 for relevance to analyst interests. "
+        "9-10: essential (war, sanctions, energy crisis, central banking decisions, major diplomacy). "
+        "7-8: highly relevant (markets, finance, politics, economic policy). "
         "5-6: moderate. 0-4: lifestyle, culture, non-strategic science. "
-        "Be SELECTIVE — most articles should score 5-7. Only exceptional pieces score 9-10. "
-        "Respond ONLY with a JSON array sorted by score descending: "
-        '[{"title":"...","url":"...","source":"The Economist","score":8,"reason":"one sentence","pub_date":"6 April 2026"}]'
+        "Be SELECTIVE \u2014 most articles should score 5-7. "
+        "Respond ONLY with a compact JSON array, no prose, no markdown wrapper: "
+        '[{"title":"...","url":"...","source":"Financial Times","score":8,"reason":"brief","pub_date":"8 April 2026"}]'
     )
     log.info("AI pick web search: searching trusted sources...")
     trusted_text = _run_agentic_search(trusted_prompt)
@@ -1652,55 +1643,8 @@ def ai_pick_web_search():
     else:
         log.warning("AI pick web search: no trusted results returned")
 
-    _time2.sleep(3)
 
-    # Search 2: External high-quality sources
-    external_prompt = (
-        "You are finding articles for a senior intelligence analyst. "
-        f"Their key interests: {interests}. "
-        "Search for the latest articles (last 7 days) from ONLY these high-quality sources: "
-        "Al Jazeera English (aljazeera.com), Brookings Institution (brookings.edu), "
-        "Foreign Policy (foreignpolicy.com), RAND Corporation (rand.org), "
-        "Atlantic Council (atlanticcouncil.org), Carnegie Endowment (carnegieendowment.org), "
-        "Council on Foreign Relations (cfr.org), Chatham House (chathamhouse.org), "
-        "Project Syndicate (project-syndicate.org), War on the Rocks (warontherocks.com). "
-        "Do TWO searches: "
-        f"1. {i1} analysis last 7 days brookings OR foreignpolicy OR cfr OR rand "
-        f"2. {i1} aljazeera OR atlanticcouncil OR carnegie OR chathamhouse last 7 days "
-        "Find 4-6 articles per search. Only substantive analytical pieces, not short news briefs. "
-        "Exclude: press releases, job postings, events listings, podcasts. "
-        "Score each article 0-10 for relevance to the analyst interests. "
-        "Respond ONLY with a JSON array sorted by score descending: "
-        '[{"title":"...","url":"...","source":"Brookings Institution","score":7,"reason":"one sentence","pub_date":"5 April 2026"}]'
-    )
-    log.info("AI pick web search: searching external sources...")
-    external_text = _run_agentic_search(external_prompt)
-    if external_text:
-        try:
-            external_results = _parse_json_array(external_text)
-            log.info(f"AI pick web search: {len(external_results)} external candidates found")
-            for art in external_results:
-                url = art.get("url", "").split("?")[0]
-                title = art.get("title", "")
-                score = art.get("score", 0)
-                source = art.get("source", "")
-                reason = art.get("reason", "")
-                pub_date = art.get("pub_date", "")
-                if not url or not title or len(title) < 10: continue
-                if url in all_known_urls: continue
-                if _is_trusted_url(url): continue
-                all_known_urls.add(url)
-                suggested_out.append({
-                    "title": title, "url": url, "source": source,
-                    "score": score, "reason": reason, "pub_date": pub_date
-                })
-                log.info(f"AI pick -> Suggested/external (score {score}, {source}): '{title[:60]}'")
-        except Exception as e:
-            log.warning(f"AI pick web search: could not parse external results: {e}")
-    else:
-        log.warning("AI pick web search: no external results returned")
-
-    log.info(f"AI pick web search complete: {len(feed_articles)} -> Feed, {len(suggested_out)} -> Suggested")
+        log.info(f"AI pick web search complete: {len(feed_articles)} -> Feed, {len(suggested_out)} -> Suggested")
     return feed_articles, suggested_out
 
 
@@ -2483,10 +2427,10 @@ def scheduler_loop(interval_hours):
                 log.info("Scheduler: triggered newsletter sync")
                 def _suggested_and_agent():
                     try:
-                        log.info("Scheduler: refreshing suggested articles")
-                        arts = scrape_suggested_articles()
-                        if arts:
-                            save_suggested_snapshot(arts)
+                        # Suggested refresh DISABLED — high API cost
+                        # TODO: re-enable with once/daily + skip-already-scored logic
+                        log.info("Scheduler: suggested refresh skipped (disabled — see to-do)")
+                        arts = []
                         log.info(f"Scheduler: suggested refresh done — {len(arts)} articles")
                         saved = run_agent()
                         log.info(f"Scheduler: agent saved {len(saved)} articles")

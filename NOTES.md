@@ -177,19 +177,26 @@ Structure: `div.headline.js-teaser-headline` → `a[href*="/content/"]` → `<sp
 - `_clear_stale_profile_lock(profile_dir)` called before every economist_profile launch (5 sites)
 - Removes stale lock if no Chrome process owns the profile — prevents ProcessSingleton errors
 
-### Topics pass (Step 2) — SINGLE BROWSER, commit 296818ea
-- Replaced homepage entirely with `/for-you/topics` (personalised, authenticated)
-- Random 3-6s pause between bookmark navigation and Topics navigation (shorter, less risk)
-- **Extraction method: `__next_f` JSON parsing, not HTML scraping**
-  - The Topics page is Next.js SSR — article cards are NOT in the rendered HTML
-  - Article data is embedded in `self.__next_f.push([1, "..."])` script tags as inline JSON
-  - Data block keyed as `2f:{"data":[...]}` — parsed directly from `page.content()`
-  - Each topic entry contains 4 articles with full metadata: url, headline, date_published, is_saved
-  - Podcasts filtered out (identity=="podcast")
-  - Articles already in DB skipped via `article_exists()`
-- Topics page shows articles from topics you follow (e.g. Geopolitics, AI, Economy, War in Middle East)
-- Scored by Haiku ≥8 → auto_saved=1; topic name stored in article's topic field
-- No Haiku scoring was needed on homepage before; now it's even better — pre-filtered by interest
+### AI picks (Step 2) — Claude web_search only, commit 9dceb753
+- **No Playwright for AI picks — zero Cloudflare risk**
+- `ai_pick_web_search()` runs two Claude Sonnet web_search agentic loops:
+
+  **Search 1: Trusted sources** (Economist, FT, Foreign Affairs, Bloomberg)
+  - Three searches targeting site:economist.com/ft.com/foreignaffairs.com/bloomberg.com
+  - Uses saved article topics as interest signal
+  - score ≥8 → `articles` table, auto_saved=1 (Feed, immediate)
+  - score 6-7 → `suggested_articles` table (Suggested inbox)
+
+  **Search 2: External high-quality sources**
+  - Al Jazeera, Brookings, Foreign Policy, RAND, Atlantic Council, Carnegie,
+    CFR, Chatham House, Project Syndicate, War on the Rocks
+  - All results → `suggested_articles` table regardless of score
+
+- Called from `scrape_suggested_articles()` at sync time
+- Feed picks saved directly to articles table with auto_saved=1
+- Suggested picks merged into Suggested inbox alongside Claude web search results
+- Deduplicates against both articles table and suggested_articles table
+- **Suggested acts as an inbox**: dismiss = negative signal fed back to AI tool
 
 ---
 
@@ -343,8 +350,9 @@ Col 3: 14 Day Total — 3 swim-lane bars, AI% adjacent, summary below
 3. **8 missing Economist bookmarks** — Will be picked up at next successful sync (fixes deployed)
 4. **Third sync window (~17:40)** — Easy addition to launchd
 5. **FA homepage AI scoring** — Add Playwright homepage pass using fa_profile
-6. ~~**Economist homepage scoring**~~ — **DONE (commit 296818ea):** Replaced with /for-you/topics
-   authenticated JSON extraction. No more homepage visits, no Cloudflare risk from Step 2.
+6. ~~**Economist/FT AI picks via Playwright**~~ — **DONE (commit 9dceb753):** Replaced entirely
+   with Claude web_search. Trusted sources ≥8 → Feed, 6-7 → Suggested. External sources → Suggested.
+   No Playwright for AI picks = zero Cloudflare risk.
 7. **Newsletter push connection reset** — Reduce batch size from 67 to 20/batch
 
 ### 🟡 Briefing Generator
