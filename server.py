@@ -1663,8 +1663,18 @@ def _month_name(n):
             "July","August","September","October","November","December"][n]
 
 def scrape_suggested_articles():
-    """Scrape FT/Economist via Playwright + Claude web_search for FA and others."""
+    """Scrape FT/Economist via Playwright + Claude web_search for FA and others.
+    Runs at most once per calendar day to limit API costs."""
     import urllib.request, json as _json
+
+    # Once-per-day gate — check kt_meta for last run date
+    today_str = datetime.now().strftime('%Y-%m-%d')
+    with sqlite3.connect(DB_PATH) as _gx:
+        _gx.execute("CREATE TABLE IF NOT EXISTS kt_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+        _last = _gx.execute("SELECT value FROM kt_meta WHERE key='ai_pick_last_run'").fetchone()
+    if _last and _last[0] == today_str:
+        log.info(f"AI pick web search: already ran today ({today_str}) — skipping")
+        return []
 
     # Get user interests
     with sqlite3.connect(DB_PATH) as cx:
@@ -1687,6 +1697,11 @@ def scrape_suggested_articles():
                          _fp['fetched_at'],_fp['status'],_fp['pub_date'],1)
                     )
         log.info(f"Suggested: saved {len(_feed_picks)} AI picks -> Feed")
+
+    # Record that we ran today
+    with sqlite3.connect(DB_PATH) as _rx:
+        _rx.execute("INSERT OR REPLACE INTO kt_meta (key, value) VALUES ('ai_pick_last_run', ?)", (today_str,))
+
     ft_results = []
     eco_results = []
     topic_counts = {}
@@ -1768,7 +1783,7 @@ def scrape_suggested_articles():
         # Agentic loop — web_search requires multiple roundtrips
         for attempt in range(6):
             payload = _json.dumps({
-                "model": "claude-sonnet-4-6",
+                "model": "claude-haiku-4-5-20251001",
                 "max_tokens": 2000,
                 "tools": [{"type": "web_search_20250305", "name": "web_search"}],
                 "messages": messages
@@ -1835,7 +1850,7 @@ def scrape_suggested_articles():
                         date_msgs = [{"role": "user", "content": date_prompt}]
                         for _da in range(4):
                             date_data = call_anthropic({
-                                "model": "claude-sonnet-4-6",
+                                "model": "claude-haiku-4-5-20251001",
                                 "max_tokens": 500,
                                 "tools": [{"type": "web_search_20250305", "name": "web_search"}],
                                 "messages": date_msgs
@@ -1863,7 +1878,7 @@ def scrape_suggested_articles():
                     score_prompt = ("You are scoring news articles for a senior analyst. Their interests: " + interests_str + ". Score each article 0-10 for relevance to these interests. Be strict - only score 6+ if genuinely relevant. Exclude: lifestyle, sport, celebrity, recipes, quizzes, obituaries." + (" The analyst has dismissed articles about: " + avoid_str + " — score these lower." if avoid_str else "") + " Articles to score: " + titles_str + " Respond ONLY with a JSON array (same order): [{\"score\":8,\"reason\":\"one sentence why relevant\"}]")
                     try:
                         score_data = call_anthropic({
-                            "model": "claude-sonnet-4-6",
+                            "model": "claude-haiku-4-5-20251001",
                             "max_tokens": 1000,
                             "messages": [{"role": "user", "content": score_prompt}]
                         })
@@ -1921,7 +1936,7 @@ def scrape_suggested_articles():
                     " Articles: " + titles_str +
                     " Respond ONLY with a JSON array (same order): [{\"score\":8,\"reason\":\"one sentence\"}]")
                 score_data = call_anthropic({
-                    "model": "claude-sonnet-4-6",
+                    "model": "claude-haiku-4-5-20251001",
                     "max_tokens": 1000,
                     "messages": [{"role": "user", "content": score_prompt}]
                 })
