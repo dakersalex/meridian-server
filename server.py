@@ -755,7 +755,7 @@ class EconomistScraper:
                 context = browser.contexts[0] if browser.contexts else browser.new_context()
                 page = context.new_page()
             # Junk filters applied to all Economist articles regardless of source
-            JUNK_URL_PATHS = ("/podcasts/", "/newsletters/", "/events/", "/films/")
+            JUNK_URL_PATHS = ("/podcasts/", "/newsletters/", "/events/", "/films/", "/interactive/")
             JUNK_PREFIXES_ECO = ("The War Room newsletter:", "Blighty newsletter:", "The US in Brief:",
                                 "Espresso:", "The World in Brief:", "The Economist explains:",
                                 "Graphic detail:", "KAL's cartoon")
