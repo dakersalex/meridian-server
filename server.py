@@ -750,11 +750,6 @@ class EconomistScraper:
                 return False
 
             try:
-                # ── Economist Playwright scraper TEMPORARILY DISABLED ────────────
-                # Cloudflare blocking profile. Use Chrome extension to manually clip.
-                # To re-enable: remove the "return []" line below.
-                log.info("Economist: scraper disabled — manual clip workflow active")
-                return []
                 # ── Step 1: Pull from bookmarks (your explicit saves) ──────────────
                 log.info("Economist: opening bookmarks")
                 page.goto(self.SAVED_URL, wait_until="domcontentloaded", timeout=45000)
