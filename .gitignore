@@ -39,3 +39,12 @@ venv/
 tmp_*.txt
 tmp_*.py
 *.bak*
+
+# CDP Chrome profile (large, session-specific — run eco_login_setup.py to re-auth)
+eco_chrome_profile/
+
+# Setup and test scripts
+eco_login_setup.py
+tmp_run_verify.sh
+tmp_eco_*.png
+tmp_eco_*.py

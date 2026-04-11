@@ -1,6 +1,0 @@
-2026/04/11-19:30:48.555 408f0b Reusing MANIFEST /Users/alexdakers/meridian-server/eco_chrome_profile/Default/Local Storage/leveldb/MANIFEST-000001
-2026/04/11-19:30:48.558 408f0b Recovering log #188
-2026/04/11-19:30:48.559 408f0b Reusing old log /Users/alexdakers/meridian-server/eco_chrome_profile/Default/Local Storage/leveldb/000188.log 
-2026/04/11-19:31:48.568 408f0e Level-0 table #191: started
-2026/04/11-19:31:48.571 408f0e Level-0 table #191: 21641 bytes OK
-2026/04/11-19:31:48.573 408f0e Delete type=0 #188
