@@ -1537,7 +1537,7 @@ def ai_pick_web_search():
     def _is_trusted_url(url):
         return any(d in url for d in TRUSTED_DOMAINS)
 
-    def _run_agentic_search(prompt, max_attempts=6):
+    def _run_agentic_search(prompt, max_attempts=3):
         messages = [{"role": "user", "content": prompt}]
         for attempt in range(max_attempts):
             payload = _j.dumps({
@@ -3261,7 +3261,16 @@ def kt_status():
 
 @app.route("/api/kt/tag-new", methods=["POST"])
 def kt_tag_new():
-    """Tag articles with no theme assignment yet. Haiku batches of 25."""
+    """Tag articles with no theme assignment yet. Haiku batches of 25.
+    Runs at most once per calendar day to avoid double-billing at the 11:35 sync."""
+    # Once-per-day gate
+    today_str = datetime.now().strftime('%Y-%m-%d')
+    with sqlite3.connect(DB_PATH) as _tgx:
+        _tg_last = _tgx.execute("SELECT value FROM kt_meta WHERE key='kt_tag_last_run'").fetchone()
+    if _tg_last and _tg_last[0] == today_str:
+        log.info(f"kt/tag-new: already ran today ({today_str}) — skipping")
+        return jsonify({"ok": True, "tagged": 0, "message": "already ran today"})
+
     with sqlite3.connect(DB_PATH) as cx:
         cx.row_factory = sqlite3.Row
         theme_rows = cx.execute("SELECT name FROM kt_themes").fetchall()
@@ -3329,6 +3338,8 @@ def kt_tag_new():
             except Exception as e:
                 log.warning(f"kt/tag-new: batch error: {e}")
         log.info(f"kt/tag-new: done -- {tagged_total} articles tagged")
+        with sqlite3.connect(DB_PATH) as _rx:
+            _rx.execute("INSERT OR REPLACE INTO kt_meta (key, value) VALUES ('kt_tag_last_run', ?)", (today_str,))
 
     threading.Thread(target=_run, daemon=True).start()
     return jsonify({"ok": True, "queued": len(untagged)})
