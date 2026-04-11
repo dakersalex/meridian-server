@@ -722,22 +722,38 @@ class FTScraper:
 class EconomistScraper:
     name = "The Economist"
     SAVED_URL = "https://www.economist.com/for-you/bookmarks"
+    CHROME_BIN = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+    CDP_PORT = 9223  # separate port — avoids conflict with any other Chrome debugging
+    CDP_PROFILE = BASE_DIR / "eco_chrome_profile"
 
     def __init__(self, email="", password=""):
         pass
 
     def scrape(self):
-        if not PLAYWRIGHT_OK: raise RuntimeError("playwright not installed")
+        import subprocess as _sp, time as _t
         articles = []
-        profile_dir = BASE_DIR / "economist_profile"
-        profile_dir.mkdir(exist_ok=True)
-        _clear_stale_profile_lock(profile_dir)
-        with sync_playwright() as p:
-            browser = p.chromium.launch_persistent_context(
-                str(profile_dir), headless=False,
-                user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-                args=["--disable-blink-features=AutomationControlled"])
-            page = browser.new_page()
+        self.CDP_PROFILE.mkdir(exist_ok=True)
+
+        # Clear stale SingletonLock in CDP profile
+        lock = self.CDP_PROFILE / "SingletonLock"
+        if lock.exists():
+            lock.unlink()
+            log.info("Economist: cleared stale CDP profile lock")
+
+        # Launch real Chrome with remote debugging
+        chrome_proc = _sp.Popen([
+            self.CHROME_BIN,
+            f"--remote-debugging-port={self.CDP_PORT}",
+            f"--user-data-dir={self.CDP_PROFILE}",
+            "--no-first-run", "--no-default-browser-check", "--disable-default-apps",
+        ], stdout=_sp.DEVNULL, stderr=_sp.DEVNULL)
+        _t.sleep(3)
+
+        try:
+            with sync_playwright() as p:
+                browser = p.chromium.connect_over_cdp(f"http://localhost:{self.CDP_PORT}")
+                context = browser.contexts[0] if browser.contexts else browser.new_context()
+                page = context.new_page()
             # Junk filters applied to all Economist articles regardless of source
             JUNK_URL_PATHS = ("/podcasts/", "/newsletters/", "/events/", "/films/")
             JUNK_PREFIXES_ECO = ("The War Room newsletter:", "Blighty newsletter:", "The US in Brief:",
@@ -887,7 +903,16 @@ class EconomistScraper:
                     except Exception as _e:
                         log.warning(f"Economist: clip error for '{ptitle[:50]}': {_e}")
             except Exception as e: log.error(f"Economist error: {e}", exc_info=True)
-            finally: browser.close()
+            finally:
+                try: page.close()
+                except: pass
+                try: browser.disconnect()
+                except: pass
+        except Exception as outer_e:
+            log.error(f"Economist CDP error: {outer_e}", exc_info=True)
+        finally:
+            chrome_proc.terminate()
+            log.info("Economist: Chrome CDP process terminated")
         return articles
 
 
@@ -1527,7 +1552,7 @@ def ai_pick_web_search():
     interests = ", ".join(sorted(topic_counts, key=lambda x: -topic_counts[x])[:15]) or "geopolitics, economics, finance, markets"
     log.info(f"AI pick web search: interests = {interests[:80]}")
 
-    TRUSTED_DOMAINS = ["economist.com", "ft.com", "foreignaffairs.com", "bloomberg.com"]
+    TRUSTED_DOMAINS = ["economist.com", "ft.com", "foreignaffairs.com"]
 
     def _is_trusted_url(url):
         return any(d in url for d in TRUSTED_DOMAINS)
@@ -1760,8 +1785,9 @@ def scrape_suggested_articles():
         "1. Search: site:foreignaffairs.com last 7 days " + interests_str[:60] + "\n"
         "2. Search: latest analysis " + interests_str[:60] + " last 7 days\n"
         "3. Search: " + interests_str[:60] + " expert analysis last 7 days\n\n"
-        "Find 4-5 articles per search from quality sources "
-        "(Foreign Affairs, Foreign Policy, Atlantic Council, Brookings, RAND, CFR, major newspapers). "
+        "Find 4-5 articles per search from these sources ONLY: "
+        "The Economist (economist.com), Financial Times (ft.com), Foreign Affairs (foreignaffairs.com). "
+        "Do NOT include articles from other sources. "
         "You MUST attempt ALL THREE searches.\n\n"
         "Scoring: 1-10 relevance to analyst interests. "
         "Exclude: news briefs, quizzes, recipes, lifestyle, sport, obituaries." +
@@ -2106,125 +2132,7 @@ def bulk_delete_suggested():
         cx.execute(f"DELETE FROM suggested_articles WHERE id IN ({','.join('?'*len(ids))})", ids)
     return jsonify({"ok":True,"deleted":len(ids)})
 
-# ── reading agent ─────────────────────────────────────────────────────────────
-def score_and_autosave_new_articles():
-    """Score recently-added FT/Economist articles from the main articles table
-    and auto-save those scoring >=8. Runs after every Mac sync so that
-    Playwright-scraped articles get the same agent treatment as web-search ones."""
-    cutoff_ts = now_ts() - (48 * 60 * 60 * 1000)  # last 48h — covers articles that arrived just before previous scoring window
-    with sqlite3.connect(DB_PATH) as cx:
-        cx.row_factory = sqlite3.Row
-        rows = cx.execute("""
-            SELECT id, source, url, title, topic, tags
-            FROM articles
-            WHERE source IN ('Financial Times', 'The Economist')
-              AND auto_saved = 0
-              AND status NOT IN ('agent')
-              AND saved_at >= ?
-              AND title != ''
-        """, (cutoff_ts,)).fetchall()
-        # IMPORTANT: Only FT/Economist scored here.
-        # FA = saved articles only (all My saves, no AI picking from homepage yet)
-        # Bloomberg = manual clip only (Chrome extension)
-        # Never add FA or Bloomberg to this scorer without adding homepage scraping first.
-        # Non-core sources (CNN, CFR, FP etc) are never auto-saved to Feed, only Suggested
-    candidates = [dict(r) for r in rows]
-    if not candidates:
-        log.info("score_and_autosave: no new FT/Economist articles in last 24h")
-        return []
-    log.info(f"score_and_autosave: scoring {len(candidates)} new FT/Economist articles")
-
-    # Build interest profile from saved articles
-    with sqlite3.connect(DB_PATH) as cx:
-        interest_rows = cx.execute(
-            "SELECT topic, tags FROM articles ORDER BY saved_at DESC LIMIT 100"
-        ).fetchall()
-    topic_counts: dict = {}
-    for r in interest_rows:
-        if r[0]: topic_counts[r[0]] = topic_counts.get(r[0], 0) + 1
-        try:
-            for t in json.loads(r[1] or "[]"):
-                topic_counts[t] = topic_counts.get(t, 0) + 1
-        except: pass
-    interests_str = ", ".join(sorted(topic_counts, key=lambda x: -topic_counts[x])[:15]) or "geopolitics, economics, finance, markets"
-
-    # Build negative signal
-    with sqlite3.connect(DB_PATH) as cx:
-        fb_rows = cx.execute("SELECT topics, tags FROM agent_feedback").fetchall()
-    avoid_counts: dict = {}
-    for fb_topics, fb_tags in fb_rows:
-        for t in (fb_topics or "").split(","):
-            t = t.strip()
-            if t: avoid_counts[t] = avoid_counts.get(t, 0) + 2
-        try:
-            for tag in json.loads(fb_tags or "[]"):
-                avoid_counts[tag] = avoid_counts.get(tag, 0) + 2
-        except: pass
-    avoid_str = ", ".join(sorted(avoid_counts, key=lambda x: -avoid_counts[x])[:10])
-
-    # Score all candidates in one Claude call
-    titles_str = json.dumps([{"id": a["id"], "title": a["title"], "source": a["source"]} for a in candidates])
-    score_prompt = (
-        "You are scoring news articles for a senior analyst. "
-        f"Their interests: {interests_str}. "
-        "Score each article 0-10 strictly: "
-        "9-10: essential reading — directly addresses geopolitics, war, sanctions, central banking, financial markets, trade policy, macro economics, energy markets, international relations, diplomacy. "
-        "7-8: highly relevant — important business/finance/politics story the analyst should know about. "
-        "5-6: moderately relevant — useful but not essential. "
-        "0-4: low relevance — lifestyle, health, science, culture, arts, sport, food, travel, personal finance, entertainment. "
-        + (f"The analyst has dismissed articles about: {avoid_str} — score these lower. " if avoid_str else "") +
-        f"Articles: {titles_str} "
-        "Respond ONLY with a JSON array (same order as input): "
-        '[{"id":"abc","score":8,"reason":"one sentence why relevant"}]'
-    )
-    try:
-        score_data = call_anthropic({
-            "model": "claude-haiku-4-5-20251001",
-            "max_tokens": 1000,
-            "messages": [{"role": "user", "content": score_prompt}]
-        })
-        score_text = "".join(b.get("text", "") for b in score_data.get("content", []) if b.get("type") == "text")
-        # Strip markdown fences if Haiku wraps response (e.g. ```json ... ```)
-        clean_text = score_text.strip()
-        if clean_text.startswith("```"):
-            clean_text = clean_text.split("```", 2)[1]
-            if clean_text.startswith("json"):
-                clean_text = clean_text[4:]
-            clean_text = clean_text.rsplit("```", 1)[0].strip()
-        score_match = re.search(r'\[[\s\S]*\]', clean_text)
-        if not score_match:
-            log.warning(f"score_and_autosave: could not parse scores — raw response: {score_text[:300]}")
-            return []
-        scores = json.loads(score_match.group(0))
-        # Map scores back by id
-        score_map = {s["id"]: s for s in scores if "id" in s}
-    except Exception as e:
-        log.warning(f"score_and_autosave: Claude scoring failed: {e}")
-        return []
-
-    saved = []
-    for art in candidates:
-        s = score_map.get(art["id"], {})
-        score = s.get("score", 0)
-        reason = s.get("reason", "")
-        if score < 8:
-            log.info(f"score_and_autosave: '{art['title'][:50]}' scored {score} — skipping")
-            continue
-        # Mark as auto_saved in the existing article record
-        with sqlite3.connect(DB_PATH) as cx:
-            cx.execute(
-                "UPDATE articles SET auto_saved=1, summary=CASE WHEN summary='' OR summary IS NULL THEN ? ELSE summary END WHERE id=? AND auto_saved=0",
-                (reason, art["id"])
-            )
-            cx.execute(
-                "INSERT INTO agent_log (article_id,title,url,score,reason,saved_at) VALUES (?,?,?,?,?,?)",
-                (art["id"], art["title"], art["url"], score, reason, now_ts())
-            )
-        saved.append({"id": art["id"], "title": art["title"], "score": score})
-        log.info(f"score_and_autosave: auto-saved '{art['title'][:50]}' (score {score})")
-
-    log.info(f"score_and_autosave: done — {len(saved)}/{len(candidates)} articles auto-saved")
-    return saved
+# score_and_autosave_new_articles() removed — Session 48
 
 
 def auto_dismiss_old_suggested(days=30):
@@ -2563,9 +2471,6 @@ def push_articles():
         upsert_article(art)
         upserted += 1
     log.info(f"push-articles: upserted {upserted}, skipped {skipped} of {len(arts)}")
-    # After push, score any new FT/Economist articles that haven't been auto-saved yet
-    if upserted > 0:
-        threading.Thread(target=score_and_autosave_new_articles, daemon=True).start()
     return jsonify({"ok": True, "upserted": upserted, "skipped": skipped})
 
 

@@ -51,7 +51,7 @@ rows = conn.execute("""
     SELECT id, source, url, title, body, summary, topic, tags,
            saved_at, fetched_at, status, pub_date, auto_saved
     FROM articles
-    WHERE status = 'full_text'
+    WHERE status IN ('full_text', 'fetched', 'title_only', 'agent')
     ORDER BY saved_at DESC
 """).fetchall()
 conn.close()
