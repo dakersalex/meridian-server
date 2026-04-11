@@ -1213,41 +1213,62 @@ def enrich_title_only_articles():
         except Exception as e:
             log.warning(f"Enrich title-only: FT Playwright failed: {e}")
 
-    # Economist — use logged-in economist_profile
+    # Economist — use real Chrome via CDP (eco_chrome_profile)
     if eco_arts and PLAYWRIGHT_OK:
+        import subprocess as _sp2, time as _t2
+        cdp_profile = BASE_DIR / "eco_chrome_profile"
+        cdp_port = 9223
+        chrome_bin = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+        # Clear stale lock
+        _lock = cdp_profile / "SingletonLock"
+        if _lock.exists():
+            _lock.unlink()
+        chrome_proc = None
         try:
+            chrome_proc = _sp2.Popen([
+                chrome_bin,
+                f"--remote-debugging-port={cdp_port}",
+                f"--user-data-dir={cdp_profile}",
+                "--no-first-run", "--no-default-browser-check", "--disable-default-apps",
+            ], stdout=_sp2.DEVNULL, stderr=_sp2.DEVNULL)
+            _t2.sleep(3)
             from playwright.sync_api import sync_playwright
-            eco_profile = BASE_DIR / "economist_profile"
-            if not eco_profile.exists():
-                eco_profile = BASE_DIR / "ft_profile"
-            _clear_stale_profile_lock(eco_profile)
             with sync_playwright() as pw:
-                browser = pw.chromium.launch_persistent_context(
-                    str(eco_profile),
-                    headless=False, args=["--no-sandbox","--disable-blink-features=AutomationControlled"]
-                )
-                page = browser.pages[0] if browser.pages else browser.new_page()
+                browser = pw.chromium.connect_over_cdp(f"http://localhost:{cdp_port}")
+                context = browser.contexts[0] if browser.contexts else browser.new_context()
+                page = context.new_page()
                 for a in eco_arts:
-                    text, pub_date = fetch_economist_article_text(page, a["url"])
-                    if text:
-                        a["body"] = text
-                        if pub_date and not a.get("pub_date"):
-                            a["pub_date"] = pub_date
-                        with sqlite3.connect(DB_PATH) as cx:
-                            cx.execute("UPDATE articles SET body=?, pub_date=?, status='fetched' WHERE id=?",
-                                       (text, a.get("pub_date",""), a["id"]))
-                        enrich_article_with_ai(a)
-                        _save_enriched_article(a)
-                        enriched += 1
-                        log.info(f"Enrich title-only: Economist fetched '{a['title'][:50]}'")
-                        # Capture charts/maps while page is still open
-                        try:
-                            capture_economist_charts(page, a["id"])
-                        except Exception as _ce:
-                            log.warning(f"Enrich title-only: chart capture failed for '{a['title'][:40]}': {_ce}")
-                browser.close()
+                    try:
+                        text, pub_date = fetch_economist_article_text(page, a["url"])
+                        if text:
+                            a["body"] = text
+                            if pub_date and not a.get("pub_date"):
+                                a["pub_date"] = pub_date
+                            with sqlite3.connect(DB_PATH) as cx:
+                                cx.execute("UPDATE articles SET body=?, pub_date=?, status='fetched' WHERE id=?",
+                                           (text, a.get("pub_date",""), a["id"]))
+                            enrich_article_with_ai(a)
+                            _save_enriched_article(a)
+                            enriched += 1
+                            log.info(f"Enrich title-only: Economist fetched '{a['title'][:50]}'")
+                            try:
+                                capture_economist_charts(page, a["id"])
+                            except Exception as _ce:
+                                log.warning(f"Enrich title-only: chart capture failed: {_ce}")
+                        else:
+                            log.warning(f"Enrich title-only: Economist no text for '{a['title'][:50]}'")
+                    except Exception as _ae:
+                        log.warning(f"Enrich title-only: Economist article failed '{a['title'][:40]}': {_ae}")
+                try: page.close()
+                except: pass
+                try: browser.disconnect()
+                except: pass
         except Exception as e:
-            log.warning(f"Enrich title-only: Economist Playwright failed: {e}")
+            log.warning(f"Enrich title-only: Economist CDP failed: {e}")
+        finally:
+            if chrome_proc:
+                chrome_proc.terminate()
+                log.info("Enrich title-only: Economist CDP Chrome terminated")
 
     # Foreign Affairs — use fa_profile with fetch_fa_article_text (same as main scraper)
     if fa_arts and PLAYWRIGHT_OK:
