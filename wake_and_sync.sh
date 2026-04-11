@@ -83,7 +83,7 @@ else:
             print(f"push batch error: {e}")
         time.sleep(0.3)
 
-    print(f"push: {total_upserted} upserted, {total_skipped} skipped of {len(arts)} full_text articles")
+    print(f"push: {total_upserted} upserted, {total_skipped} skipped of {len(arts)} articles")
 PYEOF
 
 
