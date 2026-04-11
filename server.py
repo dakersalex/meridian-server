@@ -2485,6 +2485,7 @@ def push_interviews():
     log.info(f"push-interviews: {upserted} upserted, {skipped} skipped")
     return jsonify({"ok": True, "upserted": upserted, "skipped": skipped})
 
+
 @app.route("/api/push-articles", methods=["POST"])
 def push_articles():
     """Receive a batch of articles from the Mac scraper and upsert them.
