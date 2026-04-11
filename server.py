@@ -747,7 +747,7 @@ class EconomistScraper:
             f"--user-data-dir={self.CDP_PROFILE}",
             "--no-first-run", "--no-default-browser-check", "--disable-default-apps",
         ], stdout=_sp.DEVNULL, stderr=_sp.DEVNULL)
-        _t.sleep(3)
+        _t.sleep(5)
 
         try:
             with sync_playwright() as p:
@@ -1148,6 +1148,7 @@ def sync_all():
             t.join()
         log.info("Sync all complete — running title-only enrichment")
         enrich_title_only_articles()
+        enrich_fetched_articles()
         # score_and_autosave_new_articles() removed — AI picks sourced from
         # homepage scraping only, never retrospectively from saved lists.
     if threads:
@@ -1231,7 +1232,7 @@ def enrich_title_only_articles():
                 f"--user-data-dir={cdp_profile}",
                 "--no-first-run", "--no-default-browser-check", "--disable-default-apps",
             ], stdout=_sp2.DEVNULL, stderr=_sp2.DEVNULL)
-            _t2.sleep(3)
+            _t2.sleep(5)
             from playwright.sync_api import sync_playwright
             with sync_playwright() as pw:
                 browser = pw.chromium.connect_over_cdp(f"http://localhost:{cdp_port}")
@@ -1365,6 +1366,37 @@ def enrich_title_only_articles():
 
     log.info(f"Enrich title-only: done — {enriched}/{len(arts)} enriched")
     return enriched
+def enrich_fetched_articles():
+    """Enrich articles that have body text but no AI summary/topic/tags.
+    Covers full_text and fetched articles that slipped through the pipeline.
+    Does NOT fetch text — only calls enrich_article_with_ai() on existing body."""
+    with sqlite3.connect(DB_PATH) as cx:
+        cx.row_factory = sqlite3.Row
+        rows = cx.execute("""
+            SELECT * FROM articles
+            WHERE (summary IS NULL OR summary = '')
+            AND body IS NOT NULL AND LENGTH(body) > 200
+            AND status IN ('full_text', 'fetched')
+        """).fetchall()
+    arts = [dict(r) for r in rows]
+    if not arts:
+        log.info("Enrich fetched: nothing to do")
+        return 0
+    log.info(f"Enrich fetched: {len(arts)} articles need AI enrichment")
+    enriched = 0
+    for a in arts:
+        try:
+            result = enrich_article_with_ai(a)
+            if result and result.get('summary'):
+                _save_enriched_article(result)
+                enriched += 1
+                log.info(f"Enrich fetched: enriched '{a['title'][:50]}'")
+        except Exception as e:
+            log.warning(f"Enrich fetched: failed for '{a['title'][:40]}': {e}")
+    log.info(f"Enrich fetched: done — {enriched}/{len(arts)} enriched")
+    return enriched
+
+
 
 def _save_enriched_article(art):
     """Save enriched article fields back to DB after enrich_article_with_ai."""
@@ -1383,6 +1415,7 @@ def enrich_title_only_route():
         enrich_title_only_route._running = True
         try:
             enrich_title_only_articles()
+            enrich_fetched_articles()
         finally:
             enrich_title_only_route._running = False
     threading.Thread(target=_run, daemon=True).start()
