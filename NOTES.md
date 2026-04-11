@@ -1,5 +1,5 @@
 # Meridian — Technical Notes
-Last updated: 11 April 2026 (Session 47 — API cost reduction)
+Last updated: 11 April 2026 (Session 48 — architecture redesign, Economist CDP scraper, sync fixes)
 
 ## Overview
 Personal news aggregator. Flask API + SQLite backend running on Hetzner VPS (always-on).
@@ -42,6 +42,8 @@ Frontend served via nginx with HTTPS. Accessible from anywhere at https://meridi
 - ~/meridian-server/wake_and_sync.sh   — Mac sync + VPS push script (runs on wake)
 - ~/meridian-server/extension/         — Chrome extension v1.3
 - ~/meridian-server/logs/              — Server and sync logs
+- ~/meridian-server/eco_chrome_profile/ — Real Chrome profile for Economist CDP scraper (gitignored)
+- ~/meridian-server/eco_login_setup.py  — One-time Economist login helper (gitignored)
 
 ## Mac Flask launchd (IMPORTANT)
 - Python: /usr/bin/python3 (no venv — launchd plist runs server.py directly)
@@ -75,32 +77,46 @@ These diffs get stashed and re-applied on subsequent deploys, crashing Flask.
 Fix: always use `git reset --hard HEAD && git pull` (not `git stash && git pull`) on VPS.
 TODO: add `git reset --hard HEAD` to deploy.sh before the pull step to prevent this permanently.
 
-## Database (11 April 2026 — Mac, Session 47)
-| Source | Total | AI picks | Manual |
-|---|---|---|---|
-| The Economist | 306 | 17 | 289 |
-| Financial Times | 198 | 1 | 197 |
-| Foreign Affairs | 64 | 3 | 61 |
-| Bloomberg | 38 | 0 | 38 |
-| **Total** | **625** | **~21** | **~604** |
+## Database (11 April 2026 — VPS, after Session 48 push)
+| Source | Total |
+|---|---|
+| The Economist | 306 |
+| Financial Times | 214 |
+| Foreign Affairs | 74 |
+| Bloomberg | 39 |
+| Other (suggested) | 46 |
+| **VPS Total** | **679** |
 
-Full text coverage: 579/625 (92%). Unenriched (no summary): 46.
-VPS is the canonical DB. Mac local DB may differ slightly.
+Mac local DB: ~630 articles. VPS is canonical.
+Full text coverage: ~94%. Unenriched: ~87 (pending API credit top-up).
 
 ---
 
-## API Cost Profile (after Session 47 optimisations)
+## Meridian Vision & Architecture (decided Session 48)
 
-**Expected daily cost: ~$0.31/day** (down from ~$3.30/day before this session)
+### What Meridian is for
+A personal intelligence system that ingests FT, Economist, and Foreign Affairs via saved lists
+and AI discovery, enriches every article with AI, and distils everything into a daily briefing
+— readable, audible, and scannable — so you stay informed without reading dozens of articles.
+
+### Target API budget: ~$20/month
+Estimated actual: ~$11/month (see cost model below)
+
+---
+
+## API Cost Profile (Session 48 revised)
+
+**Expected daily cost: ~$0.32/day (~$11/month recurring)**
 
 | Category | Model | Frequency | Est. cost/day |
 |---|---|---|---|
-| AI pick web search | Haiku + web_search | Once/day (morning sync only) | ~$0.08 |
-| scrape_suggested external loop | Haiku + web_search | Once/day (gated) | ~$0.05 |
-| Web search tool fees | — | ~6 calls/day max | ~$0.10 |
-| Article enrichment | Haiku | Per new article | ~$0.05 |
-| kt/tag-new | Haiku | Once/day (gated) | ~$0.03 |
-| KT seed (manual only) | Sonnet + Haiku | On demand | ~$0.33 per run |
+| Web search discovery | Haiku + web_search | Morning only (gated) | ~$0.14 |
+| Article enrichment | Haiku | Per new article (~5/day avg) | ~$0.03 |
+| KT tag-new | Haiku | Once/day (gated) | ~$0.03 |
+| Daily briefing | Sonnet | Once/day (morning, not yet built) | ~$0.08 |
+| Chat Q&A | Haiku | On demand (~5 questions/day) | ~$0.04 |
+
+On-demand: KT seed (~2×/month) + Brief PDF (~4×/month) ≈ $1.50/month extra.
 
 ### Once-per-day gates (kt_meta keys)
 - `ai_pick_last_run` — gates `scrape_suggested_articles()` — set on first morning run
@@ -110,17 +126,14 @@ Both use `datetime.now().strftime('%Y-%m-%d')` as the value. Reset automatically
 ### Model usage by function
 - `enrich_article_with_ai()` → Haiku
 - `ai_pick_web_search()` → Haiku + web_search (max_attempts=3)
-- `scrape_suggested_articles()` agentic loop → Haiku + web_search (max_attempts=3)
+- `scrape_suggested_articles()` → Haiku + web_search (max_attempts=3), core 3 sources only
 - `kt/tag-new` → Haiku
 - `kt/seed` Call 1 (theme gen) → Sonnet
 - `kt/seed` Call 2 (assignment) → Haiku
 - `kt/seed` Call 3 (key_facts) → Haiku
 - Briefing generator → Sonnet
 - Health check → Haiku
-
-### Saved article scrapers — zero API cost unless new articles found
-FT and FA Playwright scrapers only call the API to enrich newly found articles.
-With no new saves, they cost nothing. Economist scraper intentionally disabled (see below).
+- Chat Q&A (planned) → Haiku, smart keyword retrieval of top 20 articles by relevance
 
 ---
 
@@ -131,118 +144,142 @@ All pub_dates stored as ISO `YYYY-MM-DD`.
 ### Economist pub_date policy (decided Session 45)
 URL date is ground truth for Economist. URL dates (/YYYY/MM/DD/) are the online publication date.
 The bookmark page shows print edition dates (1-3 days later) — these are NOT used.
-This is now consistent across all Economist articles in the DB.
 
 ### FA pub_date
-FA saved articles page shows issue dates (Mar/Apr 2026 etc) but some articles have explicit online dates.
 Use whichever date is shown on the actual article page.
 
 ---
 
-## Curation Classification — IMPORTANT (revised Session 46)
+## Curation Classification
 
 `auto_saved` is the single source of truth for AI pick vs My save:
-- `auto_saved=1` = AI pick — article found on source homepage, scored ≥8 by Haiku, NOT in DB at time of scrape
-- `auto_saved=0` = My save — article came from user's saved/bookmark list on that source
+- `auto_saved=1` = AI pick — found via web search agent, scored ≥8
+- `auto_saved=0` = My save — came from saved/bookmark list on that source
 
-### Core principle (decided Session 46)
-**AI picks come exclusively from homepage scraping. My saves come exclusively from saved lists.**
-These are fully independent pipelines. The AI never re-scores articles from saved lists.
+**auto_saved=1 is permanent.** The saved-list scraper never downgrades auto_saved.
 
-**auto_saved=1 is permanent.** If the AI picked an article first, it retains auto_saved=1 even if
-the user later saves it manually. The saved-list scraper never downgrades auto_saved.
-
-**Homepage scraper skip rule:** If a homepage candidate URL already exists in the DB, skip it entirely.
-
-### Per-source rules
-- **FT:** saved list → auto_saved=0. Homepage → auto_saved=1 if ≥8 and not in DB.
-- **Economist:** bookmarks → auto_saved=0. Homepage → auto_saved=1 if ≥8 and not in DB.
-- **FA:** saved articles page only — ALL auto_saved=0. No homepage scoring yet.
+### Per-source rules (Session 48)
+- **FT:** saved list → auto_saved=0. Web search agent ≥8 → auto_saved=1.
+  FT homepage Playwright scoring pass REMOVED (Session 48).
+- **Economist:** bookmarks → auto_saved=0. Web search agent ≥8 → auto_saved=1.
+  CDP scraper now active (see below).
+- **FA:** saved articles page only — ALL auto_saved=0. No homepage scoring.
 - **Bloomberg:** manual Chrome extension only — ALL auto_saved=0.
 
-### What was removed (Session 46)
-- `score_and_autosave_new_articles()` removed from post-sync pipeline
-- FT demotion logic removed
-- 38 FT (Mac) and 43 FT (VPS) articles reset from auto_saved=1→0
+---
+
+## Economist Scraper — CDP Architecture (Session 48)
+
+### Status: ACTIVE — uses real Chrome via CDP
+Playwright Chromium was blocked by Cloudflare (HTTP 403, "Just a moment...").
+Real Chrome (Google Chrome.app) bypasses Cloudflare completely — confirmed in testing.
+
+### How it works
+1. `EconomistScraper.scrape()` launches Google Chrome with `--remote-debugging-port=9223`
+   and `--user-data-dir=eco_chrome_profile/`
+2. Playwright connects via `connect_over_cdp('http://localhost:9223')`
+3. Navigates to `/for-you/bookmarks`, scrapes titles and URLs
+4. Chrome process terminated after scrape completes
+5. `eco_chrome_profile/` is gitignored — session persists locally only
+
+### Session management
+- `eco_chrome_profile/` stores the authenticated Economist session
+- Session will eventually expire — to renew: `python3 ~/meridian-server/eco_login_setup.py`
+  (opens Chrome to Economist login, saves session to profile)
+- CDP port: 9223 (avoids conflict with any other debugging sessions)
+- SingletonLock cleared automatically before each launch
+
+### Scraper logic (unchanged from Session 45/46)
+- Navigates to `/for-you/bookmarks` — newest-saved first
+- Scopes to `<main>` to avoid nav/header date links
+- Early exit: stops after 3 consecutive existing articles
+- Title extraction: anchor text inside h3/h2, headline class, anchor text, URL slug fallback
+- Junk filters: /podcasts/, /newsletters/, /events/, Espresso, World in Brief, etc.
+- All articles: auto_saved=0 (My saves)
+
+### Cloudflare notes (for reference)
+- Playwright Chromium: HTTP 403 immediately — TLS fingerprint detected
+- Real Chrome: passes completely — genuine browser fingerprint
+- eco_chrome_profile cookies NOT transferable from economist_profile (macOS Keychain encryption)
 
 ---
 
-## FT Homepage Scraping (added Session 46)
+## FT Scraper — Current State (Session 48)
 
-FT homepage accessible logged-in via ft_profile (headless=True).
-Structure: `div.headline.js-teaser-headline` → `a[href*="/content/"]` → `<span>` title text.
-
-**Title extraction:**
-- Opinion cards: strip "opinion content." prefix from span text
-- Section prefix cards: strip "The Big Read.", "Interview.", "The FT View.", "Analysis." etc.
-
-**Junk filters:** /podcasts/, /newsletters/, /video/, /htsi/, /house-home/, /life-arts/, etc.
-
-**Scoring:** Haiku ≥8 → auto_saved=1. JSON fence stripping applied. article_exists() guard prevents dupes.
+### Two-pass → single-pass (simplified)
+FT homepage Playwright scoring pass REMOVED in Session 48.
+FT scraper now reads saved list only (myFT → auto_saved=0).
+Discovery of new FT articles now handled entirely by web search agent.
 
 ---
 
-## Economist Scraper — Current State
+## AI Picks — web_search architecture (Session 48)
 
-### Status: INTENTIONALLY DISABLED (return [] in scrape())
-Cloudflare reliably blocks the economist_profile on repeated attempts.
-Decision (Session 47): leave disabled, clip Economist articles manually via Chrome extension.
-Do NOT attempt to re-enable without a Cloudflare mitigation strategy.
-
-### When it was working — bookmark pass design
-- Opens economist_profile (headless=False — required for Cloudflare)
-- Navigates to /for-you/bookmarks
-- Bookmark page order: **newest-saved first**
-- Scopes to `<main>` with nav-stripping fallback to avoid For You nav date links
-- Early exit: stops after 3 CONSECUTIVE existing articles
-
-### Cloudflare notes
-- Repeated rapid sync attempts within a session poison the profile (needs 30-60 min recovery)
-- Scheduled syncs work reliably because of the long gap between runs
-- Do NOT trigger multiple manual syncs in quick succession
-
-### SingletonLock fix
-- `_clear_stale_profile_lock(profile_dir)` called before every economist_profile launch
-- Prevents ProcessSingleton errors from stale locks after unexpected Chrome exits
-
----
-
-## AI Picks — web_search architecture (Session 46/47)
-
-### ai_pick_web_search() — trusted sources
-- Model: Haiku + web_search tool
-- max_attempts: 3 (reduced from 6 in Session 47)
-- Two search passes: geopolitics/war/energy + macroeconomics/finance
-- Sources: Economist, FT, Foreign Affairs, Bloomberg only
-- score ≥8 → articles table, auto_saved=1 (Feed)
-- score 6-7 → suggested_articles table
-
-### scrape_suggested_articles() — external sources
+### ai_pick_web_search() — core 3 sources only
 - Model: Haiku + web_search tool
 - max_attempts: 3
-- Sources: FA, Foreign Policy, Brookings, RAND, Atlantic Council, CFR, etc.
+- Two topic passes: geopolitics/energy + macroeconomics/finance
+- Sources: economist.com, ft.com, foreignaffairs.com ONLY (bloomberg removed)
+- score ≥8 → articles table, auto_saved=1 (Feed)
+- score 6-7 → suggested_articles table
+- Runs morning sync only (gated by ai_pick_last_run)
+
+### scrape_suggested_articles() — core 3 sources only
+- Model: Haiku + web_search tool
+- max_attempts: 3
+- Sources: Economist, FT, Foreign Affairs ONLY (external sources removed in Session 48)
 - All results → suggested_articles table
 - Once-per-day gate via kt_meta `ai_pick_last_run`
 
 ---
 
-## Sync Architecture
+## Sync Architecture (Session 48)
+
 ### Mac → VPS (wake_and_sync.sh)
-1. Playwright scrapers (FT, Economist disabled, FA)
-2. AI enrichment of title-only articles
+1. Playwright scrapers (FT saved list, Economist CDP, FA saved list)
+2. AI enrichment of new articles (Haiku, per article)
 3. Newsletter IMAP sync from iCloud
-4. Push articles → /api/push-articles
+4. Push ALL articles → /api/push-articles (ALL statuses: full_text, fetched, title_only, agent)
 5. Push images → /api/push-images
 6. Push newsletters → /api/push-newsletters
 7. Push interviews → /api/push-interviews
 
-Sync windows (Geneva time): 05:35 and 11:35.
+Sync windows (Geneva time): 05:40 and 11:40.
+Web search agent: morning only (gated, never runs at 11:40).
 
-### CRITICAL: Push script must include title_only articles
-The push script must include `status IN ('full_text','title_only','fetched','agent')`.
+### meridian_sync.py — DISABLED (Session 48)
+- Was producing 415 errors for 16+ days — completely broken and redundant
+- Launchd plist renamed: `com.alexdakers.meridian.sync.plist.disabled`
+- File kept but never loaded. wake_and_sync.sh is the only sync mechanism.
 
-### meridian_sync.py — 415 bug (fixed Session 45)
-`requests.post('/api/sync')` had no Content-Type — Flask returned 415. Fix: added `json={}`.
+### Push query — ALL statuses (fixed Session 48)
+Previously only pushed `status = 'full_text'` — 62 articles were stuck on Mac.
+Now pushes `status IN ('full_text', 'fetched', 'title_only', 'agent')`.
+First push after fix: 638 articles pushed (up from 568), VPS jumped to 679 total.
+
+### score_and_autosave_new_articles() — FULLY REMOVED (Session 48)
+- Function deleted from server.py (~120 lines)
+- Call removed from VPS push_articles() handler (was firing on every push, costing API money)
+- Tombstone comment left at removal point
+
+---
+
+## Planned Features (next sessions)
+
+### Daily Briefing (Phase 3-4 — next session)
+- Auto-generated each morning after enrichment completes
+- Sonnet reads last 24-48h articles + KT theme summaries
+- Outputs: (1) prose narrative 3-5 min read, (2) 5 key story cards, (3) audio script
+- Stored in `briefings` DB table as JSON
+- UI: Read / Scan / Listen modes. Browser Web Speech API for audio (free).
+- Distinct from PDF brief — lightweight daily catch-up vs deep formal output
+
+### Chat Q&A (Phase 5 — future session)
+- Simple chat input in UI
+- Backend: keyword-match question → top 20 most relevant articles → full body to Haiku
+- No vector DB — SQLite keyword scoring
+- Haiku responds with article citations
+- Cost: ~$0.03-0.05 per question
 
 ---
 
@@ -253,6 +290,7 @@ Claude has full access to run all terminal commands, patches, and deployments vi
 - **deploy.sh** — commit, push and deploy to VPS in one command
 
 **Claude must NEVER ask Alex to run Terminal commands.**
+**Exception: interactive scripts (e.g. eco_login_setup.py) use osascript to open Terminal.**
 
 ### Shell bridge (re-inject at start of each JS block)
 ```js
@@ -276,6 +314,7 @@ window.shell = (cmd) => fetch('http://localhost:4242/api/dev/shell', {
 - Shell bridge filters output containing "api", "fetch" etc — write to tmp_*.txt
 - After any HTML patch, verify with grep for key element IDs
 - For file-to-file patches: write OLD and NEW to separate .txt files, read both in patch script
+- Interactive scripts needing user input: use osascript to open Terminal window
 
 ### CRITICAL: Regex literals inside JS functions near backtick template literals
 Use `.split('x').join('y')` instead of regex literals.
@@ -330,25 +369,25 @@ Col 3: 14 Day Total — 3 swim-lane bars, AI% adjacent, summary below
 
 ### Financial Times
 - Scraper: Playwright, `ft_profile/`, headless=True
-- Step 1: reads myFT saved articles → auto_saved=0
-- Step 2: reads FT homepage → scores Haiku ≥8 → auto_saved=1 for new articles not in DB
-- Homepage structure: `div.headline.js-teaser-headline` → `a[href*="/content/"]` → `<span>` title
+- Reads myFT saved articles only → auto_saved=0
+- FT homepage scoring pass removed in Session 48
 - make_id = SHA1(source:url)[:16]
 
 ### The Economist
-- Scraper: **DISABLED** (`return []` in scrape()) — Cloudflare blocks reliably
-- Manual clip via Chrome extension only
+- Scraper: **ACTIVE** — real Chrome via CDP (eco_chrome_profile/, port 9223)
+- Session renewal: `python3 ~/meridian-server/eco_login_setup.py`
 - pub_date: URL date is ground truth (/YYYY/MM/DD/)
+- All bookmarks → auto_saved=0
 
 ### Foreign Affairs
 - Scraper: Playwright, `fa_profile/`
 - Session: Drupal cookie valid until **2026-05-23**
 - Reads saved articles page only — ALL FA articles are My saves (auto_saved=0)
-- No homepage AI scoring yet
 
 ### Bloomberg
 - Manual Chrome extension clip only — all My saves (auto_saved=0)
 - Bloomberg excluded from all health check analysis
+- Bloomberg removed from web search agent trusted domains (Session 48)
 
 ---
 
@@ -365,94 +404,100 @@ Col 3: 14 Day Total — 3 swim-lane bars, AI% adjacent, summary below
 ### 🔴 Infrastructure / Stability
 1. **Backup system** — No automated DB snapshots
 2. **deploy.sh — add git reset --hard HEAD** before pull to prevent VPS stash poisoning
-3. **Anthropic API credits** — Depleted as of ~Apr 9. Top up before next session.
-   After top-up: 3 FA articles will auto-enrich on next sync (Trump's Iran Gamble etc.)
+3. **Anthropic API credits** — Top up to enable article enrichment backlog (~87 unenriched)
 
 ### 🔴 Ingestion / Sync
-4. **Third sync window (~17:40)** — Easy addition to launchd
-5. **FA homepage AI scoring** — Add Playwright homepage pass using fa_profile
+4. **Economist CDP session expiry** — Will eventually expire. Run `eco_login_setup.py` to renew.
+5. **FA cookie renewal** — Drupal cookie expires 2026-05-23
 6. **Newsletter push connection reset** — Reduce batch size from 67 to 20/batch
 
-### 🟡 Briefing Generator
-7. **Charts not referenced in briefing prose**
-8. **Data points need date anchors**
+### 🟡 Planned Features (in order)
+7. **Daily briefing backend** — briefings table, generate_daily_briefing() Sonnet, wire into morning sync
+8. **Daily briefing UI** — Read / Scan / Listen modes in meridian.html
+9. **Chat Q&A** — Keyword retrieval, Haiku over top 20 full-body articles, chat UI panel
+
+### 🟡 Briefing Generator (existing PDF)
+10. **Charts not referenced in briefing prose**
+11. **Data points need date anchors**
 
 ### 🟡 UI / Frontend
-9. **Newsletter + Suggested sections — match Feed design**
-10. **Sort KT theme articles by relevance**
-11. **Sub-topics filtering — implement or remove**
+12. **Newsletter + Suggested sections — match Feed design**
+13. **Sort KT theme articles by relevance**
+14. **Sub-topics filtering — implement or remove**
 
 ### 🟡 Enrichment / Data
-12. **FT enrichment backfill** — Some FT articles still unenriched
-13. **Gemini Flash fallback** — Use free Gemini Flash for enrichment when Anthropic credits exhausted
-    (Google AI Studio key, free tier 1500 req/day — enough for normal operation)
-
-### 🟢 Maintenance / Watch
-14. **FA cookie renewal** — Drupal cookie expires 2026-05-23
-15. **Bloomberg ingestion** — Check clipping still works
-16. **score_and_autosave_new_articles()** — Dead code in server.py, safe to delete
+15. **FT enrichment backfill** — Some FT articles still unenriched
+16. **Gemini Flash fallback** — Free tier fallback when Anthropic credits exhausted
 
 ---
 
 ## Build History
 
+### 11 April 2026 (Session 48 — architecture redesign + sync fixes)
+
+**Context:** Full architecture review. VPS was stale (5-7 days behind) due to two bugs:
+push query only included `full_text` articles, and `meridian_sync.py` had been broken
+(415 errors) for 16 days. Conducted full product design session to clarify vision and simplify.
+
+**Architecture decisions:**
+- Meridian vision: personal intelligence system — ingest, enrich, distil into daily briefing
+- Ingestion: FT saved list + FA saved list + Economist bookmarks (CDP) + web search discovery
+- AI discovery: core 3 sources only (FT, Economist, FA) — external sources removed
+- Sync: keep 05:40 + 11:40 Geneva, web search morning only, meridian_sync.py disabled
+- New features planned: daily briefing (Read/Scan/Listen), Chat Q&A (smart keyword retrieval)
+- Target budget: ~$11/month vs $20 budget
+
+**Code changes deployed:**
+
+1. **Economist scraper rewritten — CDP instead of Playwright Chromium**
+   - Playwright Chromium blocked by Cloudflare (HTTP 403 confirmed in test)
+   - Real Chrome (Google Chrome.app) bypasses Cloudflare — confirmed working
+   - EconomistScraper.scrape() now launches Chrome on port 9223, connects via CDP
+   - eco_chrome_profile/ stores session (gitignored)
+   - eco_login_setup.py for session renewal (gitignored)
+
+2. **wake_and_sync.sh push query fixed**
+   - Changed from `WHERE status = 'full_text'` to `WHERE status IN ('full_text', 'fetched', 'title_only', 'agent')`
+   - Immediate push: 638 articles pushed, VPS total 679 (up from 659)
+
+3. **meridian_sync.py disabled**
+   - Launchd plist renamed `.disabled`, process unloaded
+   - Was producing 415 errors for 16 days — completely redundant
+
+4. **score_and_autosave_new_articles() removed**
+   - Function deleted from server.py (~120 lines)
+   - Call removed from push_articles() VPS handler
+
+5. **scrape_suggested_articles() — external sources removed**
+   - Prompt now instructs: core 3 sources only (Economist, FT, Foreign Affairs)
+   - Removed: Brookings, RAND, Atlantic Council, CFR, Foreign Policy, major newspapers
+
+6. **ai_pick_web_search() — Bloomberg removed from trusted domains**
+   - Bloomberg is manual-only; no value in web-searching for it
+
+7. **eco_chrome_profile removed from git**
+   - Was accidentally committed (740MB of Chrome binary data)
+   - Removed with `git rm -r --cached`, gitignore updated
+
 ### 11 April 2026 (Session 47 — API cost reduction)
-
-**Context:** Anthropic API credits exhausted (~Apr 9). Root cause: `scrape_suggested_articles()`
-was running two Sonnet 4.6 agentic web search loops twice daily (~$3.30/day total).
-
-**Cost analysis from CSV (Apr 1–8):**
-- Total spend: ~$28 over 8 days (~$3.30/day avg)
-- Apr 7 spike: $6.97 (multiple manual syncs during Session 46 each triggered full Sonnet loops)
-- Sonnet 4.6 was 64% of all spend
-- Web search tool fees: ~$0.40/day
-
-**Fixes deployed (commits 08318cfc + a971853b):**
-
-1. **ai_pick_web_search(): Sonnet → Haiku** (commit 08318cfc)
-   - All 4 call sites in scrape_suggested_articles() switched from claude-sonnet-4-6 to claude-haiku-4-5-20251001
-   - Applies to: main agentic loop, pub_date lookup, scoring call 1, fallback scoring
-
-2. **Once-per-day gate on scrape_suggested_articles()** (commit 08318cfc)
-   - Checks kt_meta key `ai_pick_last_run` against today's date
-   - 11:35 sync now skips AI pick web search entirely if morning sync already ran
-
-3. **web_search max_attempts: 6 → 3** (commit a971853b)
-   - `_run_agentic_search()` default reduced from 6 to 3 attempts
-   - Cuts web search tool fees ~50%
-
-4. **Once-per-day gate on kt/tag-new** (commit a971853b)
-   - Checks kt_meta key `kt_tag_last_run` against today's date
-   - Returns immediately if already ran today
-
-**Revised daily cost: ~$0.31/day** (down from ~$3.30/day)
-**$20 top-up should now last ~2 months**
-
-**Scraper status confirmed this session:**
-- FT: working, finds 0 new articles (all 50 saved-list cards already in DB — not a bug)
-- Economist: disabled intentionally, `return []` in place — Cloudflare blocks consistently
-- FA: working, finds 0 new articles (all 36 already in DB)
-- `_clear_stale_profile_lock` NameError: fixed by Flask restart this session
-
-### 7 April 2026 (Session 46 continued — Economist scraper overhaul)
-See previous NOTES.md for full Session 46 details.
+See previous session notes for full details. Key: Sonnet→Haiku for web search,
+once-per-day gates, max_attempts 6→3. Cost reduced from ~$3.30/day to ~$0.31/day.
 
 ### Previous sessions
+Session 46 — Economist scraper overhaul, FT homepage scoring, curation classification
 Session 45 — Stats panel redesign, pub_date fix, HTML dedup
 Session 44 — AI health check fully operational
 Session 43 — SyntaxError diagnosed
-Session 42 — stats headings, health check panel added
-Session 41 — stats panel redesign
-Session 40 — filter row, stats fix, cleanup
+Session 42 — Stats headings, health check panel added
 Session 39 — Major UI redesign, Palette 1A, card layout Option 3
 Session 38 — Newsletter + interview VPS sync, Bloomberg filter
-Session 37 — Brief article selection, FT enrichment, chart backfill
 
 ---
 
 ## GitHub Visibility
 - Repo: PUBLIC — github.com/dakersalex/meridian-server
-- Excluded: credentials.json, cookies.json, meridian.db, newsletter_sync.py, venv/, tmp_*.py, tmp_*.txt, *.bak*
+- Excluded: credentials.json, cookies.json, meridian.db, newsletter_sync.py, venv/,
+  tmp_*.py, tmp_*.txt, *.bak*, eco_chrome_profile/, eco_login_setup.py
 
 ## Session Starter Prompt
 
@@ -465,12 +510,12 @@ Meridian session start. Read NOTES.md and run the startup sequence.
 
 ### Step 1 — Load MCPs
 Call tool_search with EXACTLY these queries in order:
-1. `"tabs context mcp chrome"` — loads Chrome MCP (use this query, not "javascript tool navigate tabs")
+1. `"tabs context mcp chrome"` — loads Chrome MCP
 2. `"javascript tool execute page"` — loads javascript_tool
 3. `"filesystem write file"` — loads Filesystem MCP
 
 ### Step 2 — Read NOTES.md
-Read /Users/alexdakers/meridian-server/NOTES.md via filesystem:read_text_file.
+Read /Users/alexdakers/meridian-server/NOTES.md via filesystem:read_file.
 
 ### Step 3 — Set up browser tabs
 Call tabs_context_mcp with createIfEmpty:true to get current tab IDs.
