@@ -761,6 +761,7 @@ class EconomistScraper:
                 log.error(f"Economist subprocess JSON error: {_je}")
         import os as _os; _os.unlink(_out.name)
         log.info(f"Economist scraper: {len(articles)} articles found")
+        return articles
 
 class ForeignAffairsScraper:
     name = "Foreign Affairs"
