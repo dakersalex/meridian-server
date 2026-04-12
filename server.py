@@ -650,6 +650,8 @@ def get_newsletters():
 
 # ── Scrapers ──────────────────────────────────────────────────────────────────
 class FTScraper:
+    """Scrapes FT myFT saved articles. Paginates through all pages,
+    stopping when an entire page consists only of articles already in DB."""
     name = "Financial Times"
     SAVED_URL = "https://www.ft.com/myft/saved-articles/197493b5-7e8e-4f13-8463-3c046200835c"
 
@@ -657,113 +659,223 @@ class FTScraper:
         pass
 
     def scrape(self):
-        if not PLAYWRIGHT_OK: raise RuntimeError("playwright not installed")
+        if not PLAYWRIGHT_OK:
+            raise RuntimeError("playwright not installed")
         profile_dir = BASE_DIR / "ft_profile"
         profile_dir.mkdir(exist_ok=True)
         articles = []
+
+        JUNK_PREFIXES = (
+            "FT quiz:", "Letter:", "FTAV's further reading",
+            "FT News Briefing", "Correction:", "The best books of the week",
+        )
+        JUNK_SUBSTRINGS = (" live:", " as it happened", "live blog")
+
         with sync_playwright() as p:
             browser = p.chromium.launch_persistent_context(
                 str(profile_dir), headless=True,
                 user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-                args=["--disable-blink-features=AutomationControlled"])
+                args=["--disable-blink-features=AutomationControlled", "--no-sandbox"])
             page = browser.new_page()
             try:
-                log.info("FT: opening saved articles")
+                log.info("FT: opening saved articles page 1")
                 page.goto(self.SAVED_URL, wait_until="domcontentloaded", timeout=45000)
-                page.wait_for_timeout(4000)
+                page.wait_for_timeout(3000)
+
                 if "login" in page.url or "signin" in page.url:
                     log.info("FT: login required — waiting 90s")
                     page.wait_for_timeout(90000)
                     page.goto(self.SAVED_URL, wait_until="domcontentloaded", timeout=40000)
-                    page.wait_for_timeout(4000)
-                soup = BeautifulSoup(page.content(), "html.parser")
-                cards = soup.select("div.o-teaser, li.o-teaser, article")
-                log.info(f"FT: found {len(cards)} cards")
-                JUNK_PREFIXES = ("FT quiz:", "Letter:", "FTAV's further reading", "FT News Briefing", "Correction:", "The best books of the week")
-                JUNK_SUBSTRINGS = (" live:", " as it happened", "live blog", "htsi stories", "how to spend it")
-                # Scan first 20 cards only — unlikely to save >20/day
-                for card in cards[:20]:
-                    a = card.select_one("a[href*='/content/']")
-                    if not a: continue
-                    url = "https://www.ft.com" + a["href"] if a["href"].startswith("/") else a["href"]
-                    url = url.split("?")[0]
-                    title_el = card.select_one(".o-teaser__heading, h3, h2")
-                    title = title_el.get_text(strip=True) if title_el else a.get_text(strip=True)
-                    if not title or len(title) < 5: continue
-                    if any(title.startswith(p) for p in JUNK_PREFIXES): continue
-                    if any(s in title.lower() for s in JUNK_SUBSTRINGS): continue
-                    art_id = make_id(self.name, url)
-                    if article_exists(art_id): continue
-                    cat_el = card.select_one(".o-teaser__tag, .o-teaser__concept")
-                    category = cat_el.get_text(strip=True) if cat_el else ""
-                    articles.append({"id":art_id,"source":self.name,"url":url,"title":title,"body":"","summary":"","topic":category,"tags":"[]","saved_at":now_ts(),"fetched_at":now_ts(),"status":"fetched","pub_date":""})
-                    log.info(f"FT: scraped '{title[:60]}'")
-                    # AI pick status (auto_saved=1) is permanent — if AI picked it first, that stands
-                    # even if user later saves it. Saved list scraper never downgrades auto_saved.
-                log.info(f"FT: total {len(articles)} articles scraped")
-                new_arts = [a for a in articles if not article_exists(a["id"])]
-                log.info(f"FT: {len(new_arts)} new articles to enrich")
-                for art in new_arts:
-                    if not art.get("url"): continue
-                    log.info(f"FT: fetching full text for '{art['title'][:50]}'")
-                    text, pub_date = fetch_ft_article_text(page, art["url"])
-                    if pub_date:
-                        art["pub_date"] = pub_date
-                    if text:
-                        art["body"] = text
-                        enrich_article_with_ai(art)
-                    else:
-                        art["status"] = "title_only"
-            except Exception as e: log.error(f"FT error: {e}", exc_info=True)
-            finally: browser.close()
+                    page.wait_for_timeout(3000)
+
+                page_num = 1
+                while True:
+                    soup = BeautifulSoup(page.content(), "html.parser")
+                    cards = soup.select("div.o-teaser, li.o-teaser, article")
+                    log.info("FT: page %d — %d cards" % (page_num, len(cards)))
+
+                    page_articles = []
+                    for card in cards:
+                        a = card.select_one("a[href*='/content/']")
+                        if not a:
+                            continue
+                        href = a.get("href", "")
+                        url = ("https://www.ft.com" + href if href.startswith("/") else href).split("?")[0]
+                        title_el = card.select_one(".o-teaser__heading, h3, h2")
+                        title = title_el.get_text(strip=True) if title_el else a.get_text(strip=True)
+                        if not title or len(title) < 5:
+                            continue
+                        if any(title.startswith(pf) for pf in JUNK_PREFIXES):
+                            continue
+                        if any(s in title.lower() for s in JUNK_SUBSTRINGS):
+                            continue
+                        art_id = make_id(self.name, url)
+                        cat_el = card.select_one(".o-teaser__tag, .o-teaser__concept")
+                        category = cat_el.get_text(strip=True) if cat_el else ""
+                        page_articles.append({
+                            "id": art_id, "source": self.name, "url": url,
+                            "title": title, "body": "", "summary": "", "topic": category,
+                            "tags": "[]", "saved_at": now_ts(), "fetched_at": now_ts(),
+                            "status": "fetched", "pub_date": "", "auto_saved": 0,
+                        })
+
+                    if not page_articles:
+                        log.info("FT: no articles on page %d — stopping" % page_num)
+                        break
+
+                    new_on_page = [a for a in page_articles if not article_exists(a["id"])]
+                    existing_on_page = [a for a in page_articles if article_exists(a["id"])]
+                    log.info("FT: page %d — %d new, %d existing" % (page_num, len(new_on_page), len(existing_on_page)))
+
+                    # Fetch full text for new articles immediately
+                    for art in new_on_page:
+                        log.info("FT: fetching text for '%s'" % art["title"][:55])
+                        text, pub_date = fetch_ft_article_text(page, art["url"])
+                        if pub_date:
+                            art["pub_date"] = pub_date
+                        if text:
+                            art["body"] = text
+                            enrich_article_with_ai(art)
+                        else:
+                            art["status"] = "title_only"
+                        # Navigate back to saved page after fetching text
+                        page.goto(self.SAVED_URL, wait_until="domcontentloaded", timeout=30000)
+                        page.wait_for_timeout(2000)
+                        if page_num > 1:
+                            # Re-navigate to correct page
+                            try:
+                                for _ in range(page_num - 1):
+                                    nxt = page.locator("a[aria-label='Next page'], a[rel='next']").first
+                                    if nxt.is_visible(timeout=2000):
+                                        nxt.click()
+                                        page.wait_for_timeout(2000)
+                            except Exception:
+                                pass
+
+                    articles.extend(new_on_page)
+
+                    # Stop if entire page already in DB
+                    if len(existing_on_page) == len(page_articles):
+                        log.info("FT: all articles on page %d already in DB — stopping" % page_num)
+                        break
+
+                    # Go to next page
+                    try:
+                        next_loc = page.locator("a[aria-label='Next page'], a[rel='next']").first
+                        if next_loc.is_visible(timeout=2000):
+                            next_loc.click()
+                            page.wait_for_timeout(3000)
+                            page_num += 1
+                        else:
+                            log.info("FT: no next page at page %d — stopping" % page_num)
+                            break
+                    except Exception:
+                        log.info("FT: pagination ended at page %d" % page_num)
+                        break
+
+                log.info("FT: scraped %d new articles across %d pages" % (len(articles), page_num))
+
+            except Exception as e:
+                log.error("FT error: %s" % e, exc_info=True)
+            finally:
+                browser.close()
+
         return articles
 
 
 class EconomistScraper:
+    """Scrapes Economist bookmarks via CDP subprocess (headless, avoids Flask event loop conflict).
+    Clicks Load More until the last revealed batch is entirely existing articles."""
     name = "The Economist"
-    SAVED_URL = "https://www.economist.com/for-you/bookmarks"
-    CHROME_BIN = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
-    CDP_PORT = 9223  # separate port — avoids conflict with any other Chrome debugging
+    CHROME_BIN  = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+    CDP_PORT    = 9223
     CDP_PROFILE = BASE_DIR / "eco_chrome_profile"
 
     def __init__(self, email="", password=""):
         pass
 
     def scrape(self):
-        import subprocess as _sp, time as _t
-        articles = []
+        import subprocess as _sp, json as _json, tempfile as _tmp, sys as _sys, os as _os
         self.CDP_PROFILE.mkdir(exist_ok=True)
 
-        # Clear stale SingletonLock in CDP profile
-        lock = self.CDP_PROFILE / "SingletonLock"
-        if lock.exists():
-            lock.unlink()
-            log.info("Economist: cleared stale CDP profile lock")
+        # Pass known IDs to subprocess so it can stop when all new batch is already in DB
+        with sqlite3.connect(DB_PATH) as _cx:
+            known_ids = [r[0] for r in _cx.execute(
+                "SELECT id FROM articles WHERE source='The Economist'"
+            ).fetchall()]
 
-        # Run CDP scrape in a subprocess to avoid Flask event loop conflict
-        import json as _json, tempfile as _tmp, sys as _sys
-        _out = _tmp.NamedTemporaryFile(suffix='.json', delete=False)
-        _out.close()
-        sub_script = str(BASE_DIR / "eco_scraper_sub.py")
+        ids_file = _tmp.NamedTemporaryFile(suffix='.json', mode='w', delete=False)
+        _json.dump(known_ids, ids_file)
+        ids_file.close()
+
+        out_file = _tmp.NamedTemporaryFile(suffix='.json', delete=False)
+        out_file.close()
+
         sub = _sp.run(
-            [_sys.executable, sub_script,
-             str(self.CDP_PROFILE), str(self.CDP_PORT), _out.name],
-            timeout=120, capture_output=True, text=True
+            [_sys.executable,
+             str(BASE_DIR / "eco_scraper_sub.py"),
+             str(self.CDP_PROFILE), str(self.CDP_PORT),
+             out_file.name, ids_file.name],
+            timeout=300, capture_output=True, text=True
         )
+        _os.unlink(ids_file.name)
+
+        articles = []
         if sub.returncode != 0:
-            log.error(f"Economist subprocess failed: {sub.stderr[:300]}")
+            log.error("Economist subprocess failed: " + sub.stderr[:300])
         else:
+            log.info("Economist subprocess: " + sub.stderr[-400:])
             try:
-                results = _json.loads(open(_out.name).read())
-                articles = results.get('articles', [])
-                log.info(f"Economist subprocess: {len(articles)} articles")
-            except Exception as _je:
-                log.error(f"Economist subprocess JSON error: {_je}")
-        import os as _os; _os.unlink(_out.name)
-        log.info(f"Economist scraper: {len(articles)} articles found")
+                result = _json.loads(open(out_file.name).read())
+                articles = result.get("articles", [])
+                if result.get("error"):
+                    log.error("Economist subprocess error: " + str(result["error"]))
+            except Exception as e:
+                log.error("Economist subprocess JSON error: " + str(e))
+        _os.unlink(out_file.name)
+        log.info("Economist: %d new articles found" % len(articles))
+
+        if articles:
+            articles = self._fetch_texts(articles)
         return articles
 
+    def _fetch_texts(self, articles):
+        import subprocess as _sp, json as _json, tempfile as _tmp, sys as _sys, os as _os
+        in_f = _tmp.NamedTemporaryFile(suffix='.json', mode='w', delete=False)
+        _json.dump([{"id": a["id"], "url": a["url"], "title": a["title"]} for a in articles], in_f)
+        in_f.close()
+        out_f = _tmp.NamedTemporaryFile(suffix='.json', delete=False)
+        out_f.close()
+
+        sub = _sp.run(
+            [_sys.executable, str(BASE_DIR / "eco_fetch_sub.py"),
+             str(self.CDP_PROFILE), str(self.CDP_PORT), in_f.name, out_f.name],
+            timeout=300, capture_output=True, text=True
+        )
+        _os.unlink(in_f.name)
+        log.info("Economist fetch: " + sub.stderr[-300:])
+
+        try:
+            results = _json.loads(open(out_f.name).read())
+            by_id = {r["id"]: r for r in results}
+            for art in articles:
+                fetched = by_id.get(art["id"], {})
+                body = fetched.get("body", "")
+                if body:
+                    art["body"] = body
+                    art["status"] = "fetched"
+                    enrich_article_with_ai(art)
+                else:
+                    art["status"] = "title_only"
+        except Exception as e:
+            log.error("Economist fetch parse error: " + str(e))
+        _os.unlink(out_f.name)
+        return articles
+
+
 class ForeignAffairsScraper:
+    """Scrapes FA saved articles. Paginates through all pages,
+    stopping when an entire page consists only of articles already in DB."""
     name = "Foreign Affairs"
     SAVED_URL = "https://www.foreignaffairs.com/my-foreign-affairs/saved-articles"
 
@@ -771,121 +883,142 @@ class ForeignAffairsScraper:
         pass
 
     def scrape(self):
-        if not PLAYWRIGHT_OK: raise RuntimeError("playwright not installed")
+        if not PLAYWRIGHT_OK:
+            raise RuntimeError("playwright not installed")
         profile_dir = BASE_DIR / "fa_profile"
         profile_dir.mkdir(exist_ok=True)
         articles = []
+
         with sync_playwright() as p:
             browser = p.chromium.launch_persistent_context(
                 str(profile_dir), headless=True,
                 user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-                args=["--disable-blink-features=AutomationControlled"])
+                args=["--disable-blink-features=AutomationControlled", "--no-sandbox"])
             page = browser.new_page()
             try:
-                log.info("FA: opening saved articles")
+                log.info("FA: opening saved articles page 1")
                 page.goto(self.SAVED_URL, wait_until="domcontentloaded", timeout=45000)
                 page.wait_for_timeout(4000)
+
                 if "sign-in" in page.url or "login" in page.url:
                     creds = load_creds()
                     fa_creds = creds.get("fa", {})
-                    fa_email = fa_creds.get("email", os.environ.get("FA_EMAIL", ""))
-                    fa_pass = fa_creds.get("password", os.environ.get("FA_PASSWORD", ""))
+                    fa_email = fa_creds.get("email", "")
+                    fa_pass  = fa_creds.get("password", "")
                     if fa_email and fa_pass:
-                        log.info("FA: login required — attempting auto-login")
-                        page.goto("https://www.foreignaffairs.com/login", wait_until="domcontentloaded", timeout=30000)
-                        page.wait_for_load_state("domcontentloaded", timeout=15000)
-                        email_selectors = ['input[type="email"]', '#email', '#user_email', 'input[name="email"]', 'input[placeholder*="email" i]']
-                        password_selectors = ['input[type="password"]', '#password', '#user_password', 'input[name="password"]']
-                        email_filled = False
-                        for sel in email_selectors:
+                        log.info("FA: attempting auto-login")
+                        page.goto("https://www.foreignaffairs.com/login",
+                                  wait_until="domcontentloaded", timeout=30000)
+                        page.wait_for_timeout(2000)
+                        for sel in ['input[type="email"]', '#email', 'input[name="email"]']:
                             try:
                                 loc = page.locator(sel).first
-                                if loc.is_visible(timeout=2000):
+                                if loc.is_visible(timeout=1500):
                                     loc.fill(fa_email)
-                                    email_filled = True
-                                    log.info(f"FA: filled email with selector '{sel}'")
                                     break
                             except Exception:
                                 continue
-                        pass_filled = False
                         pass_loc = None
-                        for sel in password_selectors:
+                        for sel in ['input[type="password"]', '#password', 'input[name="password"]']:
                             try:
                                 loc = page.locator(sel).first
-                                if loc.is_visible(timeout=2000):
+                                if loc.is_visible(timeout=1500):
                                     loc.fill(fa_pass)
-                                    pass_filled = True
                                     pass_loc = loc
-                                    log.info(f"FA: filled password with selector '{sel}'")
                                     break
                             except Exception:
                                 continue
-                        if not email_filled or not pass_filled:
-                            log.warning(f"FA: could not find form fields (email={email_filled}, pass={pass_filled})")
-                        import re
-                        submitted = False
-                        for submit_attempt, submit_fn in [
-                            ("form[action] button[type=submit]", lambda: page.locator('form[action*="login"] button[type="submit"]').click()),
-                            ("button with login text", lambda: page.locator('button[type="submit"]').filter(has_text=re.compile(r'sign.?in|log.?in|submit', re.I)).first.click()),
-                            ("Enter on password field", lambda: pass_loc.press("Enter") if pass_loc else None),
-                        ]:
-                            try:
-                                submit_fn()
-                                submitted = True
-                                log.info(f"FA: submitted login via '{submit_attempt}'")
-                                break
-                            except Exception:
-                                continue
-                        if not submitted:
-                            log.warning("FA: could not find submit button")
+                        if pass_loc:
+                            pass_loc.press("Enter")
                         try:
-                            page.wait_for_url(lambda u: "login" not in u and "sign-in" not in u, timeout=30000)
-                            log.info("FA: auto-login successful")
-                        except PWTimeout:
-                            log.warning("FA: auto-login may have failed — proceeding anyway")
-                        log.info(f"FA: post-login URL = {page.url}")
+                            page.wait_for_url(
+                                lambda u: "login" not in u and "sign-in" not in u,
+                                timeout=20000
+                            )
+                            log.info("FA: login successful")
+                        except Exception:
+                            log.warning("FA: login may have failed")
+                        page.goto(self.SAVED_URL, wait_until="domcontentloaded", timeout=40000)
+                        page.wait_for_timeout(3000)
                     else:
-                        log.warning("FA: login required but no fa credentials in credentials.json — waiting 120s")
-                        page.wait_for_timeout(120000)
-                    page.goto(self.SAVED_URL, wait_until="domcontentloaded", timeout=40000)
-                    page.wait_for_timeout(4000)
-                    log.info(f"FA: saved articles URL = {page.url}")
-                    log.info(f"FA: page title = {page.title()}")
-                soup = BeautifulSoup(page.content(), "html.parser")
-                cards = soup.select("h3.body-m, div.article-preview, li.saved-article")
-                log.info(f"FA: found {len(cards)} cards")
-                # Scan first 20 cards only
-                for card in cards[:20]:
-                    a = card if card.name == "a" else card.select_one("a[href*='foreignaffairs.com']")
-                    if not a:
-                        a = card.find_parent("a") or card.select_one("a")
-                    if not a: continue
-                    href = a.get("href", "")
-                    if not href: continue
-                    url = "https://www.foreignaffairs.com" + href if href.startswith("/") else href
-                    url = url.split("?")[0]
-                    title = card.get_text(strip=True) if card.name != "a" else card.get_text(strip=True)
-                    if not title or len(title) < 5: continue
-                    art_id = make_id(self.name, url)
-                    if article_exists(art_id): continue
-                    articles.append({"id":art_id,"source":self.name,"url":url,"title":title,"body":"","summary":"","topic":"","tags":"[]","saved_at":now_ts(),"fetched_at":now_ts(),"status":"fetched","pub_date":""})
-                    log.info(f"FA: scraped '{title[:60]}'")
-                log.info(f"FA: total {len(articles)} articles scraped")
-                new_arts = [a for a in articles if not article_exists(a["id"])]
-                log.info(f"FA: {len(new_arts)} new articles to enrich")
-                for art in new_arts:
-                    if not art.get("url"): continue
-                    log.info(f"FA: fetching full text for '{art['title'][:50]}'")
-                    text, pub_date = fetch_fa_article_text(page, art["url"])
-                    if pub_date:
-                        art["pub_date"] = pub_date
-                    if text:
-                        art["body"] = text
-                        enrich_article_with_ai(art)
-                    else:
-                        log.info(f"FA: no text for '{art['title'][:50]}'")
-            except Exception as e: log.error(f"FA error: {e}", exc_info=True)
-            finally: browser.close()
+                        log.warning("FA: login required but no credentials found")
+
+                page_num = 1
+                while True:
+                    soup = BeautifulSoup(page.content(), "html.parser")
+                    page_articles = []
+
+                    for card in soup.select("article, div.article-preview, li.saved-article, h3.body-m"):
+                        a_tag = card.select_one("a[href*='foreignaffairs.com'], a[href^='/']")
+                        if not a_tag:
+                            continue
+                        href = a_tag.get("href", "")
+                        if not href:
+                            continue
+                        url = ("https://www.foreignaffairs.com" + href
+                               if href.startswith("/") else href).split("?")[0]
+                        if "foreignaffairs.com" not in url:
+                            continue
+                        title = card.get_text(strip=True)[:200]
+                        if not title or len(title) < 5:
+                            continue
+                        art_id = make_id(self.name, url)
+                        page_articles.append({
+                            "id": art_id, "source": self.name, "url": url,
+                            "title": title, "body": "", "summary": "", "topic": "",
+                            "tags": "[]", "saved_at": now_ts(), "fetched_at": now_ts(),
+                            "status": "fetched", "pub_date": "", "auto_saved": 0,
+                        })
+
+                    if not page_articles:
+                        log.info("FA: no articles on page %d — stopping" % page_num)
+                        break
+
+                    new_on_page      = [a for a in page_articles if not article_exists(a["id"])]
+                    existing_on_page = [a for a in page_articles if article_exists(a["id"])]
+                    log.info("FA: page %d — %d new, %d existing" % (page_num, len(new_on_page), len(existing_on_page)))
+
+                    for art in new_on_page:
+                        log.info("FA: fetching text for '%s'" % art["title"][:55])
+                        text, pub_date = fetch_fa_article_text(page, art["url"])
+                        if pub_date:
+                            art["pub_date"] = pub_date
+                        if text:
+                            art["body"] = text
+                            enrich_article_with_ai(art)
+                        else:
+                            art["status"] = "title_only"
+                        # Navigate back for next article
+                        page.goto(self.SAVED_URL + ("?page=%d" % page_num),
+                                  wait_until="domcontentloaded", timeout=30000)
+                        page.wait_for_timeout(2000)
+
+                    articles.extend(new_on_page)
+
+                    if len(existing_on_page) == len(page_articles):
+                        log.info("FA: all articles on page %d already in DB — stopping" % page_num)
+                        break
+
+                    try:
+                        next_loc = page.locator("a[aria-label='Next'], a[rel='next'], .pager__item--next a").first
+                        if next_loc.is_visible(timeout=2000):
+                            next_loc.click()
+                            page.wait_for_timeout(3000)
+                            page_num += 1
+                        else:
+                            log.info("FA: no next page at page %d — stopping" % page_num)
+                            break
+                    except Exception:
+                        log.info("FA: pagination ended at page %d" % page_num)
+                        break
+
+                log.info("FA: scraped %d new articles across %d pages" % (len(articles), page_num))
+
+            except Exception as e:
+                log.error("FA error: %s" % e, exc_info=True)
+            finally:
+                browser.close()
+
         return articles
 
 
