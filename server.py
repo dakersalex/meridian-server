@@ -740,181 +740,27 @@ class EconomistScraper:
             lock.unlink()
             log.info("Economist: cleared stale CDP profile lock")
 
-        # Launch real Chrome with remote debugging
-        chrome_proc = _sp.Popen([
-            self.CHROME_BIN,
-            f"--remote-debugging-port={self.CDP_PORT}",
-            f"--user-data-dir={self.CDP_PROFILE}",
-            "--no-first-run", "--no-default-browser-check", "--disable-default-apps",
-        ], stdout=_sp.DEVNULL, stderr=_sp.DEVNULL)
-        _t.sleep(5)
-
-        try:
-            with sync_playwright() as p:
-                browser = p.chromium.connect_over_cdp(f"http://localhost:{self.CDP_PORT}")
-                context = browser.contexts[0] if browser.contexts else browser.new_context()
-                page = context.new_page()
-            # Junk filters applied to all Economist articles regardless of source
-            JUNK_URL_PATHS = ("/podcasts/", "/newsletters/", "/events/", "/films/", "/interactive/")
-            JUNK_PREFIXES_ECO = ("The War Room newsletter:", "Blighty newsletter:", "The US in Brief:",
-                                "Espresso:", "The World in Brief:", "The Economist explains:",
-                                "Graphic detail:", "KAL's cartoon")
-
-            def is_junk(url, title):
-                if any(p in url for p in JUNK_URL_PATHS): return True
-                if any(title.startswith(p) for p in JUNK_PREFIXES_ECO): return True
-                return False
-
+        # Run CDP scrape in a subprocess to avoid Flask event loop conflict
+        import json as _json, tempfile as _tmp, sys as _sys
+        _out = _tmp.NamedTemporaryFile(suffix='.json', delete=False)
+        _out.close()
+        sub_script = str(BASE_DIR / "eco_scraper_sub.py")
+        sub = _sp.run(
+            [_sys.executable, sub_script,
+             str(self.CDP_PROFILE), str(self.CDP_PORT), _out.name],
+            timeout=120, capture_output=True, text=True
+        )
+        if sub.returncode != 0:
+            log.error(f"Economist subprocess failed: {sub.stderr[:300]}")
+        else:
             try:
-                # ── Step 1: Pull from bookmarks (your explicit saves) ──────────────
-                log.info("Economist: opening bookmarks")
-                page.goto(self.SAVED_URL, wait_until="domcontentloaded", timeout=45000)
-                page.wait_for_timeout(4000)
-                if "login" in page.url or "signin" in page.url:
-                    log.info("Economist: login required — waiting 90s for manual login")
-                    page.wait_for_timeout(90000)
-                    page.goto(self.SAVED_URL, wait_until="domcontentloaded", timeout=40000)
-                    page.wait_for_timeout(4000)
-
-                bookmark_urls = set()
-                soup = BeautifulSoup(page.content(), "html.parser")
-                found_existing = False
-                consecutive_existing = 0
-
-                # Known Economist section labels — these appear as link text but are NOT article titles
-                SECTION_LABELS = {
-                    'Finance & economics', 'Middle East & Africa', 'Science & technology',
-                    'Business', 'United States', 'Europe', 'Charlemagne', 'Schumpeter',
-                    'Buttonwood', 'Free exchange', 'Free Exchange', 'Lexington', 'Leaders',
-                    'Briefing', 'By Invitation', 'Bagehot', 'The Telegram', 'Well informed',
-                    'Graphic detail', 'Christmas Specials', 'International', 'Special report',
-                    'The Americas', 'Asia', 'Britain', 'China', 'Culture', 'Obituary',
-                    'Schools brief', 'Technology Quarterly', 'The world this week',
-                    'The World Ahead', 'Letters', 'Index',
-                }
-
-                def extract_bookmark_title(a_tag, url):
-                    """Extract article title from an Economist bookmark card.
-                    Structure: <h3 class='headline_mb-teaser__headline__...'>
-                                 <a href='/YYYY/MM/DD/slug'>headline text</a>
-                               </h3>
-                    The <a> is INSIDE the h3 — so the anchor text IS the title.
-                    The section label (Middle East & Africa etc.) is in a sibling <p>."""
-                    # Strategy 1: anchor text is the title if <a> is inside h3/h2
-                    parent = a_tag.parent
-                    if parent and parent.name in ('h3', 'h2'):
-                        t = a_tag.get_text(strip=True)
-                        if t and len(t) > 15 and t not in SECTION_LABELS:
-                            return t
-                    # Strategy 2: look for headline class on parent or grandparent
-                    for ancestor in [a_tag.parent, a_tag.parent.parent if a_tag.parent else None]:
-                        if ancestor is None: continue
-                        cls = ' '.join(ancestor.get('class', []))
-                        if 'headline' in cls.lower():
-                            t = ancestor.get_text(strip=True)
-                            if t and len(t) > 15 and t not in SECTION_LABELS:
-                                return t
-                    # Strategy 3: anchor text if substantial and not a section label
-                    anchor_text = a_tag.get_text(strip=True)
-                    if anchor_text and len(anchor_text) > 20 and anchor_text not in SECTION_LABELS:
-                        return anchor_text
-                    # Strategy 4: URL slug as last resort
-                    slug = url.rstrip('/').split('/')[-1].replace('-', ' ')
-                    if len(slug) > 20:
-                        return slug.title()
-                    return ""
-
-                # Scope to <main> only — avoids nav/header/footer links that appear
-                # earlier in the DOM than the actual bookmark cards and corrupt ordering.
-                # The For You nav (Feed / Topics / Bookmarks tabs) contains date links
-                # that appear before bookmark cards in DOM order.
-                # Fallback: if <main> has no date links (JS-rendered page), use full soup.
-                _main = soup.find("main") or soup
-                _main_links = [a for a in _main.select("a[href*='/20']")
-                               if re.search(r'/\d{4}/\d{2}/\d{2}/', a.get("href",""))]
-                # If <main> scoping found nothing but full doc has links, fall back carefully
-                # by excluding the nav element
-                if not _main_links:
-                    for _nav in soup.select("nav, header, [class*='navigation'], [class*='nav-']"):
-                        _nav.decompose()
-                    _main = soup
-                for a in _main.select("a[href*='/20']"):
-                    href = a.get("href", "")
-                    if not re.search(r'/\d{4}/\d{2}/\d{2}/', href): continue
-                    url = ("https://www.economist.com" + href if href.startswith("/") else href).split("?")[0]
-                    if any(p in url for p in JUNK_URL_PATHS): continue  # URL-based junk filter
-                    art_id = make_id(self.name, url)
-                    if art_id in bookmark_urls: continue
-                    if article_exists(art_id):
-                        consecutive_existing += 1
-                        log.info(f"Economist: hit existing bookmark ({consecutive_existing}/3), continuing")
-                        if consecutive_existing >= 3:
-                            log.info("Economist: 3 consecutive existing bookmarks — stopping")
-                            found_existing = True; break
-                        continue
-                    consecutive_existing = 0  # reset on any new article
-                    bookmark_urls.add(art_id)
-
-                    title = extract_bookmark_title(a, url)
-                    if not title or len(title) < 10:
-                        log.info(f"Economist: skipping (no title found) {url[-50:]}")
-                        continue
-                    if title in SECTION_LABELS:
-                        log.info(f"Economist: skipping section label '{title}'")
-                        continue
-
-                    art = {"id": art_id, "source": self.name, "url": url, "title": title,
-                           "body": "", "summary": "", "topic": "", "tags": "[]",
-                           "saved_at": now_ts(), "fetched_at": now_ts(),
-                           "status": "title_only", "pub_date": extract_pub_date_from_url(url),
-                           "auto_saved": 0}  # 0 = explicitly saved by user
-                    articles.append(art)
-                    log.info(f"Economist bookmark: '{title[:60]}'")
-                log.info(f"Economist: {len(articles)} new bookmark articles")
-
-                log.info(f"Economist: total {len(articles)} articles (bookmarks only)")
-
-
-                # Enrich all new articles as title_only — full text fetched later
-                new_arts = [a for a in articles if not article_exists(a["id"])]
-                log.info(f"Economist: {len(new_arts)} new articles to save")
-                for art in new_arts:
-                    log.info(f"Economist: saving '{art['title'][:55]}' (auto_saved={art['auto_saved']})")
-
-                # Clip previously fetched articles still missing full text
-                import sqlite3 as _sq
-                _cx = _sq.connect(DB_PATH)
-                pending = _cx.execute(
-                    "SELECT id, url, title FROM articles WHERE source='The Economist' AND status='fetched' AND url!=''").fetchall()
-                _cx.close()
-                if pending:
-                    log.info(f"Economist: {len(pending)} previously fetched articles to clip")
-                for pid, purl, ptitle in (pending or []):
-                    try:
-                        text, pub_date = fetch_economist_article_text(page, purl)
-                        if text:
-                            art = {"id": pid, "source": "The Economist", "url": purl,
-                                   "title": ptitle, "body": text, "summary": "", "topic": "",
-                                   "tags": "[]", "status": "fetched", "pub_date": pub_date or ""}
-                            enrich_article_with_ai(art)
-                            log.info(f"Economist: clipped existing '{ptitle[:50]}'")
-                        else:
-                            log.info(f"Economist: no text for existing '{ptitle[:50]}'")
-                    except Exception as _e:
-                        log.warning(f"Economist: clip error for '{ptitle[:50]}': {_e}")
-            except Exception as e: log.error(f"Economist error: {e}", exc_info=True)
-            finally:
-                try: page.close()
-                except: pass
-                try: browser.disconnect()
-                except: pass
-        except Exception as outer_e:
-            log.error(f"Economist CDP error: {outer_e}", exc_info=True)
-        finally:
-            chrome_proc.terminate()
-            log.info("Economist: Chrome CDP process terminated")
-        return articles
-
+                results = _json.loads(open(_out.name).read())
+                articles = results.get('articles', [])
+                log.info(f"Economist subprocess: {len(articles)} articles")
+            except Exception as _je:
+                log.error(f"Economist subprocess JSON error: {_je}")
+        import os as _os; _os.unlink(_out.name)
+        log.info(f"Economist scraper: {len(articles)} articles found")
 
 class ForeignAffairsScraper:
     name = "Foreign Affairs"
@@ -1214,62 +1060,45 @@ def enrich_title_only_articles():
         except Exception as e:
             log.warning(f"Enrich title-only: FT Playwright failed: {e}")
 
-    # Economist — use real Chrome via CDP (eco_chrome_profile)
+    # Economist — use subprocess to avoid Flask event loop conflict
     if eco_arts and PLAYWRIGHT_OK:
-        import subprocess as _sp2, time as _t2
-        cdp_profile = BASE_DIR / "eco_chrome_profile"
-        cdp_port = 9223
-        chrome_bin = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
-        # Clear stale lock
-        _lock = cdp_profile / "SingletonLock"
-        if _lock.exists():
-            _lock.unlink()
-        chrome_proc = None
-        try:
-            chrome_proc = _sp2.Popen([
-                chrome_bin,
-                f"--remote-debugging-port={cdp_port}",
-                f"--user-data-dir={cdp_profile}",
-                "--no-first-run", "--no-default-browser-check", "--disable-default-apps",
-            ], stdout=_sp2.DEVNULL, stderr=_sp2.DEVNULL)
-            _t2.sleep(5)
-            from playwright.sync_api import sync_playwright
-            with sync_playwright() as pw:
-                browser = pw.chromium.connect_over_cdp(f"http://localhost:{cdp_port}")
-                context = browser.contexts[0] if browser.contexts else browser.new_context()
-                page = context.new_page()
-                for a in eco_arts:
-                    try:
-                        text, pub_date = fetch_economist_article_text(page, a["url"])
-                        if text:
-                            a["body"] = text
-                            if pub_date and not a.get("pub_date"):
-                                a["pub_date"] = pub_date
-                            with sqlite3.connect(DB_PATH) as cx:
-                                cx.execute("UPDATE articles SET body=?, pub_date=?, status='fetched' WHERE id=?",
-                                           (text, a.get("pub_date",""), a["id"]))
-                            enrich_article_with_ai(a)
-                            _save_enriched_article(a)
-                            enriched += 1
-                            log.info(f"Enrich title-only: Economist fetched '{a['title'][:50]}'")
-                            try:
-                                capture_economist_charts(page, a["id"])
-                            except Exception as _ce:
-                                log.warning(f"Enrich title-only: chart capture failed: {_ce}")
-                        else:
-                            log.warning(f"Enrich title-only: Economist no text for '{a['title'][:50]}'")
-                    except Exception as _ae:
-                        log.warning(f"Enrich title-only: Economist article failed '{a['title'][:40]}': {_ae}")
-                try: page.close()
-                except: pass
-                try: browser.disconnect()
-                except: pass
-        except Exception as e:
-            log.warning(f"Enrich title-only: Economist CDP failed: {e}")
-        finally:
-            if chrome_proc:
-                chrome_proc.terminate()
-                log.info("Enrich title-only: Economist CDP Chrome terminated")
+        import subprocess as _sp2, json as _ej, tempfile as _etmp, sys as _esys
+        sub_script = str(BASE_DIR / "eco_fetch_sub.py")
+        urls_and_ids = [{"id": a["id"], "url": a["url"], "title": a["title"]} for a in eco_arts]
+        _in = _etmp.NamedTemporaryFile(suffix='.json', mode='w', delete=False)
+        _ej.dump(urls_and_ids, _in); _in.close()
+        _out2 = _etmp.NamedTemporaryFile(suffix='.json', delete=False); _out2.close()
+        sub2 = _sp2.run(
+            [_esys.executable, sub_script,
+             str(BASE_DIR / "eco_chrome_profile"), "9223", _in.name, _out2.name],
+            timeout=180, capture_output=True, text=True
+        )
+        import os as _os2
+        _os2.unlink(_in.name)
+        if sub2.returncode != 0:
+            log.warning(f"Enrich title-only: Economist subprocess failed: {sub2.stderr[:200]}")
+        else:
+            try:
+                results = _ej.loads(open(_out2.name).read())
+                for item in results:
+                    art = next((a for a in eco_arts if a["id"] == item["id"]), None)
+                    if art and item.get("body"):
+                        art["body"] = item["body"]
+                        if item.get("pub_date") and not art.get("pub_date"):
+                            art["pub_date"] = item["pub_date"]
+                        with sqlite3.connect(DB_PATH) as cx:
+                            cx.execute("UPDATE articles SET body=?, pub_date=?, status='fetched' WHERE id=?",
+                                       (art["body"], art.get("pub_date",""), art["id"]))
+                        enrich_article_with_ai(art)
+                        _save_enriched_article(art)
+                        enriched += 1
+                        log.info(f"Enrich title-only: Economist fetched '{art['title'][:50]}'")
+                    else:
+                        title = item.get("title","?")
+                        log.warning(f"Enrich title-only: Economist no text for '{title[:50]}'")
+            except Exception as _eje:
+                log.warning(f"Enrich title-only: Economist result parse failed: {_eje}")
+        _os2.unlink(_out2.name)
 
     # Foreign Affairs — use fa_profile with fetch_fa_article_text (same as main scraper)
     if fa_arts and PLAYWRIGHT_OK:
