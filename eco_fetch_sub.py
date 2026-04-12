@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """
 eco_fetch_sub.py — Fetch full text for Economist articles via CDP subprocess.
-Headless Chrome — no visible window.
+Uses real Chrome (not headless) with off-screen window position.
+--headless=new breaks Economist JS rendering so we avoid it.
+
 Args: <cdp_profile_dir> <cdp_port> <input_json> <output_json>
 Input:  [{"id":..., "url":..., "title":...}]
 Output: [{"id":..., "title":..., "body":..., "pub_date":...}]
@@ -29,28 +31,29 @@ lock = CDP_PROFILE / "SingletonLock"
 if lock.exists():
     lock.unlink()
 
+# Real Chrome, off-screen window — headless=new breaks Economist JS rendering
 chrome_proc = subprocess.Popen([
     CHROME_BIN,
-    f"--remote-debugging-port={CDP_PORT}",
-    f"--user-data-dir={CDP_PROFILE}",
-    "--headless=new",
+    "--remote-debugging-port=" + str(CDP_PORT),
+    "--user-data-dir=" + str(CDP_PROFILE),
     "--no-first-run",
     "--no-default-browser-check",
     "--disable-default-apps",
-    "--disable-gpu",
+    "--window-position=-3000,-3000",
+    "--window-size=1280,900",
 ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 time.sleep(5)
 
 def extract_pub_date(url):
     m = re.search(r'/(\d{4})/(\d{2})/(\d{2})/', url)
-    return f"{m.group(1)}-{m.group(2)}-{m.group(3)}" if m else ""
+    return (m.group(1) + "-" + m.group(2) + "-" + m.group(3)) if m else ""
 
 def fetch_text(page, url):
     try:
         resp = page.goto(url, wait_until="domcontentloaded", timeout=30000)
         status = resp.status if resp else 0
         if status == 404:
-            print(f"  404 {url[-60:]}", file=sys.stderr)
+            print("  404 " + url[-60:], file=sys.stderr)
             return "", extract_pub_date(url)
 
         # Wait for JS to render
@@ -61,7 +64,7 @@ def fetch_text(page, url):
 
         pub_date = extract_pub_date(url)
 
-        # Try selectors in order
+        # Try selectors in order of specificity
         selectors = [
             '[data-component="paragraph"]',
             'div[itemprop="articleBody"] p',
@@ -78,7 +81,7 @@ def fetch_text(page, url):
                     if len(e.inner_text().strip()) > 30
                 )
                 if len(text) > 200:
-                    print(f"  OK [{sel[:30]}] {len(text)}c {url[-50:]}", file=sys.stderr)
+                    print("  OK [" + sel[:30] + "] " + str(len(text)) + "c " + url[-50:], file=sys.stderr)
                     return text[:12000], pub_date
 
         # Broad fallback
@@ -89,23 +92,23 @@ def fetch_text(page, url):
                 if len(l.strip()) > 50
             )
             if len(text) > 200:
-                print(f"  OK [article] {len(text)}c {url[-50:]}", file=sys.stderr)
+                print("  OK [article] " + str(len(text)) + "c " + url[-50:], file=sys.stderr)
                 return text[:12000], pub_date
 
         title = page.title()
         if "Just a moment" in title:
-            print(f"  CLOUDFLARE {url[-60:]}", file=sys.stderr)
+            print("  CLOUDFLARE " + url[-60:], file=sys.stderr)
         else:
-            print(f"  EMPTY (title={title[:40]}) {url[-50:]}", file=sys.stderr)
+            print("  EMPTY (title=" + title[:40] + ") " + url[-50:], file=sys.stderr)
         return "", pub_date
 
     except Exception as e:
-        print(f"  ERROR {url[-60:]}: {e}", file=sys.stderr)
+        print("  ERROR " + url[-60:] + ": " + str(e), file=sys.stderr)
         return "", extract_pub_date(url)
 
 try:
     with sync_playwright() as p:
-        browser = p.chromium.connect_over_cdp(f"http://localhost:{CDP_PORT}")
+        browser = p.chromium.connect_over_cdp("http://localhost:" + str(CDP_PORT))
         context = browser.contexts[0] if browser.contexts else browser.new_context()
         page = context.new_page()
 
@@ -120,11 +123,11 @@ try:
 
         try: page.close()
         except: pass
-        try: browser.disconnect()
+        try: browser.close()
         except: pass
 
 except Exception as e:
-    print(f"eco_fetch_sub fatal: {e}", file=sys.stderr)
+    print("eco_fetch_sub fatal: " + str(e), file=sys.stderr)
 finally:
     chrome_proc.terminate()
 
@@ -132,4 +135,4 @@ with open(OUT_PATH, 'w') as f:
     json.dump(results, f)
 
 fetched = sum(1 for r in results if r.get("body"))
-print(f"eco_fetch_sub: {fetched}/{len(results)} fetched", file=sys.stderr)
+print("eco_fetch_sub: " + str(fetched) + "/" + str(len(results)) + " fetched", file=sys.stderr)
