@@ -874,10 +874,20 @@ class EconomistScraper:
 
 
 class ForeignAffairsScraper:
-    """Scrapes FA saved articles. Paginates through all pages,
-    stopping when an entire page consists only of articles already in DB."""
+    """Scrapes Foreign Affairs from two sources:
+    1. Saved articles page (explicit saves, single scroll page)
+    2. Three recent issues (full table of contents, ~16 articles each)
+    All new articles fetched for full text + AI enriched immediately.
+    Deduplication handled by article_exists() — no stopping logic needed."""
+
     name = "Foreign Affairs"
-    SAVED_URL = "https://www.foreignaffairs.com/my-foreign-affairs/saved-articles"
+    BASE = "https://www.foreignaffairs.com"
+    SAVED_URL = BASE + "/my-foreign-affairs/saved-articles"
+    ISSUE_URLS = [
+        BASE + "/issues/2026/105/2",   # Mar/Apr 2026
+        BASE + "/issues/2026/105/1",   # Jan/Feb 2026
+        BASE + "/issues/2025/104/6",   # Nov/Dec 2025
+    ]
 
     def __init__(self, email="", password=""):
         pass
@@ -896,123 +906,30 @@ class ForeignAffairsScraper:
                 args=["--disable-blink-features=AutomationControlled", "--no-sandbox"])
             page = browser.new_page()
             try:
-                log.info("FA: opening saved articles page 1")
-                page.goto(self.SAVED_URL, wait_until="domcontentloaded", timeout=45000)
-                page.wait_for_timeout(4000)
+                # ── 1. Saved articles ─────────────────────────────────────
+                saved = self._scrape_saved(page)
+                articles.extend(saved)
+                log.info("FA: saved articles — %d new" % len(saved))
 
-                if "sign-in" in page.url or "login" in page.url:
-                    creds = load_creds()
-                    fa_creds = creds.get("fa", {})
-                    fa_email = fa_creds.get("email", "")
-                    fa_pass  = fa_creds.get("password", "")
-                    if fa_email and fa_pass:
-                        log.info("FA: attempting auto-login")
-                        page.goto("https://www.foreignaffairs.com/login",
-                                  wait_until="domcontentloaded", timeout=30000)
-                        page.wait_for_timeout(2000)
-                        for sel in ['input[type="email"]', '#email', 'input[name="email"]']:
-                            try:
-                                loc = page.locator(sel).first
-                                if loc.is_visible(timeout=1500):
-                                    loc.fill(fa_email)
-                                    break
-                            except Exception:
-                                continue
-                        pass_loc = None
-                        for sel in ['input[type="password"]', '#password', 'input[name="password"]']:
-                            try:
-                                loc = page.locator(sel).first
-                                if loc.is_visible(timeout=1500):
-                                    loc.fill(fa_pass)
-                                    pass_loc = loc
-                                    break
-                            except Exception:
-                                continue
-                        if pass_loc:
-                            pass_loc.press("Enter")
-                        try:
-                            page.wait_for_url(
-                                lambda u: "login" not in u and "sign-in" not in u,
-                                timeout=20000
-                            )
-                            log.info("FA: login successful")
-                        except Exception:
-                            log.warning("FA: login may have failed")
-                        page.goto(self.SAVED_URL, wait_until="domcontentloaded", timeout=40000)
-                        page.wait_for_timeout(3000)
+                # ── 2. Recent issues ──────────────────────────────────────
+                for issue_url in self.ISSUE_URLS:
+                    issue_arts = self._scrape_issue(page, issue_url)
+                    articles.extend(issue_arts)
+                    log.info("FA: issue %s — %d new" % (issue_url[-10:], len(issue_arts)))
+
+                # ── 3. Fetch text + enrich all new articles ───────────────
+                log.info("FA: %d new articles total — fetching text" % len(articles))
+                for art in articles:
+                    log.info("FA: fetching '%s'" % art["title"][:55])
+                    text, pub_date = fetch_fa_article_text(page, art["url"])
+                    if pub_date:
+                        art["pub_date"] = pub_date
+                    if text:
+                        art["body"] = text
+                        enrich_article_with_ai(art)
                     else:
-                        log.warning("FA: login required but no credentials found")
-
-                page_num = 1
-                while True:
-                    soup = BeautifulSoup(page.content(), "html.parser")
-                    page_articles = []
-
-                    for card in soup.select("article, div.article-preview, li.saved-article, h3.body-m"):
-                        a_tag = card.select_one("a[href*='foreignaffairs.com'], a[href^='/']")
-                        if not a_tag:
-                            continue
-                        href = a_tag.get("href", "")
-                        if not href:
-                            continue
-                        url = ("https://www.foreignaffairs.com" + href
-                               if href.startswith("/") else href).split("?")[0]
-                        if "foreignaffairs.com" not in url:
-                            continue
-                        title = card.get_text(strip=True)[:200]
-                        if not title or len(title) < 5:
-                            continue
-                        art_id = make_id(self.name, url)
-                        page_articles.append({
-                            "id": art_id, "source": self.name, "url": url,
-                            "title": title, "body": "", "summary": "", "topic": "",
-                            "tags": "[]", "saved_at": now_ts(), "fetched_at": now_ts(),
-                            "status": "fetched", "pub_date": "", "auto_saved": 0,
-                        })
-
-                    if not page_articles:
-                        log.info("FA: no articles on page %d — stopping" % page_num)
-                        break
-
-                    new_on_page      = [a for a in page_articles if not article_exists(a["id"])]
-                    existing_on_page = [a for a in page_articles if article_exists(a["id"])]
-                    log.info("FA: page %d — %d new, %d existing" % (page_num, len(new_on_page), len(existing_on_page)))
-
-                    for art in new_on_page:
-                        log.info("FA: fetching text for '%s'" % art["title"][:55])
-                        text, pub_date = fetch_fa_article_text(page, art["url"])
-                        if pub_date:
-                            art["pub_date"] = pub_date
-                        if text:
-                            art["body"] = text
-                            enrich_article_with_ai(art)
-                        else:
-                            art["status"] = "title_only"
-                        # Navigate back for next article
-                        page.goto(self.SAVED_URL + ("?page=%d" % page_num),
-                                  wait_until="domcontentloaded", timeout=30000)
-                        page.wait_for_timeout(2000)
-
-                    articles.extend(new_on_page)
-
-                    if len(existing_on_page) == len(page_articles):
-                        log.info("FA: all articles on page %d already in DB — stopping" % page_num)
-                        break
-
-                    try:
-                        next_loc = page.locator("a[aria-label='Next'], a[rel='next'], .pager__item--next a").first
-                        if next_loc.is_visible(timeout=2000):
-                            next_loc.click()
-                            page.wait_for_timeout(3000)
-                            page_num += 1
-                        else:
-                            log.info("FA: no next page at page %d — stopping" % page_num)
-                            break
-                    except Exception:
-                        log.info("FA: pagination ended at page %d" % page_num)
-                        break
-
-                log.info("FA: scraped %d new articles across %d pages" % (len(articles), page_num))
+                        art["status"] = "title_only"
+                        log.info("FA: no text for '%s'" % art["title"][:50])
 
             except Exception as e:
                 log.error("FA error: %s" % e, exc_info=True)
@@ -1020,6 +937,172 @@ class ForeignAffairsScraper:
                 browser.close()
 
         return articles
+
+    def _scrape_saved(self, page):
+        """Scrape the saved articles page. Single scroll, no pagination."""
+        try:
+            page.goto(self.SAVED_URL, wait_until="domcontentloaded", timeout=45000)
+            page.wait_for_timeout(4000)
+
+            # Handle login if needed
+            if "sign-in" in page.url or "login" in page.url:
+                if not self._login(page):
+                    log.warning("FA: login failed — skipping saved articles")
+                    return []
+                page.goto(self.SAVED_URL, wait_until="domcontentloaded", timeout=40000)
+                page.wait_for_timeout(3000)
+
+            # Scroll to bottom to ensure all articles loaded
+            page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+            page.wait_for_timeout(2000)
+
+            return self._extract_articles(page, source="saved")
+
+        except Exception as e:
+            log.warning("FA: saved articles scrape failed: %s" % e)
+            return []
+
+    def _scrape_issue(self, page, url):
+        """Scrape a single issue page. All articles load at once (~16 per issue)."""
+        try:
+            page.goto(url, wait_until="domcontentloaded", timeout=30000)
+            page.wait_for_timeout(3000)
+
+            if "sign-in" in page.url or "login" in page.url:
+                log.warning("FA: login required for issue page %s" % url)
+                return []
+
+            return self._extract_articles(page, source="issue")
+
+        except Exception as e:
+            log.warning("FA: issue scrape failed for %s: %s" % (url, e))
+            return []
+
+    def _extract_articles(self, page, source="unknown"):
+        """Extract all new articles from current page. Returns only articles not already in DB."""
+        from bs4 import BeautifulSoup as _BS
+        soup = _BS(page.content(), "html.parser")
+        new_articles = []
+        seen = set()
+
+        # FA article URLs contain region/topic slugs: /region/slug or /topic/slug
+        # Saved page: links inside saved article cards
+        # Issue page: links in article listing
+        for a in soup.select("a[href]"):
+            href = a.get("href", "")
+            if not href:
+                continue
+            # FA article URLs have at least 2 path segments and no file extension
+            # Skip nav, footer, account links
+            if any(skip in href for skip in [
+                "/issues/", "/topics/", "/tags/", "/my-foreign-affairs/",
+                "/account", "/login", "/subscribe", "#", "javascript",
+                "cfr.org", "mailto:", "/podcast", "/newsletter",
+            ]):
+                continue
+            # Must be a relative path with at least one slug segment
+            if not href.startswith("/") or href.count("/") < 2:
+                continue
+            # Skip very short paths (nav items)
+            if len(href) < 10:
+                continue
+
+            url = (self.BASE + href).split("?")[0]
+            art_id = make_id(self.name, url)
+
+            if art_id in seen:
+                continue
+            seen.add(art_id)
+
+            if article_exists(art_id):
+                continue
+
+            # Extract title — try heading near the link, then link text
+            title = ""
+            # Look for heading ancestor
+            for ancestor in [a.parent, a.parent.parent if a.parent else None,
+                             a.parent.parent.parent if (a.parent and a.parent.parent) else None]:
+                if ancestor is None:
+                    continue
+                heading = ancestor.find(["h1", "h2", "h3"])
+                if heading:
+                    t = heading.get_text(strip=True)
+                    if t and len(t) > 10:
+                        title = t
+                        break
+            if not title:
+                t = a.get_text(strip=True)
+                if t and len(t) > 10:
+                    title = t
+            if not title or len(title) < 5:
+                continue
+
+            new_articles.append({
+                "id": art_id,
+                "source": self.name,
+                "url": url,
+                "title": title[:200],
+                "body": "",
+                "summary": "",
+                "topic": "",
+                "tags": "[]",
+                "saved_at": now_ts(),
+                "fetched_at": now_ts(),
+                "status": "fetched",
+                "pub_date": "",
+                "auto_saved": 0,
+            })
+
+        log.info("FA: extracted %d new articles from %s page" % (len(new_articles), source))
+        return new_articles
+
+    def _login(self, page):
+        """Attempt auto-login using credentials.json."""
+        try:
+            creds = load_creds()
+            fa_creds = creds.get("fa", {})
+            fa_email = fa_creds.get("email", "")
+            fa_pass  = fa_creds.get("password", "")
+            if not fa_email or not fa_pass:
+                log.warning("FA: no credentials in credentials.json")
+                return False
+
+            page.goto("https://www.foreignaffairs.com/login",
+                      wait_until="domcontentloaded", timeout=30000)
+            page.wait_for_timeout(2000)
+
+            for sel in ['input[type="email"]', '#email', 'input[name="email"]']:
+                try:
+                    loc = page.locator(sel).first
+                    if loc.is_visible(timeout=1500):
+                        loc.fill(fa_email)
+                        break
+                except Exception:
+                    continue
+
+            pass_loc = None
+            for sel in ['input[type="password"]', '#password', 'input[name="password"]']:
+                try:
+                    loc = page.locator(sel).first
+                    if loc.is_visible(timeout=1500):
+                        loc.fill(fa_pass)
+                        pass_loc = loc
+                        break
+                except Exception:
+                    continue
+
+            if pass_loc:
+                pass_loc.press("Enter")
+                page.wait_for_url(
+                    lambda u: "login" not in u and "sign-in" not in u,
+                    timeout=20000
+                )
+                log.info("FA: login successful")
+                return True
+            return False
+        except Exception as e:
+            log.warning("FA: login failed: %s" % e)
+            return False
 
 
 SCRAPERS = {"ft": FTScraper, "economist": EconomistScraper, "fa": ForeignAffairsScraper}
