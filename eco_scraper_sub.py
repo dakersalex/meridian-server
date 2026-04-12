@@ -1,25 +1,26 @@
 #!/usr/bin/env python3
 """
 eco_scraper_sub.py — Economist bookmarks scraper subprocess.
-- Runs headless Chrome via CDP (no visible window, no Flask event loop conflict)
-- Clicks Load More repeatedly, checking only the newly revealed bottom batch
-- Stops when ALL articles in the latest batch are already in the DB
-- Returns only articles NOT already in DB
+Runs headless Chrome via CDP (no visible window, no Flask event loop conflict).
+
+Stopping logic: keep clicking Load More until the total number of visible
+articles stops increasing — meaning there is no more content to load.
+Then return all articles NOT already in known_ids.
 
 Args: <cdp_profile_dir> <cdp_port> <output_json_path> <known_ids_json_path>
-  known_ids_json_path: JSON file containing list of article IDs already in DB
 Output JSON: {"articles": [...], "error": null}
 """
 import sys, json, time, subprocess, re, hashlib
 from pathlib import Path
 from playwright.sync_api import sync_playwright
+from bs4 import BeautifulSoup
 
-CDP_PROFILE   = Path(sys.argv[1])
-CDP_PORT      = int(sys.argv[2])
-OUT_PATH      = sys.argv[3]
+CDP_PROFILE    = Path(sys.argv[1])
+CDP_PORT       = int(sys.argv[2])
+OUT_PATH       = sys.argv[3]
 KNOWN_IDS_PATH = sys.argv[4]
-CHROME_BIN    = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
-BOOKMARKS_URL = "https://www.economist.com/for-you/bookmarks"
+CHROME_BIN     = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+BOOKMARKS_URL  = "https://www.economist.com/for-you/bookmarks"
 
 JUNK_URL_PATHS = ("/podcasts/", "/newsletters/", "/events/", "/films/", "/interactive/")
 JUNK_PREFIXES  = (
@@ -37,7 +38,6 @@ SECTION_LABELS = {
     'Letters','Index',
 }
 
-# Load known IDs from DB
 with open(KNOWN_IDS_PATH) as f:
     known_ids = set(json.load(f))
 
@@ -51,12 +51,10 @@ def extract_pub_date(url):
 def now_ts():
     return int(time.time() * 1000)
 
-def extract_articles_from_page(page):
-    """Extract all article {id, url, title} currently visible on the page."""
-    from bs4 import BeautifulSoup
+def extract_all_articles(page):
+    """Extract ALL article {id, url, title} currently visible on the page."""
     soup = BeautifulSoup(page.content(), "html.parser")
     main = soup.find("main") or soup
-
     seen = set()
     articles = []
 
@@ -132,7 +130,7 @@ try:
         context = browser.contexts[0] if browser.contexts else browser.new_context()
         page = context.new_page()
 
-        print(f"Navigating to {BOOKMARKS_URL}...", file=sys.stderr)
+        print(f"Navigating to bookmarks...", file=sys.stderr)
         page.goto(BOOKMARKS_URL, wait_until="domcontentloaded", timeout=45000)
         page.wait_for_timeout(3000)
 
@@ -140,29 +138,46 @@ try:
             error = "Login required — eco_chrome_profile session expired"
         else:
             load_more_clicks = 0
-            max_clicks = 50  # safety cap — covers ~500 articles
+            max_clicks = 60  # safety cap
 
             while True:
-                # Get all articles currently on page
-                all_visible = extract_articles_from_page(page)
-                total_visible = len(all_visible)
-                print(f"Load More clicks: {load_more_clicks} | Visible articles: {total_visible}", file=sys.stderr)
+                all_visible = extract_all_articles(page)
+                prev_count = len(all_visible)
+                print(f"Click {load_more_clicks}: {prev_count} articles visible", file=sys.stderr)
 
-                if load_more_clicks == 0:
-                    # First load — treat all visible as the "new batch"
-                    new_batch = all_visible
-                else:
-                    # After Load More — the new batch is the bottom ~10
-                    new_batch = all_visible[prev_count:]
+                # Try to click Load More
+                try:
+                    load_more = page.locator("button:has-text('Load More'), a:has-text('Load More')").first
+                    if not load_more.is_visible(timeout=3000):
+                        print("No Load More button — end of bookmarks", file=sys.stderr)
+                        break
+                    load_more.click()
+                    page.wait_for_timeout(3000)
+                    load_more_clicks += 1
+                except Exception as e:
+                    print(f"Load More not found: {e}", file=sys.stderr)
+                    break
 
-                # Check if ALL articles in new batch are already in DB
-                new_batch_new = [a for a in new_batch if a["id"] not in known_ids]
-                new_batch_existing = [a for a in new_batch if a["id"] in known_ids]
+                # Check how many articles are now visible
+                all_visible_after = extract_all_articles(page)
+                new_count = len(all_visible_after)
+                print(f"  After click: {new_count} articles (+{new_count - prev_count})", file=sys.stderr)
 
-                print(f"  New batch: {len(new_batch)} articles — {len(new_batch_new)} new, {len(new_batch_existing)} existing", file=sys.stderr)
+                # Stop if Load More added nothing new
+                if new_count <= prev_count:
+                    print("Load More added no new articles — end of bookmarks", file=sys.stderr)
+                    break
 
-                # Collect new articles from this batch
-                for art in new_batch_new:
+                if load_more_clicks >= max_clicks:
+                    print(f"Reached max clicks ({max_clicks}) — stopping", file=sys.stderr)
+                    break
+
+            # Final extraction — get all visible articles not in DB
+            all_final = extract_all_articles(page)
+            print(f"Total visible: {len(all_final)}, known_ids: {len(known_ids)}", file=sys.stderr)
+
+            for art in all_final:
+                if art["id"] not in known_ids:
                     articles_to_save.append({
                         "id": art["id"],
                         "source": "The Economist",
@@ -179,30 +194,6 @@ try:
                         "auto_saved": 0,
                     })
 
-                # Stop if all articles in new batch are already in DB
-                if load_more_clicks > 0 and len(new_batch_existing) == len(new_batch) and len(new_batch) > 0:
-                    print(f"All {len(new_batch)} articles in last batch already in DB — stopping", file=sys.stderr)
-                    break
-
-                if load_more_clicks >= max_clicks:
-                    print(f"Reached max clicks ({max_clicks}) — stopping", file=sys.stderr)
-                    break
-
-                # Try to click Load More
-                prev_count = total_visible
-                try:
-                    load_more = page.locator("button:has-text('Load More'), a:has-text('Load More')").first
-                    if load_more.is_visible(timeout=3000):
-                        load_more.click()
-                        page.wait_for_timeout(3000)  # wait for new articles to render
-                        load_more_clicks += 1
-                    else:
-                        print("No Load More button visible — end of bookmarks", file=sys.stderr)
-                        break
-                except Exception as e:
-                    print(f"Load More not found: {e}", file=sys.stderr)
-                    break
-
         try: page.close()
         except: pass
         try: browser.disconnect()
@@ -214,6 +205,6 @@ except Exception as e:
 finally:
     chrome_proc.terminate()
 
-print(f"eco_scraper_sub: {len(articles_to_save)} new articles found", file=sys.stderr)
+print(f"eco_scraper_sub: {len(articles_to_save)} new articles to save", file=sys.stderr)
 with open(OUT_PATH, 'w') as f:
     json.dump({"articles": articles_to_save, "error": error}, f)
