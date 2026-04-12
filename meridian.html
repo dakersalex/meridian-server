@@ -4180,7 +4180,8 @@ async function updateActivityBar() {
           const keyMap = {'ft':'Financial Times','economist':'The Economist','fa':'Foreign Affairs'};
           Object.entries(lr).forEach(([k,v])=>{ if(keyMap[k]) lastRunBySource[keyMap[k]]=new Date(v).getTime(); });
         } catch(e) {}
-        if(scEl) scEl.innerHTML = mainSrc.map(s=>{
+        const scrapedSrc = ['Financial Times','The Economist','Foreign Affairs'];
+        if(scEl) scEl.innerHTML = scrapedSrc.map(s=>{
           const d=lastRunBySource[s]?Math.round((Date.now()-lastRunBySource[s])/864e5):99;
           return '<div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;padding:2.5px 0">'
             +'<span style="color:#4a4a4a;font-weight:500">'+srcShort[s]+'</span>'
