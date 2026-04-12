@@ -850,7 +850,7 @@ class EconomistScraper:
         sub = _sp.run(
             [_sys.executable, str(BASE_DIR / "eco_fetch_sub.py"),
              str(self.CDP_PROFILE), str(self.CDP_PORT), in_f.name, out_f.name],
-            timeout=300, capture_output=True, text=True
+            timeout=600, capture_output=True, text=True
         )
         _os.unlink(in_f.name)
         log.info("Economist fetch: " + sub.stderr[-300:])
