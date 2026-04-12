@@ -1533,11 +1533,11 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
       </div>
       <div style="display:flex;align-items:center;gap:10px">
         <div id="sp-health-ts" style="font-size:9px;color:#bbb"></div>
-        <button onclick="runHealthCheck(true)" style="font-size:10px;padding:2px 8px;background:none;border:1px solid rgba(0,0,0,.15);color:#8a8a8a;border-radius:3px;font-family:inherit;cursor:pointer">↻ Refresh</button>
+        <button onclick="runHealthCheck(true)" style="font-size:10px;padding:2px 8px;background:none;border:1px solid rgba(0,0,0,.15);color:#8a8a8a;border-radius:3px;font-family:inherit;cursor:pointer">Run health check</button>
       </div>
     </div>
-    <!-- Body -->
-    <div style="border-left:3px solid #c4783a;padding:12px 14px">
+    <!-- Body (collapsed by default, shown after first run) -->
+    <div id="sp-health-body" style="border-left:3px solid #c4783a;padding:12px 14px;display:none">
       <div id="sp-health-summary" style="font-size:12px;line-height:1.65;color:#1a1a1a;margin-bottom:8px;font-family:'IBM Plex Sans',sans-serif">
         <span style="color:#bbb;font-style:italic">Analysing your stats…</span>
       </div>
@@ -2855,7 +2855,7 @@ function toggleStatsStrip() {
   btn.style.background = isVisible ? 'transparent' : 'var(--paper-3)';
   btn.style.color = isVisible ? 'var(--ink-2)' : 'var(--ink)';
   recalcStickyTops();
-  if (!isVisible && window.runHealthCheck) window.runHealthCheck(false);
+  // Health check is manual-only — do not auto-run on panel open
 }
 function recalcStickyTops() {
   const masthead = document.querySelector('.masthead');
@@ -3754,6 +3754,9 @@ async function updateActivityBar() {
     window._healthCache = null;
     window.runHealthCheck = async function(force) {
       const se = id => document.getElementById(id);
+      // Always show the body when run is triggered
+      const hBody = document.getElementById('sp-health-body');
+      if (hBody) hBody.style.display = 'block';
       if (!force && window._healthCache) return;
       // Guard: wait for allArts to be populated (retry up to 3x, 2s apart)
       if (!allArts || allArts.length === 0) {
