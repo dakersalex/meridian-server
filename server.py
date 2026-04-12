@@ -1158,6 +1158,10 @@ def run_sync(source_key):
                 new += 1
         log.info(f"{source_key}: sync done — {found} found, {new} new")
         sync_status[source_key] = {"running":False,"last_run":datetime.now().isoformat(timespec="seconds"),"last_error":None,"articles_found":found,"articles_new":new}
+        # Persist last successful scrape time to kt_meta
+        with sqlite3.connect(DB_PATH) as _cx:
+            _cx.execute("INSERT OR REPLACE INTO kt_meta (key, value) VALUES (?, ?)",
+                        (f"last_sync_{source_key}", datetime.now().isoformat(timespec="seconds")))
     except Exception as e:
         log.error(f"{source_key}: sync error: {e}", exc_info=True)
         sync_status[source_key] = {"running":False,"last_run":datetime.now().isoformat(timespec="seconds"),"last_error":str(e),"articles_found":found,"articles_new":new}
@@ -1258,6 +1262,19 @@ def sync_source(source):
         return jsonify({"ok": False, "error": "Already running"}), 409
     threading.Thread(target=run_sync, args=(source,), daemon=True).start()
     return jsonify({"ok": True, "started": source})
+
+@app.route("/api/sync/last-run")
+def sync_last_run():
+    """Return last successful scrape time per source from kt_meta."""
+    with sqlite3.connect(DB_PATH) as cx:
+        rows = cx.execute(
+            "SELECT key, value FROM kt_meta WHERE key LIKE 'last_sync_%'"
+        ).fetchall()
+    result = {}
+    for key, value in rows:
+        source = key.replace("last_sync_", "")
+        result[source] = value
+    return jsonify(result)
 
 @app.route("/api/sync/status")
 def sync_status_route():
