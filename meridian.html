@@ -4169,10 +4169,13 @@ async function updateActivityBar() {
       const gC=d=>d<=1?'#2d6b45':d<=3?'#8b7020':d<=7?'#c4783a':'#8c2020';
       const gL=d=>d<=1?'Yesterday':d+'d ago';
       const latestBySource = {};
-      allArts.forEach(a=>{if(a.pub_date&&(!latestBySource[a.source]||a.pub_date>latestBySource[a.source]))latestBySource[a.source]=a.pub_date;});
+      allArts.forEach(a=>{
+        const ts = a.saved_at || 0;
+        if(!latestBySource[a.source] || ts > latestBySource[a.source]) latestBySource[a.source] = ts;
+      });
       const scEl=se('sp-last-scraped');
       if(scEl) scEl.innerHTML = mainSrc.map(s=>{
-        const d=latestBySource[s]?Math.round((now-new Date(latestBySource[s]))/864e5):99;
+        const d=latestBySource[s]?Math.round((now-latestBySource[s])/864e5):99;
         return '<div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;padding:2.5px 0">'
           +'<span style="color:#4a4a4a;font-weight:500">'+srcShort[s]+'</span>'
           +'<span style="font-weight:600;color:'+gC(d)+'">'+gL(d)+'</span></div>';
