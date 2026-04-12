@@ -979,35 +979,58 @@ class ForeignAffairsScraper:
             return []
 
     def _extract_articles(self, page, source="unknown"):
-        """Extract all new articles from current page. Returns only articles not already in DB."""
+        """Extract new articles from current page.
+        FA article URLs always follow: /region-or-category/article-slug
+        exactly 2 path segments, slug is long and hyphenated.
+        Nav/footer links are either 1 segment or known skip paths."""
         from bs4 import BeautifulSoup as _BS
+        import re as _re
+
+        # Known non-article path prefixes to skip
+        SKIP_PREFIXES = (
+            "/issues/", "/topics/", "/tags/", "/my-foreign-affairs/",
+            "/account", "/login", "/subscribe", "/podcast", "/newsletter",
+            "/about", "/contact", "/search", "/archive", "/books",
+            "/regions/", "/sections/", "/graduate", "/permissions",
+            "/gift", "/audio", "/video", "/events",
+        )
+        # Known non-article domains
+        SKIP_DOMAINS = ("cfr.org", "mailto:", "javascript", "#")
+
         soup = _BS(page.content(), "html.parser")
         new_articles = []
         seen = set()
 
-        # FA article URLs contain region/topic slugs: /region/slug or /topic/slug
-        # Saved page: links inside saved article cards
-        # Issue page: links in article listing
         for a in soup.select("a[href]"):
             href = a.get("href", "")
             if not href:
                 continue
-            # FA article URLs have at least 2 path segments and no file extension
-            # Skip nav, footer, account links
-            if any(skip in href for skip in [
-                "/issues/", "/topics/", "/tags/", "/my-foreign-affairs/",
-                "/account", "/login", "/subscribe", "#", "javascript",
-                "cfr.org", "mailto:", "/podcast", "/newsletter",
-            ]):
+
+            # Skip external links and known non-article patterns
+            if any(d in href for d in SKIP_DOMAINS):
                 continue
-            # Must be a relative path with at least one slug segment
-            if not href.startswith("/") or href.count("/") < 2:
-                continue
-            # Skip very short paths (nav items)
-            if len(href) < 10:
+            if any(href.startswith(p) for p in SKIP_PREFIXES):
                 continue
 
-            url = (self.BASE + href).split("?")[0]
+            # Must be a relative path
+            if not href.startswith("/"):
+                continue
+
+            # FA article URLs have exactly 2 path segments: /category/slug
+            parts = [p for p in href.split("?")[0].split("/") if p]
+            if len(parts) != 2:
+                continue
+
+            # The article slug (second segment) must be substantial
+            slug = parts[1]
+            if len(slug) < 15 or not "-" in slug:
+                continue
+
+            # Skip obvious non-article slugs
+            if slug in ("saved-articles", "my-account", "current-issue"):
+                continue
+
+            url = (self.BASE + "/" + "/".join(parts))
             art_id = make_id(self.name, url)
 
             if art_id in seen:
@@ -1017,10 +1040,10 @@ class ForeignAffairsScraper:
             if article_exists(art_id):
                 continue
 
-            # Extract title — try heading near the link, then link text
+            # Extract title from heading near the link
             title = ""
-            # Look for heading ancestor
-            for ancestor in [a.parent, a.parent.parent if a.parent else None,
+            for ancestor in [a.parent,
+                             a.parent.parent if a.parent else None,
                              a.parent.parent.parent if (a.parent and a.parent.parent) else None]:
                 if ancestor is None:
                     continue
@@ -1032,9 +1055,15 @@ class ForeignAffairsScraper:
                         break
             if not title:
                 t = a.get_text(strip=True)
-                if t and len(t) > 10:
+                if t and len(t) > 10 and not t.isupper():
                     title = t
-            if not title or len(title) < 5:
+            if not title or len(title) < 8:
+                continue
+
+            # Skip nav-like titles
+            if title in ("Current Issue", "Browse by Section", "Most Recent",
+                         "Most Read", "All Regions", "Issue Archive",
+                         "Author Directory", "Book Reviews", "Audio Articles"):
                 continue
 
             new_articles.append({
