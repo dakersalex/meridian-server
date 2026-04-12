@@ -907,13 +907,15 @@ class ForeignAffairsScraper:
             page = browser.new_page()
             try:
                 # ── 1. Saved articles ─────────────────────────────────────
-                saved = self._scrape_saved(page)
+                seen = set()
+
+                saved = self._scrape_saved(page, seen)
                 articles.extend(saved)
                 log.info("FA: saved articles — %d new" % len(saved))
 
                 # ── 2. Recent issues ──────────────────────────────────────
                 for issue_url in self.ISSUE_URLS:
-                    issue_arts = self._scrape_issue(page, issue_url)
+                    issue_arts = self._scrape_issue(page, issue_url, seen)
                     articles.extend(issue_arts)
                     log.info("FA: issue %s — %d new" % (issue_url[-10:], len(issue_arts)))
 
@@ -938,7 +940,7 @@ class ForeignAffairsScraper:
 
         return articles
 
-    def _scrape_saved(self, page):
+    def _scrape_saved(self, page, seen=None):
         """Scrape the saved articles page. Single scroll, no pagination."""
         try:
             page.goto(self.SAVED_URL, wait_until="domcontentloaded", timeout=45000)
@@ -956,13 +958,13 @@ class ForeignAffairsScraper:
             page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
             page.wait_for_timeout(2000)
 
-            return self._extract_articles(page, source="saved")
+            return self._extract_articles(page, source="saved", seen=seen)
 
         except Exception as e:
             log.warning("FA: saved articles scrape failed: %s" % e)
             return []
 
-    def _scrape_issue(self, page, url):
+    def _scrape_issue(self, page, url, seen=None):
         """Scrape a single issue page. All articles load at once (~16 per issue)."""
         try:
             page.goto(url, wait_until="domcontentloaded", timeout=30000)
@@ -972,13 +974,13 @@ class ForeignAffairsScraper:
                 log.warning("FA: login required for issue page %s" % url)
                 return []
 
-            return self._extract_articles(page, source="issue")
+            return self._extract_articles(page, source="issue", seen=seen)
 
         except Exception as e:
             log.warning("FA: issue scrape failed for %s: %s" % (url, e))
             return []
 
-    def _extract_articles(self, page, source="unknown"):
+    def _extract_articles(self, page, source="unknown", seen=None):
         """Extract new articles from current page.
         FA article URLs always follow: /region-or-category/article-slug
         exactly 2 path segments, slug is long and hyphenated.
@@ -999,7 +1001,8 @@ class ForeignAffairsScraper:
 
         soup = _BS(page.content(), "html.parser")
         new_articles = []
-        seen = set()
+        if seen is None:
+            seen = set()
 
         for a in soup.select("a[href]"):
             href = a.get("href", "")
