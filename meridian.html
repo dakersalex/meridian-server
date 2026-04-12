@@ -1533,7 +1533,7 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
       </div>
       <div style="display:flex;align-items:center;gap:10px">
         <div id="sp-health-ts" style="font-size:9px;color:#bbb"></div>
-        <button onclick="runHealthCheck(true)" style="font-size:10px;padding:2px 8px;background:none;border:1px solid rgba(0,0,0,.15);color:#8a8a8a;border-radius:3px;font-family:inherit;cursor:pointer">Run health check</button>
+        <button onclick="(function(btn){btn.disabled=true;btn.textContent='Checking…';var t=0;var iv=setInterval(function(){if(window.runHealthCheck){clearInterval(iv);window.runHealthCheck(true).finally(function(){btn.disabled=false;btn.textContent='Run health check';});}else if(++t>10){clearInterval(iv);btn.disabled=false;btn.textContent='Run health check';}},500);})(this)" style="font-size:10px;padding:2px 8px;background:none;border:1px solid rgba(0,0,0,.15);color:#8a8a8a;border-radius:3px;font-family:inherit;cursor:pointer">Run health check</button>
       </div>
     </div>
     <!-- Body (collapsed by default, shown after first run) -->
