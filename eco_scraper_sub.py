@@ -39,6 +39,19 @@ SECTION_LABELS = {
 with open(KNOWN_IDS_PATH) as f:
     known_ids = set(json.load(f))
 
+DATE_PAT = re.compile(r'([A-Z][a-z]{2})\s+(\d{1,2})(?:st|nd|rd|th)?\s+(\d{4})')
+MONTH_MAP = {'Jan':1,'Feb':2,'Mar':3,'Apr':4,'May':5,'Jun':6,
+             'Jul':7,'Aug':8,'Sep':9,'Oct':10,'Nov':11,'Dec':12}
+
+def parse_date_text(text):
+    """Parse 'Apr 9th 2026' style date to YYYY-MM-DD."""
+    m = DATE_PAT.search(text)
+    if m:
+        mon, day, yr = m.group(1), int(m.group(2)), m.group(3)
+        if mon in MONTH_MAP:
+            return "%s-%02d-%02d" % (yr, MONTH_MAP[mon], day)
+    return ""
+
 def make_id(url):
     return hashlib.sha1(("The Economist:" + url).encode()).hexdigest()[:16]
 
@@ -98,7 +111,19 @@ def extract_all_articles(page):
         if any(title.startswith(pf) for pf in JUNK_PREFIXES):
             continue
 
-        articles.append({"id": art_id, "url": url, "title": title})
+        # Extract pub_date from grandparent text (e.g. "Apr 9th 2026")
+        # This is more accurate than the URL date (URL uses edition date, not article date)
+        pub_date = ""
+        for ancestor in [a.parent, a.parent.parent if a.parent else None,
+                         a.parent.parent.parent if a.parent and a.parent.parent else None]:
+            if ancestor is None:
+                continue
+            txt = ancestor.get_text(separator=" ", strip=True)
+            pub_date = parse_date_text(txt)
+            if pub_date:
+                break
+
+        articles.append({"id": art_id, "url": url, "title": title, "pub_date": pub_date})
 
     return articles
 
@@ -196,7 +221,7 @@ try:
                         "saved_at": now_ts(),
                         "fetched_at": now_ts(),
                         "status": "title_only",
-                        "pub_date": extract_pub_date(art["url"]),
+                        "pub_date": art.get("pub_date", ""),
                         "auto_saved": 0,
                     })
 

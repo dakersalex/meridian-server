@@ -44,17 +44,37 @@ chrome_proc = subprocess.Popen([
 ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 time.sleep(5)
 
-def extract_pub_date(url):
-    m = re.search(r'/(\d{4})/(\d{2})/(\d{2})/', url)
-    return (m.group(1) + "-" + m.group(2) + "-" + m.group(3)) if m else ""
-
+def extract_pub_date_from_page(page):
+    """Extract pub_date from article page <time datetime> or JSON-LD.
+    Never uses URL — the URL date is the edition date, not the article date.
+    """
+    try:
+        el = page.query_selector("time[datetime]")
+        if el:
+            dt = el.get_attribute("datetime") or ""
+            m = re.search(r'(\d{4})-(\d{2})-(\d{2})', dt)
+            if m:
+                return m.group(1) + "-" + m.group(2) + "-" + m.group(3)
+    except Exception:
+        pass
+    try:
+        scripts = page.query_selector_all('script[type="application/ld+json"]')
+        for s in scripts:
+            txt = s.inner_text()
+            if "datePublished" in txt:
+                m = re.search(r'"datePublished"\s*:\s*"(\d{4}-\d{2}-\d{2})', txt)
+                if m:
+                    return m.group(1)
+    except Exception:
+        pass
+    return ""
 def fetch_text(page, url):
     try:
         resp = page.goto(url, wait_until="domcontentloaded", timeout=30000)
         status = resp.status if resp else 0
         if status == 404:
             print("  404 " + url[-60:], file=sys.stderr)
-            return "", extract_pub_date(url)
+            return "", ""
 
         # Wait for JS to render
         try:
@@ -62,7 +82,7 @@ def fetch_text(page, url):
         except Exception:
             page.wait_for_timeout(4000)
 
-        pub_date = extract_pub_date(url)
+        pub_date = extract_pub_date_from_page(page)
 
         # Try selectors in order of specificity
         selectors = [
@@ -104,7 +124,7 @@ def fetch_text(page, url):
 
     except Exception as e:
         print("  ERROR " + url[-60:] + ": " + str(e), file=sys.stderr)
-        return "", extract_pub_date(url)
+        return "", ""
 
 try:
     with sync_playwright() as p:
