@@ -2198,45 +2198,30 @@ def agent_feedback():
     log.info(f"Agent feedback: negative signal for '{title[:50]}' — topics={topics}")
     return jsonify({"ok": True})
 
-# Fixed run times in UTC: 03:50 and 09:50 (= 05:50 and 11:50 Geneva/CEST)
-SCHEDULER_TIMES_UTC = [(3, 50), (9, 50)]
-NEWSLETTER_SYNC_TIMES_UTC = [(4, 30)]  # 06:30 Geneva (UTC+2) — catches Bloomberg delivery
+# Flask scheduler: newsletter sync + post-scrape tasks only.
+# Scrapers are owned exclusively by launchd (05:40 and 11:40 Geneva).
+# Newsletter sync at 06:30 Geneva (04:30 UTC) catches Bloomberg delivery.
+NEWSLETTER_SYNC_TIMES_UTC = [(4, 30)]
 
 def scheduler_loop(interval_hours):
-    log.info(f"Scheduler: fixed times UTC {SCHEDULER_TIMES_UTC}")
-    last_run_date = {t: None for t in SCHEDULER_TIMES_UTC}
+    log.info("Scheduler: newsletter + post-scrape tasks only (scrapers owned by launchd)")
     nl_last_run_date = {t: None for t in NEWSLETTER_SYNC_TIMES_UTC}
     while True:
         now = datetime.utcnow()
-        for (h, m) in SCHEDULER_TIMES_UTC:
-            # Check if it's within 5 minutes after the scheduled time and not already run today
-            scheduled = now.replace(hour=h, minute=m, second=0, microsecond=0)
-            diff_minutes = (now - scheduled).total_seconds() / 60
-            if 0 <= diff_minutes < 5 and last_run_date[(h, m)] != now.date():
-                last_run_date[(h, m)] = now.date()
-                log.info(f"Scheduler: triggering run for {h:02d}:{m:02d} UTC")
-                for src in SCRAPERS:
-                    if not sync_status.get(src, {}).get("running"):
-                        threading.Thread(target=run_sync, args=(src,), daemon=True).start()
-                import subprocess
-                subprocess.Popen(["python3", str(BASE_DIR / "newsletter_sync.py")])
-                log.info("Scheduler: triggered newsletter sync")
-        # Newsletter-only sync times
+        # Newsletter sync + post-scrape tasks at 06:30 Geneva (04:30 UTC)
         for (h, m) in NEWSLETTER_SYNC_TIMES_UTC:
             scheduled = now.replace(hour=h, minute=m, second=0, microsecond=0)
             diff_minutes = (now - scheduled).total_seconds() / 60
             if 0 <= diff_minutes < 5 and nl_last_run_date[(h, m)] != now.date():
                 nl_last_run_date[(h, m)] = now.date()
-                log.info(f"Scheduler: newsletter-only sync at {h:02d}:{m:02d} UTC (06:30 Geneva)")
+                log.info(f"Scheduler: 06:30 Geneva tasks starting")
                 import subprocess as _sp2
                 _sp2.Popen(["python3", str(BASE_DIR / "newsletter_sync.py")])
-                def _suggested_and_agent():
+                log.info("Scheduler: triggered newsletter sync")
+                def _post_scrape_tasks():
                     try:
-                        arts = scrape_suggested_articles()
-                        save_suggested_snapshot(arts)
-                        log.info(f"Scheduler: suggested refresh done — {len(arts)} articles")
                         saved = run_agent()
-                        log.info(f"Scheduler: agent saved {len(saved)} articles")
+                        log.info(f"Scheduler: agent promoted {len(saved)} articles to Feed")
                         auto_dismiss_old_suggested(days=30)
                         # Tag any new untagged articles with KT themes
                         try:
@@ -2257,8 +2242,8 @@ def scheduler_loop(interval_hours):
                         except Exception as _ie:
                             log.warning(f"Scheduler: insight enrichment trigger failed: {_ie}")
                     except Exception as e:
-                        log.warning(f"Scheduler: suggested/agent error — {e}")
-                threading.Thread(target=_suggested_and_agent, daemon=True).start()
+                        log.warning(f"Scheduler: post-scrape tasks error — {e}")
+                threading.Thread(target=_post_scrape_tasks, daemon=True).start()
         time.sleep(60)  # Check every minute
 
 
