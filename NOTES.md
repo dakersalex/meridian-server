@@ -1,5 +1,5 @@
 # Meridian — Technical Notes
-Last updated: 13 April 2026 (Session 51 — AI pick redesign, scheduler cleanup)
+Last updated: 13 April 2026 (Session 53 — FT AI pick pub_date fixes, Economist session renewal)
 
 ## Overview
 Personal news aggregator. Flask API + SQLite backend on Hetzner VPS (always-on).
@@ -19,8 +19,9 @@ Frontend at https://meridianreader.com/meridian.html
 - ~/meridian-server/eco_fetch_sub.py     — Economist article text fetcher
 - ~/meridian-server/eco_backfill_dates.py — one-off pub_date backfill (keep for reference)
 - ~/meridian-server/eco_chrome_profile/  — CDP Chrome profile (gitignored)
-- ~/meridian-server/eco_login_setup.py   — session renewal (gitignored)
-- ~/meridian-server/wake_and_sync.sh     — Mac sync + VPS push
+- ~/meridian-server/eco_login_setup.py   — Economist session renewal (gitignored)
+- ~/meridian-server/eco_playwright_browse.py — opens eco_playwright_profile for browsing
+- ~/meridian-server/wake_and_sync.sh     — Mac sync + VPS push + AI pick trigger
 - ~/meridian-server/logs/
 
 ## Mac Flask
@@ -32,17 +33,18 @@ Frontend at https://meridianreader.com/meridian.html
 
 ---
 
-## Database (13 April 2026 — end of session 51)
+## Database (13 April 2026 — end of session 53)
 | Source | Mac | VPS |
 |---|---|---|
-| FT | ~229 | ~229 |
+| FT | ~243 | ~243 |
 | Economist | ~327 | ~327 |
 | FA | ~139 | ~139 |
-| Bloomberg | ~38 | ~38 |
-| Other | ~18 | ~18 |
-| **Total** | **~752** | **~752** |
+| Bloomberg | ~43 | ~43 |
+| Other | ~19 | ~19 |
+| **Total** | **~771** | **~771** |
 
-API balance: ~$9 — ~28 days runway at ~$0.32/day
+AI picks in Feed (auto_saved=1): ~38
+API balance: ~$9 — runway depends on AI pick frequency
 
 ---
 
@@ -50,79 +52,37 @@ API balance: ~$9 — ~28 days runway at ~$0.32/day
 
 ### NEVER use URL for Economist pub_date
 The Economist URL format is `/section/YYYY/MM/DD/slug` where the date is the
-**edition date**, not the individual article date. The bookmarks page shows the
-correct article date as text (e.g. "Apr 9th 2026"). Always use that.
-
-**eco_scraper_sub.py**: extracts pub_date from grandparent element text adjacent
-to each article link on the bookmarks page. Pattern: `Apr 9th 2026` → `2026-04-09`.
-
-**eco_fetch_sub.py**: extracts pub_date from `<time datetime="...">` element on
-the article page, falling back to JSON-LD `datePublished`. Never uses URL.
-
-**server.py enrichment**: already has guard `if not art.get("pub_date")` — this
-is now correct since both subprocess scripts always populate pub_date from page.
-
-### Backfill completed
-`eco_backfill_dates.py` re-scraped all 307 bookmarks from the bookmarks page and
-corrected 240 out of 297 Economist articles in the DB. Pushed to VPS 19:28 CEST.
+**edition date**, not the individual article date. Always use page/bookmarks date.
 
 ### Both subprocess scripts MUST use real Chrome (not headless)
-`--headless=new` breaks Economist JS rendering — bookmarks page and article pages
-return 0 content. Solution: real Chrome with off-screen window.
+`--headless=new` breaks Economist JS rendering. Solution: real Chrome off-screen.
 
 **eco_scraper_sub.py:**
 - `--window-position=-3000,-3000 --window-size=1280,900` (off-screen)
-- Clicks Load More until page stops growing (32 clicks → 303+ articles)
-- `scroll_into_view_if_needed()` + `page.wait_for_timeout(4000)` per click
-- NO `wait_for_function` — unreliable for off-screen windows
-- NO f-strings with complex interpolation in subprocess scripts
+- Clicks Load More until page stops growing
+- NO f-strings with complex interpolation
 
 **eco_fetch_sub.py:**
 - Also off-screen real Chrome
-- Timeout: 600s (30 articles × ~10s = ~300s, needs headroom)
-- Extracts pub_date from `<time datetime>` on article page
+- Timeout: 600s
 
 ### Session renewal
 `python3 ~/meridian-server/eco_login_setup.py`
+Session expires periodically (~months). When expired, scrapers hit login page.
+CRITICAL: Never open visible Chrome windows without user knowing — always fail gracefully
+if session expired (log warning, don't hang on login page).
 
 ---
 
 ## FT Scraper
 - Playwright, ft_profile/, headless=True
-- Paginates through all saved pages, stops when entire page all-existing
-- pub_date: extracted from article page `<time>` element ✓
-- 1 pending unenriched: "North Sea rethink" — unfetchable, ignore
-- TODO: verify pub_dates are correct (same URL date issue may apply)
+- Paginates through all saved pages
+- pub_date: extracted from article page `<time>` element
 
 ## Foreign Affairs Scraper
 - Playwright, fa_profile/, headless=True
-- Sources: saved articles + 3 recent issues (Mar/Apr 2026, Jan/Feb 2026, Nov/Dec 2025)
-- Shared `seen` set prevents duplicates
 - FA cookie expires 2026-05-23
 - 11 pending unenriched on VPS — paywall-truncated stubs, need cleanup
-- TODO: clean 11 FA pending + check FA pub_dates
-
----
-
-## Stats Panel
-- Last Scraped: reads `last_sync_ft/economist/fa` from kt_meta via `/api/sync/last-run`
-- Written by `run_sync()` on every successful completion
-- Bloomberg excluded (manual-only)
-- Health check: collapsed by default, "Run health check" button, manual-only (~$0.003/call)
-- CRITICAL: use async IIFE for `await` calls in stats panel JS — never bare await
-- FIXED (Session 50): Last Scraped now correctly shows "Today" not "Yesterday" for d=0
-
----
-
-## Newsletter Sync
-- newsletter_sync.py polls iCloud IMAP for Bloomberg newsletters (Points of Return etc.)
-- Stores in `newsletters` table (separate from `articles` table)
-- UI reads from `/newsletters` endpoint on VPS — SERVER = meridianreader.com
-- wake_and_sync.sh pushes newsletters Mac→VPS after each sync
-- Points of Return arrives 06:00–06:30 Geneva
-- Flask scheduler syncs newsletter at 06:30 Geneva (04:30 UTC)
-- TODO (Session 52): add VPS push immediately after 06:30 newsletter sync
-  Currently only pushed at next full sync (11:40) — not available on mobile until then
 
 ---
 
@@ -131,152 +91,228 @@ return 0 content. Solution: real Chrome with off-screen window.
 ### Scraping — owned exclusively by launchd
 - **05:40 Geneva** — launchd triggers wake_and_sync.sh → FT + Economist + FA scrape
 - **11:40 Geneva** — launchd triggers wake_and_sync.sh → FT + Economist + FA scrape
-- wake_and_sync.sh: scrape → enrich → push to VPS
-- CRITICAL: Flask scheduler no longer triggers scrapers — launchd is sole authority
-  Fixed Session 51d — was causing double Playwright sessions on same profiles (bot risk)
+- launchd is sole scrape authority — Flask scheduler no longer triggers scrapers
+
+### wake_and_sync.sh flow
+1. Wait for Flask
+2. Trigger `/api/sync` (FT + Economist bookmarks + FA)
+3. Sleep 90s
+4. Trigger `/api/enrich-title-only`
+5. Trigger `/api/newsletters/sync`
+6. Push articles → VPS
+7. Push images → VPS
+8. Push newsletters → VPS
+9. Push interviews → VPS
+10. **Sleep 300s** (wait for scrape profiles to clear)
+11. **Trigger `/api/ai-pick`** (FT feed + FA most-read, Sonnet scoring)
 
 ### Flask scheduler — post-scrape tasks only
-- **06:30 Geneva (04:30 UTC)** — newsletter sync + run_agent + auto_dismiss + kt/tag-new + enrich_image_insights
-- No scrape triggers in Flask scheduler
-
-### Profile usage windows (never run AI pick during these)
-- ft_profile/: ~05:40–06:10, ~11:40–12:10
-- eco_chrome_profile/: ~05:40–06:10, ~11:40–12:10
-- fa_profile/: ~05:40–06:10, ~11:40–12:10
+- **06:30 Geneva (04:30 UTC)** — newsletter sync + newsletter VPS push + run_agent +
+  auto_dismiss + kt/tag-new + enrich_image_insights
+- **Thu 22:00 UTC** — Economist weekly edition AI pick
 
 ---
 
-## AI Pick Architecture — BEING REDESIGNED (Session 51)
+## AI Pick Architecture — LIVE (Session 52)
 
-### Decision: feed-scraping + Sonnet scoring
-After extensive iteration (web search tool, pure recall), agreed approach:
+### Sources
+1. **FT personalised feed** — `ft.com/myft/following/197493b5.../time`
+   - Uses `ft_profile/` via subprocess off-screen Chrome
+   - Extracts `_feedTimelineTeasers` JS variable — contains title, URL, publishedDate, standfirst
+   - Filters: podcasts excluded, already-saved excluded
+   - pub_date: from `publishedDate` field (ISO timestamp → YYYY-MM-DD) ✅ correct going forward
 
-1. **Sources:**
-   - FT: `ft.com/myft/following/197493b5-7e8e-4f13-8463-3c046200835c/time` (personalised feed, auth required)
-   - Economist: `economist.com/for-you/topics` (personalised topics, auth required, needs Load More click)
-   - Foreign Affairs: `foreignaffairs.com/most-read` (public, plain HTTP fetch)
-2. **Method:** Playwright with existing profiles (ft_profile/, eco_chrome_profile/) for FT/Economist. FA is plain HTTP.
-3. **Scoring:** Single Sonnet call — pass unsaved article titles/URLs, score 0-10 against interests, return JSON
-4. **Routing:** score ≥9 → Feed (auto_saved=1), score 6-8 → Suggested
-5. **Cost:** ~$0.007/run × 2 runs/day = ~$0.014/day — negligible
+2. **Foreign Affairs most-read** — `foreignaffairs.com/most-read`
+   - Plain HTTP fetch, no auth needed
+   - pub_date: currently blank — see fix below
 
-### Rationale for feed-scraping vs alternatives
-- Web search tool: doesn't reliably index paywalled FT/Economist articles
-- Pure Claude recall: returns 2025 articles with hallucinated URLs (training cutoff)
-- Feed scraping: real URLs, real recency, personalised, no indexing gaps, no hallucination
+3. **Economist weekly edition** (Thursday nights)
+   - `economist.com/weeklyedition/YYYY-MM-DD` via CDP (eco_chrome_profile)
+   - Runs Thu 22:00 UTC, once per edition
+   - Gate key: `ai_pick_economist_weekly_YYYY-MM-DD`
+   - pub_date: edition date string ✅ correct
 
-### User reading patterns
-- Reading windows: 06:00–10:00, 12:00–14:00, 18:30–19:30 Geneva
-- Saved articles = primary reading queue (bookmarked on source, read later in Meridian)
-- AI picks = second layer catching important articles not personally bookmarked
-- Significant newsflow — not everything read each session, articles accumulate
-- Timeliness not critical — just needs to be ready before next reading session
+### pub_date known issues
+- **13 FT AI picks had wrong pub_date** — ✅ FIXED in Session 53
+  11 corrected via web search (Apr 7–10), 2 already correct. Pushed to VPS.
+- **FA AI picks have no pub_date** — FA most-read scraper doesn't extract dates
+  FIX: add pub_date to Sonnet scoring prompt response for FA articles
+  (Sonnet can infer/find dates since it's already scoring them)
 
-### Agreed schedule (twice daily, matching existing scrape slots)
-AI pick runs inside wake_and_sync.sh after a sleep to let scrape profiles clear.
+### Economist feed pages — NOT scraped (Cloudflare blocks all approaches)
+- `economist.com/for-you/feed` and `/for-you/topics` block Playwright
+- `eco_chrome_profile` can only use CDP (launch_persistent_context fails)
+- Fresh profiles get Cloudflare-blocked immediately
+- WORKAROUND: `eco_playwright_profile/` being built up via `eco_playwright_browse.py`
+  Run that script occasionally over coming days to build browsing history
+  Once Cloudflare stops blocking, switch AI pick to use that profile
+- For now: Economist covered weekly via edition page (CDP works fine there)
 
+### Scoring
+- Single Sonnet call per run
+- Uses: followed topics (44) + last 100 save titles (taste profile)
+- Gate: twice daily (morning/midday) for FT/FA, once weekly for Economist
+
+### Taste profile (kt_meta keys)
+- `ai_pick_followed_topics` — 44 topics from FT + Economist topic pages
+  FT: AI, Citigroup, Emerging markets, Equities, Eurozone economy, Global growth,
+  Global trade, Hedge funds, Luxury goods, Private equity, US economy,
+  War in Ukraine, Wealth management
+  Economist: Donald Trump, Xi Jinping, Keir Starmer, Stocks, Finance & Economics,
+  Finance, Economics, Defence, Ukraine at war, Geopolitics, War in Middle East,
+  China's economy, Investing, AI, Economy
+  Core: Iran, Iran war, Strait of Hormuz, Tariffs, Trade war, Sanctions,
+  Central banking, Fed, Interest rates, China, US-China, NATO, Russia, Energy, Oil
+- `ai_pick_taste_titles` — last 100 manually saved article titles, auto-updated on Feed save
+
+### Scoring bands
+- 9-10: Concrete breaking event (war, sanctions, central bank decision, market shock)
+- 7-8: High-quality analysis (markets, geopolitics, AI with real-world impact)
+- 6: Relevant essays/analysis on followed topics
+- 0-5: Not relevant
+
+### Schedule
 | Time (Geneva) | What runs |
 |---|---|
-| 05:40 | Saved article scrape (launchd → wake_and_sync.sh) |
-| ~06:15 | AI pick (wake_and_sync.sh, after `sleep 300` post-scrape) |
-| 06:30 | Newsletter sync + VPS push (Flask scheduler) |
-| 11:40 | Saved article scrape (launchd → wake_and_sync.sh) |
-| ~12:15 | AI pick (wake_and_sync.sh, after `sleep 300` post-scrape) |
+| 05:40 | Saved article scrape (launchd) |
+| ~06:15 | AI pick — FT feed + FA most-read (wake_and_sync.sh, after sleep 300) |
+| 06:30 | Newsletter sync + VPS push |
+| 11:40 | Saved article scrape (launchd) |
+| ~12:15 | AI pick — FT feed + FA most-read |
+| Thu ~23:00 | Economist weekly edition pick |
 
-No evening scrape — twice daily is sufficient given articles accumulate across sessions.
-Evening commute (18:30–19:30) reads from midday AI pick + accumulated saves.
+### Cost
+- Sonnet: ~$0.015/run × 2/day + ~$0.02/week = ~$0.05/day
+- Total with enrichment: ~$0.35/day
 
-### ⚠️ NOT YET BUILT — Session 52
-1. New `ai_pick_feed_scrape()` function replacing `ai_pick_web_search()`:
-   - Playwright reads FT personalised feed + Economist for-you/topics (with Load More)
-   - HTTP fetch for FA most-read (no auth needed)
-   - Filter out URLs already in articles or suggested_articles tables
-   - Single Sonnet call: score remaining candidates 0-10 against user interests
-   - Save ≥9 to Feed (auto_saved=1), 6-8 to Suggested
-2. Add AI pick step to wake_and_sync.sh (sleep 300 after scrape, then call AI pick endpoint)
-3. Add newsletter VPS push to Flask scheduler 06:30 task
-4. Remove dead stubs: `ai_pick_web_search()`, `scrape_suggested_articles()`
+### Known issues
+- eco_chrome_profile session renewed Session 53 (13 Apr 2026)
+- CRITICAL: Never leave Chrome windows open on login pages — scraper must detect
+  login redirect and fail gracefully, not hang
 
 ---
 
-## API Cost Profile (~$0.32/day)
-- enrich_article_with_ai → Haiku (~$0.001/article, dominant cost)
+## Newsletter Sync
+- Points of Return arrives 06:00–06:30 Geneva
+- Flask scheduler: newsletter sync at 06:30 + immediate VPS push
+- wake_and_sync.sh also pushes newsletters on each full sync
+
+---
+
+## API Cost Profile (~$0.35/day)
+- enrich_article_with_ai → Haiku (~$0.001/article)
+- AI pick → Sonnet, ~$0.05/day
 - health check → Haiku, ~$0.003/call, manual-only
-- AI pick → Sonnet, ~$0.007/run × 2/day = ~$0.014/day (once built)
 - KT theme generation → Sonnet, infrequent
 
 ---
 
 ## Outstanding Issues / Next Sessions
 
-### 🔴 Session 52 — build first
-1. `ai_pick_feed_scrape()` — Playwright FT/Economist feeds + FA most-read + Sonnet scoring
-2. Add AI pick to wake_and_sync.sh (sleep 300 then call endpoint)
-3. Newsletter VPS push at 06:30 Geneva
+### 🔴 Session 54 — do first
+1. Fix FA AI picks missing pub_date:
+   - Add pub_date field to Sonnet scoring prompt response for FA articles
+2. FA ingestion failure — FA averaged 0.6 articles/day last 7d; zero-days on 04-08, 04-12, 04-13
+   - Investigate FA scraper reliability, check cookie/session, check for Cloudflare blocks
+3. Economist delivery gaps — 3 zero-days in last 7d (04-08, 04-11, 04-13); erratic daily counts
+   - Check Economist bookmarks scraper logs, verify session health
+4. FT backlog pending — 13 unenriched FT articles awaiting full-text enrichment
+   - Check enrichment pipeline, may need manual trigger or API credit top-up
 
 ### 🔴 Priority fixes
-4. FA 11 pending — delete paywall-truncated stubs from VPS
-5. FA pub_dates — check if FA also has URL vs page date discrepancy
-6. FT pub_dates — check if FT also has URL vs page date discrepancy
+5. Economist scraper: add login-redirect detection — fail gracefully, don't hang
+6. FA 11 pending — delete paywall-truncated stubs from VPS
 7. FA cookie renewal — expires 2026-05-23
+8. eco_playwright_profile — continue building browsing history for Economist feed access
 
 ### 🔴 Monitor
-8. Economist CDP session — will expire, run eco_login_setup.py to renew
+9. Economist CDP session — renewed Session 53, monitor for next expiry
 
 ### 🟡 Planned Features
-9. Daily briefing backend — briefings table, Sonnet, morning sync
-10. Daily briefing UI — Read/Scan/Listen
-11. Chat Q&A — keyword retrieval, Haiku
+10. Daily briefing backend
+11. Chat Q&A
 
 ---
 
 ## Build History
 
-### 13 April 2026 (Session 51 — multiple sub-sessions)
+### 13 April 2026 (Session 53)
 
-**51a — AI pick patches (from Session 50 backlog)**
-- score >= 8 → score >= 9 in ai_pick_web_search() and run_agent()
-- Once-daily gate → twice-daily with slot-keyed kt_meta keys
-- Gate write fixed: hardcoded 'ai_pick_last_run' → _gate_key variable
-- Scheduler re-enabled: DISABLED block → live calls
-- Prompt: "Find 4-6" → "Find 4-8", "5-6: moderate" line removed
+**Core achievement:** FT AI pick pub_date corrections, Economist session renewal
 
-**51b — AI pick cost reduction**
-- Fixed agentic loop bug: stub "Search completed." → real tool results
-- Search window: LAST 7 DAYS → LAST 24 HOURS
-- Gate simplified to once-daily
-- scrape_suggested_articles() rewritten — 300 lines → 45 lines, all dead code removed
+- Fixed 11 FT AI pick pub_dates that were incorrectly stamped as 2026-04-13
+  Used web search (FT X/Twitter timestamps, OneNewsPage, syndication dates) to find real dates
+  Corrected range: Apr 7–10. Updated Mac DB + pushed to VPS (11 upserted)
+- Renewed eco_chrome_profile session via eco_login_setup.py
+  Thursday night Economist weekly edition pick should now work
+- VPS DB path confirmed as /opt/meridian-server/meridian.db (not /root/)
+- Health check at session start: 6/10
+  Issues: FA ingestion weak (0.6/day avg), Economist 3 zero-days, 13 FT unenriched
+- DB: 771 articles (243 FT, 327 Eco, 139 FA, 43 Bloomberg, 19 other), 38 AI picks
 
-**51c — AI pick rewrite attempts**
-- Pure Claude recall: abandoned — Haiku recalled 2025 articles, hallucinated URLs
-- Web search tool backfill (Apr 8-13): FT/Economist not indexed, Bloomberg only
-- Final decision: feed-scraping approach (Playwright + Sonnet)
-- Removed: _run_agentic_search, extract_pub_date_from_url, _month_name
+### 13 April 2026 (Session 52 — multiple sub-sessions)
 
-**51d — Remove redundant Flask scrape triggers**
-- SCHEDULER_TIMES_UTC (03:50, 09:50 UTC) removed from Flask scheduler
-- Was causing double Playwright sessions on same profiles (bot detection risk)
-- launchd is now sole scrape authority
+**Core achievement:** AI pick pipeline fully operational for FT + FA + Economist weekly
 
-### 13 April 2026 (Session 50)
-- Investigated AI pick function end-to-end
-- Agreed redesign: core 4 sources only, 9-10→Feed, 6-8→Suggested, twice daily
-- Fixed "Last Scraped: Yesterday" bug
-- Added newsletter-only scheduler at 04:30 UTC (06:30 Geneva)
+**52a — Initial ai_pick_feed_scrape() build**
+- New function scraping FT personalised feed + FA most-read + Economist feed
+- Discovered: headless=True blocked by Cloudflare on FT and Economist feed pages
+- Fix: off-screen real Chrome (headless=False, --window-position=-3000,-3000)
+- FT: works perfectly with ft_profile subprocess
+- Economist feed (for-you/topics, for-you/feed): blocked regardless of approach
+  eco_chrome_profile incompatible with launch_persistent_context (CDP profile)
+  Fresh profiles hit Cloudflare immediately
+  Decision: skip Economist feed for now, use weekly edition instead
 
-### 12 April 2026 (Session 49)
+**52b/c — FT subprocess refinement**
+- FT visible window bug: subprocess approach keeps window off-screen correctly
+- First successful run: 135-183 FT articles, 56 new per run
+- Sonnet scoring initially miscalibrated (private equity scoring 10)
+
+**52d — Taste profile system**
+- Scraped FT followed topics (13) and Economist followed topics (15) from screenshots
+- Built ai_pick_followed_topics (44 topics) stored in kt_meta
+- Built ai_pick_taste_titles from last 100 manual saves
+- Scoring prompt rewritten to use both — dramatic improvement
+- Before: "Ackman fund" = 10, "OpenAI Stargate" = 1
+- After: "Fed/energy surge" = 9, "OpenAI Stargate" = 7, "Ackman fund" = 7 (hedge funds topic)
+- Auto-update: taste_titles updated whenever new article saved to Feed
+
+**52e — Economist weekly edition scraper**
+- Tested economist.com/weeklyedition/2026-04-11 via CDP: 73 articles, no Cloudflare
+- Built ai_pick_economist_weekly() — CDP scrape + Sonnet scoring
+- Thursday 22:00 UTC scheduler slot added
+- Edition date logic: last Saturday Mon-Wed, next Saturday Thu(after 20UTC)/Fri/Sat
+- Gate: once per edition keyed by edition date
+
+**52f — pub_date fixes**
+- Discovered _feedTimelineTeasers JS variable on FT feed page
+  Contains: title, URL, publishedDate (ISO), standfirst, isOpinion, isPodcast flags
+  Much better than DOM scraping — accurate dates, richer metadata
+- Updated FT scraper to use _feedTimelineTeasers (correct going forward)
+- Backfilled 13 blank pub_dates using saved_at as fallback — WRONG (all show 13 Apr)
+  Fixed in Session 53: web_search to find actual publication dates, all 11 corrected + pushed to VPS
+
+**52 — Other**
+- Removed redundant Flask scrape triggers (Session 51d carried forward)
+- eco_playwright_profile created for future Economist feed access
+  Needs more browsing history before Cloudflare stops blocking
+
+### 13 April 2026 (Session 51)
+- AI pick redesign patches applied (score >=9, twice-daily gate)
+- Removed redundant Flask scrape triggers (bot detection risk)
+- scrape_suggested_articles() rewritten — 300 lines → 45 lines
+- Settled on feed-scraping + Sonnet approach
+
+### 12 April 2026 (Session 49/50)
 - FT, Economist, FA scrapers completely rewritten
-- Economist: subprocess architecture, off-screen Chrome, Load More fix
-- CRITICAL: headless=new breaks Economist — must use off-screen real Chrome
-- CRITICAL: Economist URL date is edition date — always use page date
-- eco_backfill_dates.py: corrected 240/297 Economist pub_dates
-- FA: saved articles + 3 recent issues, 64→149 articles
-- Fixed await-in-non-async JS bug
+- Economist: subprocess architecture, off-screen Chrome
+- Newsletter timing gap fixed
 
 ---
 
 ## Autonomous Mode
-Never ask Alex to run Terminal commands.
+Never ask Alex to run Terminal commands — Claude executes everything.
 
 ### Shell bridge
 ```js
@@ -290,14 +326,15 @@ window.shell = (cmd) => fetch('http://localhost:4242/api/dev/shell', {
 - Write patch scripts via filesystem:write_file → execute via window.shell()
 - Always exact text str.replace() — never line-number patches
 - For large blocks use positional replacement (str.find + slice)
-- Write new function bodies to separate .txt files to avoid escaping in patch scripts
+- Write new function bodies to separate .txt files to avoid escaping
 - Shell bridge filters "api","fetch" etc — write to tmp_*.txt, read via filesystem MCP
 - NEVER use bare `await` in non-async JS context — wrap in async IIFE
 - NEVER use --headless=new for Economist — use off-screen window
 - NEVER use f-strings with complex interpolation in subprocess scripts
-- NEVER use URL date for Economist pub_date — always use page/bookmarks date
+- NEVER use URL date for Economist pub_date
+- NEVER kill Chrome (pkill Google Chrome) — kills MCP extension tabs
+- NEVER open visible Chrome windows without user knowing — fail gracefully if session expired
 - eco_fetch_sub timeout must be ≥ (num_articles × 12s)
-- NEVER let patch scripts exit early before writing — assert all patches first, write once
 
 ### Session startup
 1. Load MCPs: tabs_context_mcp, javascript_tool, filesystem write_file
