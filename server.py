@@ -1276,6 +1276,18 @@ def sync_last_run():
         result[source] = value
     return jsonify(result)
 
+@app.route("/api/ai-pick", methods=["POST"])
+def api_ai_pick():
+    """Trigger AI pick feed scrape. Called by wake_and_sync.sh after scrape completes."""
+    def _run():
+        try:
+            feed, suggested = ai_pick_feed_scrape()
+            log.info(f"AI pick endpoint: {len(feed)} Feed, {len(suggested)} Suggested")
+        except Exception as e:
+            log.warning(f"AI pick endpoint error: {e}")
+    threading.Thread(target=_run, daemon=True).start()
+    return jsonify({"ok": True, "message": "AI pick started"})
+
 @app.route("/api/sync/status")
 def sync_status_route():
     return jsonify(sync_status)
@@ -1664,197 +1676,325 @@ def fetch_interview_meta():
 
 
 
-def ai_pick_web_search():
-    """Find AI picks via pure Claude recall — no web search tool, no rate limits,
-    no Cloudflare. Claude knows FT/Economist/FA/Bloomberg articles from training.
+def ai_pick_feed_scrape():
+    """Scrape personalised FT and Economist recommendation feeds + FA most-read.
+    Pass unsaved articles to Sonnet for relevance scoring.
+    score >=9  -> Feed (auto_saved=1)
+    score 6-8  -> Suggested inbox
 
-    Returns (feed_articles, suggested_articles):
-      feed:      score 9-10, trusted source -> auto_saved=1, appears in Feed
-      suggested: score 6-8,  trusted source -> Suggested inbox for review
+    Uses existing Playwright profiles — ft_profile/ and eco_chrome_profile/.
+    FA most-read is public, fetched via plain HTTP.
+    Gate: twice daily keyed as ai_pick_last_run_morning / ai_pick_last_run_midday.
     """
-    import urllib.request as _ur
     import json as _j
+    import urllib.request as _ur
+    import urllib.error as _ue
 
-    api_key = load_creds().get("anthropic_api_key", "")
-    if not api_key:
+    # ── Gate: twice daily ────────────────────────────────────────────────────
+    _now_h = datetime.now().hour
+    _gate_key = 'ai_pick_last_run_morning' if _now_h < 12 else 'ai_pick_last_run_midday'
+    _today = datetime.now().strftime('%Y-%m-%d')
+    with sqlite3.connect(DB_PATH) as _gx:
+        _gx.execute("CREATE TABLE IF NOT EXISTS kt_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+        _last = _gx.execute("SELECT value FROM kt_meta WHERE key=?", (_gate_key,)).fetchone()
+    if _last and _last[0] == _today:
+        log.info(f"AI pick: already ran today [{_gate_key}] — skipping")
+        return [], []
+
+    # ── Build known URLs (skip already saved/suggested) ──────────────────────
+    with sqlite3.connect(DB_PATH) as _cx:
+        _saved = set(r[0] for r in _cx.execute("SELECT url FROM articles WHERE url!=''").fetchall())
+        _suggested = set(r[0] for r in _cx.execute("SELECT url FROM suggested_articles WHERE url!=''").fetchall())
+    _known = _saved | _suggested
+
+    # ── Build interest profile ────────────────────────────────────────────────
+    with sqlite3.connect(DB_PATH) as _cx:
+        _rows = _cx.execute("SELECT topic, tags FROM articles ORDER BY saved_at DESC LIMIT 150").fetchall()
+    _counts = {}
+    for _topic, _tags in _rows:
+        if _topic: _counts[_topic] = _counts.get(_topic, 0) + 1
+        try:
+            for _t in _j.loads(_tags or "[]"):
+                _counts[_t] = _counts.get(_t, 0) + 1
+        except: pass
+    _interests = ", ".join(sorted(_counts, key=lambda x: -_counts[x])[:15]) or "geopolitics, economics, finance, markets"
+    log.info(f"AI pick: interests = {_interests[:80]}")
+
+    candidates = []  # list of {title, url, source}
+
+    # ── 1. FT personalised feed ───────────────────────────────────────────────
+    FT_FEED = "https://www.ft.com/myft/following/197493b5-7e8e-4f13-8463-3c046200835c/time"
+    try:
+        from playwright.sync_api import sync_playwright
+        with sync_playwright() as _pw:
+            _ft_browser = _pw.chromium.launch_persistent_context(
+                str(BASE_DIR / "ft_profile"),
+                headless=True,
+                args=["--no-sandbox"]
+            )
+            _ft_page = _ft_browser.new_page()
+            _ft_page.goto(FT_FEED, wait_until="domcontentloaded", timeout=30000)
+            _ft_page.wait_for_timeout(3000)
+            # Extract article cards — title + URL, skip already-saved (filled bookmark icon)
+            _ft_articles = _ft_page.evaluate("""() => {
+                const results = [];
+                document.querySelectorAll('a[href*="/content/"]').forEach(a => {
+                    const title = a.innerText.trim();
+                    const url = a.href.split('?')[0];
+                    if (title && title.length > 15 && url.includes('ft.com/content/')) {
+                        // Check if already saved (bookmark icon filled = saved)
+                        const card = a.closest('li') || a.closest('article') || a.parentElement;
+                        const saved = card && card.querySelector('[data-trackable="save-button"][aria-label*="Saved"]');
+                        results.push({title, url, source: 'Financial Times', already_saved: !!saved});
+                    }
+                });
+                // Deduplicate by URL
+                const seen = new Set();
+                return results.filter(a => {
+                    if (seen.has(a.url)) return false;
+                    seen.add(a.url);
+                    return true;
+                });
+            }""")
+            _ft_browser.close()
+            _ft_new = [a for a in _ft_articles if not a.get('already_saved') and a['url'] not in _known]
+            log.info(f"AI pick: FT feed — {len(_ft_articles)} articles, {len(_ft_new)} unsaved/new")
+            candidates.extend(_ft_new)
+    except Exception as _e:
+        log.warning(f"AI pick: FT feed scrape failed: {_e}")
+
+    # ── 2. Economist for-you/topics feed (subprocess to avoid event loop conflict) ──
+    ECO_FEED = "https://www.economist.com/for-you/topics"
+    try:
+        import tempfile, subprocess as _sp
+        _eco_script = tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False)
+        _eco_out = tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False)
+        _eco_script.write(f"""
+import json
+from playwright.sync_api import sync_playwright
+results = []
+with sync_playwright() as pw:
+    browser = pw.chromium.launch_persistent_context(
+        r"{str(BASE_DIR / 'eco_chrome_profile')}",
+        headless=True, args=["--no-sandbox"]
+    )
+    page = browser.new_page()
+    page.goto("{ECO_FEED}", wait_until="domcontentloaded", timeout=30000)
+    page.wait_for_timeout(3000)
+    # Click Load More once to get more articles
+    try:
+        btn = page.query_selector('button:has-text("Load more")')
+        if btn:
+            btn.click()
+            page.wait_for_timeout(2000)
+    except: pass
+    # Extract article links
+    links = page.evaluate('''() => {{
+        const results = [];
+        document.querySelectorAll('a[href*="/"]').forEach(a => {{
+            const href = a.href;
+            const title = a.innerText.trim();
+            if (
+                title && title.length > 15 &&
+                href.includes('economist.com') &&
+                !href.includes('/for-you') &&
+                !href.includes('/topics') &&
+                !href.includes('/sections') &&
+                href.split('/').length > 4
+            ) {{
+                results.push({{title, url: href.split('?')[0], source: 'The Economist'}});
+            }}
+        }});
+        const seen = new Set();
+        return results.filter(a => {{
+            if (seen.has(a.url)) return false;
+            seen.add(a.url);
+            return true;
+        }});
+    }}''')
+    browser.close()
+    results = links
+with open(r"{_eco_out.name}", "w") as f:
+    json.dump(results, f)
+""")
+        _eco_script.close()
+        _eco_out.close()
+        _proc = _sp.run(["python3", _eco_script.name], timeout=60, capture_output=True)
+        if _proc.returncode == 0:
+            with open(_eco_out.name) as f:
+                _eco_articles = _j.load(f)
+            _eco_new = [a for a in _eco_articles if a['url'] not in _known]
+            log.info(f"AI pick: Economist feed — {len(_eco_articles)} articles, {len(_eco_new)} new")
+            candidates.extend(_eco_new)
+        else:
+            log.warning(f"AI pick: Economist subprocess failed: {_proc.stderr.decode()[:200]}")
+        import os
+        os.unlink(_eco_script.name)
+        os.unlink(_eco_out.name)
+    except Exception as _e:
+        log.warning(f"AI pick: Economist feed scrape failed: {_e}")
+
+    # ── 3. Foreign Affairs most-read (public, plain HTTP) ────────────────────
+    FA_MOST_READ = "https://www.foreignaffairs.com/most-read"
+    try:
+        _req = _ur.Request(FA_MOST_READ, headers={"User-Agent": "Mozilla/5.0"})
+        with _ur.urlopen(_req, timeout=15) as _resp:
+            _html = _resp.read().decode("utf-8", errors="ignore")
+        # Extract article links from most-read page
+        import re as _re
+        _fa_links = _re.findall(r'href="(/articles/[^"]+)"[^>]*>([^<]{15,})<', _html)
+        _fa_seen = set()
+        for _path, _title in _fa_links:
+            _url = "https://www.foreignaffairs.com" + _path.split("?")[0]
+            _title = _title.strip()
+            if _url not in _known and _url not in _fa_seen and len(_title) > 15:
+                candidates.append({"title": _title, "url": _url, "source": "Foreign Affairs"})
+                _fa_seen.add(_url)
+        log.info(f"AI pick: FA most-read — {len(_fa_seen)} new candidates")
+    except Exception as _e:
+        log.warning(f"AI pick: FA most-read fetch failed: {_e}")
+
+    if not candidates:
+        log.warning("AI pick: no candidates found from any source")
+        return [], []
+
+    # Deduplicate candidates across sources
+    _seen_urls = set()
+    _deduped = []
+    for _c in candidates:
+        if _c['url'] not in _seen_urls:
+            _seen_urls.add(_c['url'])
+            _deduped.append(_c)
+    candidates = _deduped
+    log.info(f"AI pick: {len(candidates)} total candidates across all sources")
+
+    # ── Sonnet scoring call ───────────────────────────────────────────────────
+    _api_key = load_creds().get("anthropic_api_key", "")
+    if not _api_key:
         log.warning("AI pick: no API key")
         return [], []
 
-    # Build interest profile from recent saves
-    with sqlite3.connect(DB_PATH) as _cx:
-        _rows = _cx.execute("SELECT topic, tags FROM articles ORDER BY saved_at DESC LIMIT 150").fetchall()
-        saved_urls = set(r[0] for r in _cx.execute("SELECT url FROM articles WHERE url!=''").fetchall())
-        suggested_urls = set(r[0] for r in _cx.execute("SELECT url FROM suggested_articles WHERE url!=''").fetchall())
-    all_known_urls = saved_urls | suggested_urls
-
-    topic_counts = {}
-    for _r in _rows:
-        if _r[0]: topic_counts[_r[0]] = topic_counts.get(_r[0], 0) + 1
-        try:
-            for _t in _j.loads(_r[1] or "[]"):
-                topic_counts[_t] = topic_counts.get(_t, 0) + 1
-        except: pass
-    interests = ", ".join(sorted(topic_counts, key=lambda x: -topic_counts[x])[:15]) or "geopolitics, economics, finance, markets"
-    log.info(f"AI pick: interests = {interests[:80]}")
-
-    TRUSTED_SOURCES = {"The Economist", "Financial Times", "Foreign Affairs", "Bloomberg"}
-    TRUSTED_DOMAINS = ["economist.com", "ft.com", "foreignaffairs.com", "bloomberg.com"]
-
-    def _url_plausible(url):
-        """Sanity check: URL should start with http and contain a known domain."""
-        if not url or not url.startswith("http"):
-            return False
-        return any(d in url for d in TRUSTED_DOMAINS)
-
-    def _parse_json(text):
-        text = text.strip()
-        if "```" in text:
-            text = text.split("```", 2)[1]
-            if text.startswith("json"): text = text[4:]
-            text = text.rsplit("```", 1)[0].strip()
-        m = re.search(r'\[[\s\S]*\]', text)
-        return _j.loads(m.group(0)) if m else []
-
-    # Single Haiku call — no tools, pure recall
-    prompt = (
-        "You are a senior intelligence analyst assistant with access to recent publications. "
-        "Recall articles published in the LAST 7 DAYS by these four sources ONLY: "
-        "The Economist, Financial Times, Foreign Affairs, Bloomberg. "
-        "The analyst's key interests: " + interests + ". "
-        "List 6-10 of the most relevant articles published in the last 7 days. "
-        "Only include articles you are genuinely confident exist and were recently published. "
-        "Use real URL patterns: economist.com/section/YYYY/MM/DD/slug, "
-        "ft.com/content/[uuid], foreignaffairs.com/articles/[region]/[slug], "
-        "bloomberg.com/news/articles/YYYY-MM-DD/slug. "
-        "Score each 0-10 for relevance to the analyst's interests: "
-        "9-10: essential (war, sanctions, central banking decisions, major diplomacy, energy crisis). "
-        "7-8: highly relevant (markets, economic policy, geopolitics, finance). "
+    _articles_list = _j.dumps([{"title": a["title"], "url": a["url"], "source": a["source"]} for a in candidates])
+    _prompt = (
+        "You are scoring news articles for a senior intelligence analyst. "
+        "Their key interests: " + _interests + ". "
+        "Score each article 0-10 for relevance to those interests. "
+        "9-10: essential — war, sanctions, central banking decisions, major diplomacy, energy crisis. "
+        "7-8: highly relevant — markets, economic policy, geopolitics, finance. "
         "6: relevant but not urgent. "
-        "Be STRICT with 9-10 — only articles a senior analyst would consider unmissable. "
-        "Respond ONLY with a JSON array, no prose, no markdown fences: "
-        '[{"title":"...","url":"...","source":"Financial Times","score":9,"reason":"one sentence","pub_date":"8 April 2026"}]'
+        "0-5: not relevant — lifestyle, sport, culture, science unrelated to interests. "
+        "Be STRICT with 9-10 — only articles a senior analyst would consider unmissable today. "
+        "Sources are Financial Times, The Economist, Foreign Affairs — all high quality, so score purely on topic relevance. "
+        "Respond ONLY with a JSON array in the same order as input, no prose, no markdown: "
+        '[{"score":9,"reason":"one sentence"}]'
+        "\n\nArticles to score:\n" + _articles_list
     )
 
-    log.info("AI pick: calling Haiku for article recall...")
-    payload = _j.dumps({
-        "model": "claude-haiku-4-5-20251001",
+    log.info(f"AI pick: calling Sonnet to score {len(candidates)} candidates...")
+    _payload = _j.dumps({
+        "model": "claude-sonnet-4-6",
         "max_tokens": 2000,
-        "messages": [{"role": "user", "content": prompt}]
+        "messages": [{"role": "user", "content": _prompt}]
     }).encode()
-    req = _ur.Request(
+    _req2 = _ur.Request(
         "https://api.anthropic.com/v1/messages",
-        data=payload,
-        headers={"Content-Type": "application/json", "x-api-key": api_key,
+        data=_payload,
+        headers={"Content-Type": "application/json", "x-api-key": _api_key,
                  "anthropic-version": "2023-06-01"},
         method="POST"
     )
     try:
-        with _ur.urlopen(req, timeout=60) as resp:
-            data = _j.loads(resp.read())
-    except Exception as e:
-        log.warning(f"AI pick: API call failed: {e}")
+        with _ur.urlopen(_req2, timeout=60) as _resp2:
+            _data = _j.loads(_resp2.read())
+    except Exception as _e:
+        log.warning(f"AI pick: Sonnet call failed: {_e}")
         return [], []
 
-    text = "".join(b.get("text", "") for b in data.get("content", []) if b.get("type") == "text")
-    if not text:
-        log.warning("AI pick: empty response")
+    _text = "".join(b.get("text", "") for b in _data.get("content", []) if b.get("type") == "text")
+    if not _text:
+        log.warning("AI pick: empty Sonnet response")
         return [], []
 
     try:
-        results = _parse_json(text)
-    except Exception as e:
-        log.warning(f"AI pick: JSON parse failed: {e} — raw: {text[:200]}")
+        _text = _text.strip()
+        if "```" in _text:
+            _text = _text.split("```", 2)[1]
+            if _text.startswith("json"): _text = _text[4:]
+            _text = _text.rsplit("```", 1)[0].strip()
+        import re as _re2
+        _m = _re2.search(r'\[[\s\S]*\]', _text)
+        _scores = _j.loads(_m.group(0)) if _m else []
+    except Exception as _e:
+        log.warning(f"AI pick: score parse failed: {_e} — raw: {_text[:200]}")
         return [], []
 
-    log.info(f"AI pick: {len(results)} candidates from Haiku recall")
+    log.info(f"AI pick: Sonnet returned {len(_scores)} scores")
 
+    # ── Route by score ────────────────────────────────────────────────────────
+    TRUSTED_SOURCES = {"Financial Times", "The Economist", "Foreign Affairs"}
     feed_articles = []
     suggested_out = []
 
-    for art in results:
-        url      = art.get("url", "").split("?")[0].rstrip("/")
-        title    = art.get("title", "")
-        score    = art.get("score", 0)
-        source   = art.get("source", "")
-        reason   = art.get("reason", "")
-        pub_date = art.get("pub_date", "")
+    for _i, _art in enumerate(candidates):
+        if _i >= len(_scores): break
+        _score = _scores[_i].get("score", 0)
+        _reason = _scores[_i].get("reason", "")
+        _source = _art["source"]
+        _url = _art["url"]
+        _title = _art["title"]
 
-        if not title or len(title) < 10: continue
-        if source not in TRUSTED_SOURCES: continue
-        if not _url_plausible(url): continue
-        if url in all_known_urls: continue
+        if _source not in TRUSTED_SOURCES: continue
+        if _url in _known: continue
 
-        all_known_urls.add(url)
-        art_id = make_id(source, url)
+        _art_id = make_id(_source, _url)
+        log.info(f"AI pick: score={_score} [{_source}] {_title[:60]}")
 
-        if score >= 9:
+        if _score >= 9:
             feed_articles.append({
-                "id": art_id, "source": source, "url": url, "title": title,
-                "body": "", "summary": reason, "topic": "", "tags": "[]",
+                "id": _art_id, "source": _source, "url": _url, "title": _title,
+                "body": "", "summary": _reason, "topic": "", "tags": "[]",
                 "saved_at": now_ts(), "fetched_at": now_ts(),
-                "status": "title_only", "pub_date": pub_date, "auto_saved": 1
+                "status": "title_only", "pub_date": "", "auto_saved": 1
             })
-            log.info(f"AI pick -> Feed (score {score}, {source}): '{title[:60]}'")
-        elif score >= 6:
+        elif _score >= 6:
             suggested_out.append({
-                "title": title, "url": url, "source": source,
-                "score": score, "reason": reason, "pub_date": pub_date
+                "title": _title, "url": _url, "source": _source,
+                "score": _score, "reason": _reason, "pub_date": ""
             })
-            log.info(f"AI pick -> Suggested (score {score}, {source}): '{title[:60]}'")
+
+    # ── Save Feed picks ───────────────────────────────────────────────────────
+    if feed_articles:
+        with sqlite3.connect(DB_PATH) as _cx:
+            for _fp in feed_articles:
+                if not article_exists(_fp["id"]):
+                    _cx.execute(
+                        'INSERT OR IGNORE INTO articles '
+                        '(id,source,url,title,body,summary,topic,tags,saved_at,fetched_at,status,pub_date,auto_saved) '
+                        'VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
+                        (_fp["id"], _fp["source"], _fp["url"], _fp["title"], _fp["body"],
+                         _fp["summary"], _fp["topic"], _fp["tags"], _fp["saved_at"],
+                         _fp["fetched_at"], _fp["status"], _fp["pub_date"], 1)
+                    )
+        log.info(f"AI pick: saved {len(feed_articles)} -> Feed")
+
+    # ── Save Suggested picks ──────────────────────────────────────────────────
+    if suggested_out:
+        save_suggested_snapshot(suggested_out)
+        log.info(f"AI pick: saved {len(suggested_out)} -> Suggested")
+
+    # ── Write gate ────────────────────────────────────────────────────────────
+    with sqlite3.connect(DB_PATH) as _rx:
+        _rx.execute("INSERT OR REPLACE INTO kt_meta (key, value) VALUES (?, ?)", (_gate_key, _today))
 
     log.info(f"AI pick complete: {len(feed_articles)} -> Feed, {len(suggested_out)} -> Suggested")
     return feed_articles, suggested_out
 
 
 def scrape_suggested_articles():
-    """Run ai_pick_web_search() once daily (morning sync), save Feed picks,
-    return Suggested picks for save_suggested_snapshot().
-    Gate: once per calendar day keyed as ai_pick_last_run_morning."""
-
-    # Once-daily gate
-    today_str = datetime.now().strftime('%Y-%m-%d')
-    _gate_key = 'ai_pick_last_run_morning'
-    with sqlite3.connect(DB_PATH) as _gx:
-        _gx.execute("CREATE TABLE IF NOT EXISTS kt_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
-        _last = _gx.execute("SELECT value FROM kt_meta WHERE key=?", (_gate_key,)).fetchone()
-    if _last and _last[0] == today_str:
-        log.info(f"AI pick: already ran today ({today_str}) — skipping")
-        return []
-
-    # Collect saved URLs to avoid re-suggesting existing articles
-    with sqlite3.connect(DB_PATH) as cx:
-        saved_urls = set(r[0] for r in cx.execute("SELECT url FROM articles WHERE url!=''").fetchall())
-
-    # Run the AI web search — returns (feed_articles, suggested_articles)
-    try:
-        _feed_picks, _suggested_picks = ai_pick_web_search()
-    except Exception as e:
-        log.warning(f"AI pick: ai_pick_web_search failed: {e}")
-        return []
-
-    # Save Feed picks (score 9-10) directly to articles table
-    if _feed_picks:
-        with sqlite3.connect(DB_PATH) as _cx:
-            for _fp in _feed_picks:
-                if not article_exists(_fp['id']):
-                    _cx.execute(
-                        'INSERT OR IGNORE INTO articles '
-                        '(id,source,url,title,body,summary,topic,tags,saved_at,fetched_at,status,pub_date,auto_saved) '
-                        'VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
-                        (_fp['id'],_fp['source'],_fp['url'],_fp['title'],_fp['body'],
-                         _fp['summary'],_fp['topic'],_fp['tags'],_fp['saved_at'],
-                         _fp['fetched_at'],_fp['status'],_fp['pub_date'],1)
-                    )
-        log.info(f"AI pick: saved {len(_feed_picks)} picks -> Feed")
-
-    # Write gate — prevents re-run until tomorrow
-    with sqlite3.connect(DB_PATH) as _rx:
-        _rx.execute("INSERT OR REPLACE INTO kt_meta (key, value) VALUES (?, ?)", (_gate_key, today_str))
-
-    # Return Suggested picks (score 6-8) for save_suggested_snapshot()
-    results = [a for a in _suggested_picks if a.get("url","") not in saved_urls and a.get("title","")]
-    log.info(f"AI pick: {len(results)} articles -> Suggested")
-    return results
+    """Thin stub — delegates to ai_pick_feed_scrape().
+    Kept for scheduler backwards compatibility."""
+    feed, suggested = ai_pick_feed_scrape()
+    return suggested
 
 def normalise_url(url):
     """Strip query parameters and fragments for dedup purposes."""
@@ -2218,6 +2358,31 @@ def scheduler_loop(interval_hours):
                 import subprocess as _sp2
                 _sp2.Popen(["python3", str(BASE_DIR / "newsletter_sync.py")])
                 log.info("Scheduler: triggered newsletter sync")
+                def _push_newsletters_to_vps():
+                    """Push newsletters to VPS after sync so Points of Return is on mobile by 06:35."""
+                    import time as _t2, sqlite3 as _sq2, json as _jj, urllib.request as _ur3
+                    _t2.sleep(90)  # Wait for newsletter_sync.py to complete
+                    try:
+                        _db = _sq2.connect(DB_PATH)
+                        _db.row_factory = _sq2.Row
+                        _nls = [dict(r) for r in _db.execute(
+                            "SELECT gmail_id,source,subject,body_html,body_text,received_at FROM newsletters ORDER BY received_at DESC"
+                        ).fetchall()]
+                        _db.close()
+                        if _nls:
+                            _payload = _jj.dumps({"newsletters": _nls}).encode()
+                            _req3 = _ur3.Request(
+                                "https://meridianreader.com/api/push-newsletters",
+                                data=_payload,
+                                headers={"Content-Type": "application/json"},
+                                method="POST"
+                            )
+                            with _ur3.urlopen(_req3, timeout=30) as _r3:
+                                _res3 = _jj.loads(_r3.read())
+                            log.info(f"Scheduler: newsletter VPS push — {_res3.get('upserted',0)} upserted")
+                    except Exception as _npe:
+                        log.warning(f"Scheduler: newsletter VPS push failed: {_npe}")
+                threading.Thread(target=_push_newsletters_to_vps, daemon=True).start()
                 def _post_scrape_tasks():
                     try:
                         saved = run_agent()
