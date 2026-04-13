@@ -1765,11 +1765,10 @@ def ai_pick_web_search():
         f"2. {i1} macroeconomics finance central banking trade markets last 7 days "
         "Return articles from these four sources ONLY: "
         "The Economist, Financial Times, Foreign Affairs, Bloomberg. "
-        "Find 4-6 articles total. Exclude: podcasts, newsletters, live blogs, sport, lifestyle, quizzes. "
+        "Find 4-8 articles total. Exclude: podcasts, newsletters, live blogs, sport, lifestyle, quizzes. "
         "Score each 0-10 for relevance to analyst interests. "
         "9-10: essential (war, sanctions, energy crisis, central banking decisions, major diplomacy). "
         "7-8: highly relevant (markets, finance, politics, economic policy). "
-        "5-6: moderate. 0-4: lifestyle, culture, non-strategic science. "
         "Be STRICT with 9-10 \u2014 reserve for articles a senior analyst would consider unmissable. "
         "Respond ONLY with a compact JSON array, no prose, no markdown wrapper: "
         '[{"title":"...","url":"...","source":"Financial Times","score":8,"reason":"brief","pub_date":"8 April 2026"}]'
@@ -1792,7 +1791,7 @@ def ai_pick_web_search():
                 if not _is_trusted_url(url): continue
                 all_known_urls.add(url)
                 art_id = make_id(source or "The Economist", url)
-                if score >= 8:
+                if score >= 9:
                     feed_articles.append({
                         "id": art_id, "source": source, "url": url, "title": title,
                         "body": "", "summary": reason, "topic": "", "tags": "[]",
@@ -1833,16 +1832,18 @@ def _month_name(n):
 
 def scrape_suggested_articles():
     """Scrape FT/Economist via Playwright + Claude web_search for FA and others.
-    Runs at most once per calendar day to limit API costs."""
+    Runs at most twice per calendar day: morning slot (<10h) and midday slot (>=10h)."""
     import urllib.request, json as _json
 
-    # Once-per-day gate — check kt_meta for last run date
+    # Twice-daily gate — morning slot keyed ai_pick_last_run_morning, midday keyed ai_pick_last_run_midday
     today_str = datetime.now().strftime('%Y-%m-%d')
+    _hour = datetime.now().hour
+    _gate_key = 'ai_pick_last_run_morning' if _hour < 10 else 'ai_pick_last_run_midday'
     with sqlite3.connect(DB_PATH) as _gx:
         _gx.execute("CREATE TABLE IF NOT EXISTS kt_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
-        _last = _gx.execute("SELECT value FROM kt_meta WHERE key='ai_pick_last_run'").fetchone()
+        _last = _gx.execute("SELECT value FROM kt_meta WHERE key=?", (_gate_key,)).fetchone()
     if _last and _last[0] == today_str:
-        log.info(f"AI pick web search: already ran today ({today_str}) — skipping")
+        log.info(f"AI pick web search: already ran this slot ({_gate_key}, {today_str}) — skipping")
         return []
 
     # Get user interests
@@ -1869,7 +1870,7 @@ def scrape_suggested_articles():
 
     # Record that we ran today
     with sqlite3.connect(DB_PATH) as _rx:
-        _rx.execute("INSERT OR REPLACE INTO kt_meta (key, value) VALUES ('ai_pick_last_run', ?)", (today_str,))
+        _rx.execute("INSERT OR REPLACE INTO kt_meta (key, value) VALUES (?, ?)", (_gate_key, today_str))
 
     ft_results = []
     eco_results = []
@@ -2306,7 +2307,7 @@ def run_agent():
     with sqlite3.connect(DB_PATH) as cx:
         cx.row_factory = sqlite3.Row
         candidates = cx.execute(
-            "SELECT * FROM suggested_articles WHERE status='new' AND score >= 8"
+            "SELECT * FROM suggested_articles WHERE status='new' AND score >= 9"
         ).fetchall()
     saved = []
     for row in candidates:
@@ -2505,10 +2506,8 @@ def scheduler_loop(interval_hours):
                 _sp2.Popen(["python3", str(BASE_DIR / "newsletter_sync.py")])
                 def _suggested_and_agent():
                     try:
-                        # Suggested refresh DISABLED — high API cost
-                        # TODO: re-enable with once/daily + skip-already-scored logic
-                        log.info("Scheduler: suggested refresh skipped (disabled — see to-do)")
-                        arts = []
+                        arts = scrape_suggested_articles()
+                        save_suggested_snapshot(arts)
                         log.info(f"Scheduler: suggested refresh done — {len(arts)} articles")
                         saved = run_agent()
                         log.info(f"Scheduler: agent saved {len(saved)} articles")
