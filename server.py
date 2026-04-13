@@ -1706,12 +1706,12 @@ def ai_pick_web_search():
     def _is_trusted_url(url):
         return any(d in url for d in TRUSTED_DOMAINS)
 
-    def _run_agentic_search(prompt, max_attempts=3):
+    def _run_agentic_search(prompt, max_attempts=5):
         messages = [{"role": "user", "content": prompt}]
         for attempt in range(max_attempts):
             payload = _j.dumps({
                 "model": "claude-haiku-4-5-20251001",
-                "max_tokens": 5000,
+                "max_tokens": 2000,
                 "tools": [{"type": "web_search_20250305", "name": "web_search"}],
                 "messages": messages
             }).encode()
@@ -1734,8 +1734,14 @@ def ai_pick_web_search():
             if stop_reason == "end_turn":
                 return "".join(b.get("text","") for b in blocks if b.get("type")=="text")
             if stop_reason == "tool_use":
-                tool_results = [{"type": "tool_result", "tool_use_id": b["id"], "content": "Search completed."}
-                                for b in blocks if b.get("type") == "tool_use"]
+                # Pass actual search result content back so Claude can use it
+                tool_results = []
+                for b in blocks:
+                    if b.get("type") == "tool_use":
+                        result_content = b.get("content", "")
+                        if not result_content:
+                            result_content = "No results found for this search."
+                        tool_results.append({"type": "tool_result", "tool_use_id": b["id"], "content": result_content})
                 if tool_results:
                     messages.append({"role": "user", "content": tool_results})
             else:
@@ -1760,9 +1766,9 @@ def ai_pick_web_search():
     trusted_prompt = (
         "You are finding the most important recent articles for a senior intelligence analyst. "
         f"Their key interests: {interests}. "
-        "Do TWO searches for articles published in the LAST 7 DAYS: "
-        f"1. {i1} geopolitics war diplomacy sanctions energy markets last 7 days "
-        f"2. {i1} macroeconomics finance central banking trade markets last 7 days "
+        "Do TWO searches for articles published in the LAST 24 HOURS: "
+        f"1. {i1} geopolitics war diplomacy sanctions energy markets last 24 hours "
+        f"2. {i1} macroeconomics finance central banking trade markets last 24 hours "
         "Return articles from these four sources ONLY: "
         "The Economist, Financial Times, Foreign Affairs, Bloomberg. "
         "Find 4-8 articles total. Exclude: podcasts, newsletters, live blogs, sport, lifestyle, quizzes. "
@@ -1831,29 +1837,32 @@ def _month_name(n):
             "July","August","September","October","November","December"][n]
 
 def scrape_suggested_articles():
-    """Scrape FT/Economist via Playwright + Claude web_search for FA and others.
-    Runs at most twice per calendar day: morning slot (<10h) and midday slot (>=10h)."""
-    import urllib.request, json as _json
+    """Run ai_pick_web_search() once daily (morning sync), save Feed picks,
+    return Suggested picks for save_suggested_snapshot().
+    Gate: once per calendar day keyed as ai_pick_last_run_morning."""
 
-    # Twice-daily gate — morning slot keyed ai_pick_last_run_morning, midday keyed ai_pick_last_run_midday
+    # Once-daily gate
     today_str = datetime.now().strftime('%Y-%m-%d')
-    _hour = datetime.now().hour
-    _gate_key = 'ai_pick_last_run_morning' if _hour < 10 else 'ai_pick_last_run_midday'
+    _gate_key = 'ai_pick_last_run_morning'
     with sqlite3.connect(DB_PATH) as _gx:
         _gx.execute("CREATE TABLE IF NOT EXISTS kt_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
         _last = _gx.execute("SELECT value FROM kt_meta WHERE key=?", (_gate_key,)).fetchone()
     if _last and _last[0] == today_str:
-        log.info(f"AI pick web search: already ran this slot ({_gate_key}, {today_str}) — skipping")
+        log.info(f"AI pick: already ran today ({today_str}) — skipping")
         return []
 
-    # Get user interests
+    # Collect saved URLs to avoid re-suggesting existing articles
     with sqlite3.connect(DB_PATH) as cx:
-        rows = cx.execute("SELECT topic, tags FROM articles ORDER BY saved_at DESC LIMIT 100").fetchall()
         saved_urls = set(r[0] for r in cx.execute("SELECT url FROM articles WHERE url!=''").fetchall())
 
-    # Run unified AI pick web search (replaces Playwright scraping)
-    # Returns (feed_articles, suggested_articles)
-    _feed_picks, _suggested_picks = ai_pick_web_search()
+    # Run the AI web search — returns (feed_articles, suggested_articles)
+    try:
+        _feed_picks, _suggested_picks = ai_pick_web_search()
+    except Exception as e:
+        log.warning(f"AI pick: ai_pick_web_search failed: {e}")
+        return []
+
+    # Save Feed picks (score 9-10) directly to articles table
     if _feed_picks:
         with sqlite3.connect(DB_PATH) as _cx:
             for _fp in _feed_picks:
@@ -1866,269 +1875,16 @@ def scrape_suggested_articles():
                          _fp['summary'],_fp['topic'],_fp['tags'],_fp['saved_at'],
                          _fp['fetched_at'],_fp['status'],_fp['pub_date'],1)
                     )
-        log.info(f"Suggested: saved {len(_feed_picks)} AI picks -> Feed")
+        log.info(f"AI pick: saved {len(_feed_picks)} picks -> Feed")
 
-    # Record that we ran today
+    # Write gate — prevents re-run until tomorrow
     with sqlite3.connect(DB_PATH) as _rx:
         _rx.execute("INSERT OR REPLACE INTO kt_meta (key, value) VALUES (?, ?)", (_gate_key, today_str))
 
-    ft_results = []
-    eco_results = []
-    topic_counts = {}
-    for row in rows:
-        if row[0]: topic_counts[row[0]] = topic_counts.get(row[0],0) + 1
-        try:
-            for tag in _json.loads(row[1] or "[]"):
-                topic_counts[tag] = topic_counts.get(tag,0) + 1
-        except: pass
-    top_interests = sorted(topic_counts, key=lambda x: -topic_counts[x])[:15]
-    interests_str = ", ".join(top_interests) if top_interests else "geopolitics, economics, finance, markets"
-
-    # Seed suggested results from ai_pick_web_search (already run above)
-    _initial_suggested = [
-        {'title': a['title'], 'url': a['url'], 'source': a['source'],
-         'score': a.get('score', 6), 'reason': a.get('reason', ''),
-         'pub_date': a.get('pub_date', '')}
-        for a in _suggested_picks
-    ]
-
-    # Build negative signal from dismissed suggested articles
-    avoid_counts = {}
-    with sqlite3.connect(DB_PATH) as cx:
-        dismissed_rows = cx.execute(
-            "SELECT sa.title, a.topic, a.tags FROM suggested_articles sa "
-            "LEFT JOIN articles a ON sa.url = a.url "
-            "WHERE sa.status='dismissed'"
-        ).fetchall()
-    for title, topic, tags in dismissed_rows:
-        if topic: avoid_counts[topic] = avoid_counts.get(topic, 0) + 1
-        try:
-            for tag in _json.loads(tags or "[]"):
-                avoid_counts[tag] = avoid_counts.get(tag, 0) + 1
-        except: pass
-    # Also include agent feedback (deleted auto-saved articles) as negative signals
-    with sqlite3.connect(DB_PATH) as cx:
-        feedback_rows = cx.execute("SELECT topics, tags FROM agent_feedback").fetchall()
-    for fb_topics, fb_tags in feedback_rows:
-        for t in (fb_topics or "").split(","):
-            t = t.strip()
-            if t: avoid_counts[t] = avoid_counts.get(t, 0) + 2
-        try:
-            for tag in _json.loads(fb_tags or "[]"):
-                avoid_counts[tag] = avoid_counts.get(tag, 0) + 2
-        except: pass
-    top_avoid = sorted(avoid_counts, key=lambda x: -avoid_counts[x])[:10]
-    avoid_str = ", ".join(top_avoid) if top_avoid else ""
-    if avoid_str:
-        log.info(f"Suggested: negative signals — {avoid_str}")
-
-    api_key = load_creds().get("anthropic_api_key","")
-    if not api_key:
-        log.warning("Suggested: no API key")
-        return []
-
-    # Claude web search for FA + other quality sources (FT/Economist handled by Playwright above)
-    prompt = (
-        "You are a research assistant finding articles for a senior analyst. "
-        "Their interests: " + interests_str + ".\n\n"
-        "Do these searches IN ORDER:\n"
-        "1. Search: site:foreignaffairs.com last 7 days " + interests_str[:60] + "\n"
-        "2. Search: latest analysis " + interests_str[:60] + " last 7 days\n"
-        "3. Search: " + interests_str[:60] + " expert analysis last 7 days\n\n"
-        "Find 4-5 articles per search from these sources ONLY: "
-        "The Economist (economist.com), Financial Times (ft.com), Foreign Affairs (foreignaffairs.com). "
-        "Do NOT include articles from other sources. "
-        "You MUST attempt ALL THREE searches.\n\n"
-        "Scoring: 1-10 relevance to analyst interests. "
-        "Exclude: news briefs, quizzes, recipes, lifestyle, sport, obituaries." +
-        (" Analyst has explicitly dismissed articles about: " + avoid_str + " — score these topics lower." if avoid_str else "") +
-        "\n\n"
-        "Use the actual publication name for source field.\n\n"
-        "Respond with ONLY a JSON array sorted by score descending:\n"
-        '[{"title":"...","url":"...","source":"...","score":8,"reason":"one sentence why","pub_date":"26 March 2026 or empty string"}]'
-    )
-
-    req = None  # placeholder — request built in agentic loop below
-    try:
-        messages = [{"role": "user", "content": prompt}]
-        # Agentic loop — web_search requires multiple roundtrips
-        for attempt in range(6):
-            payload = _json.dumps({
-                "model": "claude-haiku-4-5-20251001",
-                "max_tokens": 2000,
-                "tools": [{"type": "web_search_20250305", "name": "web_search"}],
-                "messages": messages
-            }).encode()
-            req2 = urllib.request.Request(
-                "https://api.anthropic.com/v1/messages",
-                data=payload,
-                headers={"Content-Type":"application/json","x-api-key":api_key,"anthropic-version":"2023-06-01"},
-                method="POST"
-            )
-            log.info(f"Suggested: web search attempt {attempt+1}/6")
-            try:
-                with urllib.request.urlopen(req2, timeout=60) as r:
-                    data = _json.loads(r.read())
-            except Exception as _loop_e:
-                log.warning(f"Suggested: web search attempt {attempt+1} failed: {_loop_e}")
-                break
-            stop_reason = data.get("stop_reason","")
-            log.info(f"Suggested: attempt {attempt+1} stop_reason={stop_reason}")
-            content_blocks = data.get("content", [])
-            # Append assistant turn
-            messages.append({"role": "assistant", "content": content_blocks})
-            # If done, extract text
-            if stop_reason == "end_turn":
-                text = ""
-                for block in content_blocks:
-                    if block.get("type") == "text":
-                        text += block.get("text","")
-                text = text.strip()
-                if not text:
-                    log.warning("Suggested: empty final response")
-                    return []
-                # Extract JSON array even if surrounded by prose
-                json_match = re.search(r'\[[\s\S]*\]', text)
-                if not json_match:
-                    log.warning(f"Suggested: no JSON array in response: {text[:200]}")
-                    return []
-                results = json.loads(json_match.group(0))
-                results = [a for a in results if a.get("url","") not in saved_urls and a.get("title","")]
-                log.info(f"Suggested: Claude found {len(results)} articles via web search")
-                _seen_in_results = set(a.get('url','') for a in results)
-                for _ip in _initial_suggested:
-                    if _ip['url'] not in _seen_in_results and _ip['url'] not in saved_urls:
-                        results.append(_ip)
-                        _seen_in_results.add(_ip['url'])
-                log.info(f"Suggested: {len(results)} total after merging web search + AI picks")
-                # Score FT/Economist via Claude (same quality as web search results)
-                seen_urls = set(a['url'] for a in results)
-                playwright_arts = [a for a in ft_results + eco_results
-                                   if a['url'] not in saved_urls and a['url'] not in seen_urls]
-                for _pa in playwright_arts:
-                    if not _pa.get("pub_date"):
-                        _pa["pub_date"] = extract_pub_date_from_url(_pa["url"])
-                # Look up pub_dates for any still missing via Claude web search
-                needs_date = [a for a in playwright_arts if not a.get("pub_date")]
-                if needs_date:
-                    time.sleep(5)  # avoid 429 after main web search
-                    try:
-                        date_titles = json.dumps([{"title": a["title"], "source": a["source"]} for a in needs_date])
-                        date_prompt = ("For each of these articles, find the publication date. "
-                                      "Respond ONLY with a JSON array (same order): "
-                                      '[{"pub_date":"26 March 2026"}] '
-                                      "Use empty string if unknown. Articles: " + date_titles)
-                        date_msgs = [{"role": "user", "content": date_prompt}]
-                        for _da in range(4):
-                            date_data = call_anthropic({
-                                "model": "claude-haiku-4-5-20251001",
-                                "max_tokens": 500,
-                                "tools": [{"type": "web_search_20250305", "name": "web_search"}],
-                                "messages": date_msgs
-                            })
-                            date_msgs.append({"role": "assistant", "content": date_data.get("content", [])})
-                            if date_data.get("stop_reason") == "end_turn":
-                                date_text = "".join(b.get("text","") for b in date_data.get("content",[]) if b.get("type")=="text")
-                                date_match = re.search(r"\[[\s\S]*\]", date_text)
-                                if date_match:
-                                    dates = json.loads(date_match.group(0))
-                                    for i, a in enumerate(needs_date):
-                                        if i < len(dates):
-                                            a["pub_date"] = dates[i].get("pub_date", "")
-                                    log.info(f"Suggested: pub_dates fetched for {len(needs_date)} Playwright articles")
-                                break
-                            elif date_data.get("stop_reason") == "tool_use":
-                                tool_results = [{"type":"tool_result","tool_use_id":b["id"],"content":"Search completed."} for b in date_data.get("content",[]) if b.get("type")=="tool_use"]
-                                if tool_results:
-                                    date_msgs.append({"role":"user","content":tool_results})
-                    except Exception as de:
-                        log.warning(f"Suggested: pub_date lookup failed: {de}")
-                if playwright_arts:
-                    time.sleep(5)  # avoid 429 after pub_date lookup
-                    titles_str = json.dumps([{"title": a["title"], "source": a["source"]} for a in playwright_arts])
-                    score_prompt = ("You are scoring news articles for a senior analyst. Their interests: " + interests_str + ". Score each article 0-10 for relevance to these interests. Be strict - only score 6+ if genuinely relevant. Exclude: lifestyle, sport, celebrity, recipes, quizzes, obituaries." + (" The analyst has dismissed articles about: " + avoid_str + " — score these lower." if avoid_str else "") + " Articles to score: " + titles_str + " Respond ONLY with a JSON array (same order): [{\"score\":8,\"reason\":\"one sentence why relevant\"}]")
-                    try:
-                        score_data = call_anthropic({
-                            "model": "claude-haiku-4-5-20251001",
-                            "max_tokens": 1000,
-                            "messages": [{"role": "user", "content": score_prompt}]
-                        })
-                        score_text = "".join(b.get("text","") for b in score_data.get("content",[]) if b.get("type")=="text")
-                        json_match2 = re.search(r'\[[\s\S]*\]', score_text)
-                        if json_match2:
-                            scores = json.loads(json_match2.group(0))
-                            for i, art in enumerate(playwright_arts):
-                                if i < len(scores):
-                                    art["score"] = scores[i].get("score", 0)
-                                    art["reason"] = scores[i].get("reason", "From " + art["source"])
-                                else:
-                                    art["score"] = 0
-                            playwright_arts = [a for a in playwright_arts if a.get("score", 0) >= 6]
-                            log.info(f"Suggested: Claude scored {len(playwright_arts)} FT/Economist articles ≥6")
-                        else:
-                            log.warning("Suggested: could not parse Claude scores for Playwright articles")
-                            playwright_arts = []
-                    except Exception as se:
-                        log.warning(f"Suggested: Claude scoring of Playwright articles failed: {se}")
-                        playwright_arts = []
-                    for art in playwright_arts:
-                        seen_urls.add(art["url"])
-                        results.append(art)
-                results.sort(key=lambda x: -x.get('score', 0))
-                log.info(f"Suggested: {len(results)} total after merging Playwright + web search")
-                return results
-            # If tool_use, feed results back
-            if stop_reason == "tool_use":
-                tool_results = []
-                for block in content_blocks:
-                    if block.get("type") == "tool_use":
-                        tool_results.append({
-                            "type": "tool_result",
-                            "tool_use_id": block["id"],
-                            "content": "Search completed."
-                        })
-                if tool_results:
-                    messages.append({"role": "user", "content": tool_results})
-            else:
-                break
-        log.warning("Suggested: agentic loop exhausted without end_turn")
-        # Still score and return Playwright articles even if web search loop exhausted
-        playwright_arts = [a for a in ft_results + eco_results
-                           if a['url'] not in saved_urls]
-        for _pa in playwright_arts:
-            if not _pa.get("pub_date"):
-                _pa["pub_date"] = extract_pub_date_from_url(_pa["url"])
-        if playwright_arts:
-            try:
-                titles_str = json.dumps([{"title": a["title"], "source": a["source"]} for a in playwright_arts])
-                score_prompt = ("You are scoring news articles for a senior analyst. Their interests: " + interests_str +
-                    ". Score each article 0-10 for relevance. Be strict — only 6+ if genuinely relevant. " +
-                    (" Avoid topics: " + avoid_str + "." if avoid_str else "") +
-                    " Articles: " + titles_str +
-                    " Respond ONLY with a JSON array (same order): [{\"score\":8,\"reason\":\"one sentence\"}]")
-                score_data = call_anthropic({
-                    "model": "claude-haiku-4-5-20251001",
-                    "max_tokens": 1000,
-                    "messages": [{"role": "user", "content": score_prompt}]
-                })
-                score_text = "".join(b.get("text","") for b in score_data.get("content",[]) if b.get("type")=="text")
-                score_match = re.search(r'\[[\s\S]*\]', score_text)
-                if score_match:
-                    scores = json.loads(score_match.group(0))
-                    for i, a in enumerate(playwright_arts):
-                        if i < len(scores):
-                            a["score"] = scores[i].get("score", 0)
-                            a["reason"] = scores[i].get("reason", "From " + a["source"])
-                    playwright_arts = [a for a in playwright_arts if a.get("score", 0) >= 6]
-                    log.info(f"Suggested: fallback scored {len(playwright_arts)} Playwright articles")
-            except Exception as _se:
-                log.warning(f"Suggested: fallback scoring failed: {_se}")
-                playwright_arts = []
-        return playwright_arts
-    except Exception as e:
-        log.warning(f"Suggested: Claude web search failed: {e}")
-        return []
-
+    # Return Suggested picks (score 6-8) for save_suggested_snapshot()
+    results = [a for a in _suggested_picks if a.get("url","") not in saved_urls and a.get("title","")]
+    log.info(f"AI pick: {len(results)} articles -> Suggested")
+    return results
 
 def normalise_url(url):
     """Strip query parameters and fragments for dedup purposes."""
