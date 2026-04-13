@@ -1902,19 +1902,33 @@ with open(out_path, 'w') as f:
         {"title": a["title"], "url": a["url"], "source": a["source"]}
         for a in candidates
     ])
+    # Load followed topics and taste titles from kt_meta
+    with sqlite3.connect(DB_PATH) as _pcx:
+        _ft_row = _pcx.execute("SELECT value FROM kt_meta WHERE key='ai_pick_followed_topics'").fetchone()
+        _tt_row = _pcx.execute("SELECT value FROM kt_meta WHERE key='ai_pick_taste_titles'").fetchone()
+    _followed_topics = _j.loads(_ft_row[0]) if _ft_row else []
+    _taste_titles = _j.loads(_tt_row[0]) if _tt_row else []
+    _topics_str = ", ".join(_followed_topics) if _followed_topics else _interests
+    _taste_str = "\n".join(f"- {t}" for t in _taste_titles[:50])
+
     _prompt = (
-        "You are scoring news articles for a senior intelligence analyst. "
-        "Their key interests: " + _interests + ". "
-        "Score each article 0-10 for relevance to those interests. "
-        "9-10: essential — war, sanctions, central banking decisions, major diplomacy, energy crisis. "
-        "7-8: highly relevant — markets, economic policy, geopolitics, finance. "
-        "6: relevant but not urgent. "
-        "0-5: not relevant — lifestyle, sport, culture, science unrelated to interests. "
-        "Be STRICT with 9-10 — only articles a senior analyst would consider unmissable today. "
-        "Sources are all high quality — score purely on topic relevance to the analyst's interests. "
-        "Respond ONLY with a JSON array in the same order as input, no prose, no markdown: "
-        '[{"score":9,"reason":"one sentence"}]'
-        "\n\nArticles to score:\n" + _articles_list
+        "You are scoring news articles for a senior intelligence analyst.\n"
+        "FOLLOWED TOPICS: " + _topics_str + ".\n\n"
+        + ("RECENT SAVES (articles they chose to read — use to calibrate taste):\n"
+           + _taste_str + "\n\n" if _taste_str else "")
+        + "Score each candidate article 0-10:\n"
+        "9-10: CONCRETE BREAKING DEVELOPMENT — war starts/ends, sanctions, central bank decision, "
+        "major diplomatic event, energy crisis, market shock. Not reading it today = missed a real event.\n"
+        "7-8: High-quality analysis — market moves, geopolitical analysis, economic policy, "
+        "AI with real-world impact (new models, defence/finance deployment, regulation).\n"
+        "6: Relevant and interesting — essays, AI and society, analysis on followed topics.\n"
+        "0-5: Not relevant — lifestyle, sport, celebrity, health, local politics, "
+        "company earnings unrelated to macro.\n"
+        "CRITICAL: 9-10 = concrete event. A thoughtful essay = 6-7. "
+        "Calibrate against the recent saves above — match that taste level.\n"
+        "Respond ONLY with a JSON array in the same order as input, no prose, no markdown:\n"
+        '[{"score":7,"reason":"one sentence"}]'
+        "\n\nCandidate articles:\n" + _articles_list
     )
 
     log.info(f"AI pick: calling Sonnet to score {len(candidates)} candidates...")
@@ -2003,6 +2017,17 @@ with open(out_path, 'w') as f:
                          _fp["fetched_at"], _fp["status"], _fp["pub_date"], 1)
                     )
         log.info(f"AI pick: saved {len(feed_articles)} -> Feed")
+        # Prepend new Feed titles to taste_titles, keep last 100
+        try:
+            with sqlite3.connect(DB_PATH) as _ucx:
+                _tt2 = _ucx.execute("SELECT value FROM kt_meta WHERE key='ai_pick_taste_titles'").fetchone()
+                _cur_tt = _j.loads(_tt2[0]) if _tt2 else []
+                _new_tt = ([a["title"] for a in feed_articles if a.get("title")] + _cur_tt)[:100]
+                _ucx.execute("INSERT OR REPLACE INTO kt_meta (key, value) VALUES (?, ?)",
+                    ("ai_pick_taste_titles", _j.dumps(_new_tt)))
+            log.info(f"AI pick: taste_titles updated ({len(_new_tt)} titles)")
+        except Exception as _ue:
+            log.warning(f"AI pick: taste_titles update failed: {_ue}")
 
     # ── Save Suggested picks ──────────────────────────────────────────────────
     if suggested_out:
