@@ -1,5 +1,5 @@
 # Meridian — Technical Notes
-Last updated: 12 April 2026 (Session 49 — scraper rewrite, pub_date fixes)
+Last updated: 13 April 2026 (Session 50 — AI pick redesign, newsletter timing fixes)
 
 ## Overview
 Personal news aggregator. Flask API + SQLite backend on Hetzner VPS (always-on).
@@ -32,14 +32,15 @@ Frontend at https://meridianreader.com/meridian.html
 
 ---
 
-## Database (12 April 2026 — end of session)
+## Database (13 April 2026 — end of session)
 | Source | Mac | VPS |
 |---|---|---|
-| FT | ~220 | ~220 |
+| FT | ~229 | ~229 |
 | Economist | ~327 | ~327 |
-| FA | ~149 | ~149 |
-| Bloomberg | ~39 | ~39 |
-| **Total** | **~781** | **~781** |
+| FA | ~139 | ~139 |
+| Bloomberg | ~38 | ~38 |
+| Other | ~18 | ~18 |
+| **Total** | **~751** | **~751** |
 
 API balance: ~$9 — ~28 days runway at ~$0.32/day
 
@@ -109,26 +110,71 @@ return 0 content. Solution: real Chrome with off-screen window.
 - Bloomberg excluded (manual-only)
 - Health check: collapsed by default, "Run health check" button, manual-only (~$0.003/call)
 - CRITICAL: use async IIFE for `await` calls in stats panel JS — never bare await
+- FIXED (Session 50): Last Scraped now correctly shows "Today" not "Yesterday" for d=0
+  - gL() function: d===0->'Today', d===1->'Yesterday', d+'d ago' otherwise
 
 ---
+
+## Newsletter Sync
+- newsletter_sync.py polls iCloud IMAP for Bloomberg newsletters (Points of Return etc.)
+- Stores in `newsletters` table (separate from `articles` table)
+- UI reads from `/newsletters` endpoint on VPS — SERVER = meridianreader.com
+- wake_and_sync.sh pushes newsletters Mac→VPS after each sync
+- TIMING GAP: Bloomberg delivers 06:00-06:30 Geneva, morning sync runs 05:40
+  → newsletter_sync added at 04:30 UTC (06:30 Geneva) — added Session 50
+  → but push to VPS only happens at next full sync (11:50 Geneva)
+  → TODO: add standalone newsletter push after the 06:30 sync
 
 ## Sync Architecture
 - wake_and_sync.sh: scrape → enrich → push to VPS
 - Sync windows (Geneva): 05:40 and 11:40
-- push upserts all 738 articles each time
+- push upserts all articles + newsletters + images + interviews each time
+
+---
+
+## AI Pick Architecture — REDESIGNED Session 50 (PARTIALLY APPLIED)
+
+### Design (agreed Session 50)
+- Sources: core 4 only (FT, Economist, Foreign Affairs, Bloomberg)
+- Feed threshold: score 9-10 only (was 8+) — "unmissable" articles only
+- Suggested threshold: score 6-8
+- Frequency: twice daily (morning 05:50 + midday 11:50 Geneva)
+- Gate: per-slot (morning/midday) keyed as `ai_pick_last_run_morning` / `ai_pick_last_run_midday`
+
+### ⚠️ INCOMPLETE — Must finish at start of Session 51
+The patch script had an early-exit bug (SELECTIVE line unicode mismatch caused exit
+before write). Only the SELECTIVE prompt line was saved. The following changes are
+still pending in server.py:
+
+1. `score >= 8` → `score >= 9` in `ai_pick_web_search()` (line ~1795, Feed threshold)
+2. `score >= 8` → `score >= 9` in `run_agent()` (line ~2309)
+3. Twice-daily gate replacing once-per-day gate in `scrape_suggested_articles()`
+4. Gate write key: `'ai_pick_last_run'` → `_gate_key` (slot-keyed)
+5. Scheduler re-enabled: replace DISABLED block with `scrape_suggested_articles()` call
+6. Prompt: "Find 4-6" → "Find 4-8", "5-6: moderate" line removed, strict 9-10 language
+   (SELECTIVE line already patched ✓)
+
+See Session 51 starter prompt below.
+
+### Current state (before Session 51 fix)
+- `scrape_suggested_articles()` disabled in scheduler (commented out, high API cost note)
+- `ai_pick_last_run` gate key broken (never written correctly)
+- 21 AI-picked articles in Feed (17 Economist, 3 FA, 1 FT), all auto_saved=1
+- 96 articles in Suggested (61 saved, 35 new, 5 dismissed), last batch 2026-04-07
 
 ---
 
 ## API Cost Profile (~$0.32/day)
 - enrich_article_with_ai → Haiku
 - health check → Haiku, ~$0.003/call, manual-only
-- scrape_suggested → Haiku + web_search, morning only (gated)
+- scrape_suggested → Haiku + web_search, twice daily once re-enabled
 
 ---
 
 ## Outstanding Issues / Next Sessions
 
-### 🔴 Tomorrow
+### 🔴 Session 51 — do first
+0. Re-apply AI pick patches (see starter prompt below)
 1. FA 11 pending — delete paywall-truncated stubs from VPS
 2. FA pub_dates — check if FA also has URL vs page date discrepancy
 3. FT pub_dates — check if FT also has URL vs page date discrepancy
@@ -138,13 +184,24 @@ return 0 content. Solution: real Chrome with off-screen window.
 5. Economist CDP session — will expire, run eco_login_setup.py to renew
 
 ### 🟡 Planned Features
-6. Daily briefing backend — briefings table, Sonnet, morning sync
-7. Daily briefing UI — Read/Scan/Listen
-8. Chat Q&A — keyword retrieval, Haiku
+6. Newsletter push after 06:30 sync (close the VPS timing gap)
+7. Daily briefing backend — briefings table, Sonnet, morning sync
+8. Daily briefing UI — Read/Scan/Listen
+9. Chat Q&A — keyword retrieval, Haiku
 
 ---
 
 ## Build History
+
+### 13 April 2026 (Session 50)
+- Investigated AI pick function end-to-end
+- Agreed redesign: core 4 sources only, 9-10→Feed, 6-8→Suggested, twice daily
+- Patch partially applied (SELECTIVE line only saved due to early-exit bug)
+- Fixed "Last Scraped: Yesterday" bug → now shows "Today" correctly
+- Added newsletter-only scheduler at 04:30 UTC (06:30 Geneva)
+- Investigated newsletter timing gap — Bloomberg delivers after morning push
+- Manually pushed today's Points of Return to VPS
+- Clarified VPS/Mac architecture: VPS exists solely for travel/mobile access
 
 ### 12 April 2026 (Session 49)
 - FT, Economist, FA scrapers completely rewritten
@@ -182,6 +239,7 @@ window.shell = (cmd) => fetch('http://localhost:4242/api/dev/shell', {
 - NEVER use f-strings with complex interpolation in subprocess scripts
 - NEVER use URL date for Economist pub_date — always use page/bookmarks date
 - eco_fetch_sub timeout must be ≥ (num_articles × 12s)
+- NEVER let patch scripts exit early before writing — always write on success, check all patches first
 
 ### Session startup
 1. Load MCPs: tabs_context_mcp, javascript_tool, filesystem write_file

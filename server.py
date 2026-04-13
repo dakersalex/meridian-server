@@ -1770,7 +1770,7 @@ def ai_pick_web_search():
         "9-10: essential (war, sanctions, energy crisis, central banking decisions, major diplomacy). "
         "7-8: highly relevant (markets, finance, politics, economic policy). "
         "5-6: moderate. 0-4: lifestyle, culture, non-strategic science. "
-        "Be SELECTIVE \u2014 most articles should score 5-7. "
+        "Be STRICT with 9-10 \u2014 reserve for articles a senior analyst would consider unmissable. "
         "Respond ONLY with a compact JSON array, no prose, no markdown wrapper: "
         '[{"title":"...","url":"...","source":"Financial Times","score":8,"reason":"brief","pub_date":"8 April 2026"}]'
     )
