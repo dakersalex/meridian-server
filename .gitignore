@@ -48,3 +48,5 @@ eco_login_setup.py
 tmp_run_verify.sh
 tmp_eco_*.png
 tmp_eco_*.py
+eco_playwright_profile/
+eco_feed_profile/
