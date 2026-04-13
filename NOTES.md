@@ -1,5 +1,5 @@
 # Meridian — Technical Notes
-Last updated: 13 April 2026 (Session 51 — AI pick redesign fully applied)
+Last updated: 13 April 2026 (Session 51 — AI pick redesign, scheduler cleanup)
 
 ## Overview
 Personal news aggregator. Flask API + SQLite backend on Hetzner VPS (always-on).
@@ -111,7 +111,6 @@ return 0 content. Solution: real Chrome with off-screen window.
 - Health check: collapsed by default, "Run health check" button, manual-only (~$0.003/call)
 - CRITICAL: use async IIFE for `await` calls in stats panel JS — never bare await
 - FIXED (Session 50): Last Scraped now correctly shows "Today" not "Yesterday" for d=0
-  - gL() function: d===0->'Today', d===1->'Yesterday', d+'d ago' otherwise
 
 ---
 
@@ -121,126 +120,135 @@ return 0 content. Solution: real Chrome with off-screen window.
 - UI reads from `/newsletters` endpoint on VPS — SERVER = meridianreader.com
 - wake_and_sync.sh pushes newsletters Mac→VPS after each sync
 - TIMING GAP: Bloomberg delivers 06:00-06:30 Geneva, morning sync runs 05:40
-  → newsletter_sync added at 04:30 UTC (06:30 Geneva) — added Session 50
-  → but push to VPS only happens at next full sync (11:50 Geneva)
+  → newsletter_sync at 04:30 UTC (06:30 Geneva) in Flask scheduler
   → TODO: add standalone newsletter push after the 06:30 sync
-
-## Sync Architecture
-- wake_and_sync.sh: scrape → enrich → push to VPS
-- Sync windows (Geneva): 05:40 and 11:40
-- push upserts all articles + newsletters + images + interviews each time
 
 ---
 
-## AI Pick Architecture — FULLY DEPLOYED (Session 51)
+## Sync Architecture
 
-### How it works
-AI picks run automatically twice per day inside the scheduler, triggered at the
-morning sync (~05:50 Geneva) and midday sync (~11:50 Geneva). The entry point is
-`scrape_suggested_articles()`, which calls `ai_pick_web_search()` internally.
+### Scraping — owned exclusively by launchd
+- **05:40 Geneva** — launchd triggers wake_and_sync.sh → FT + Economist + FA scrape
+- **11:40 Geneva** — launchd triggers wake_and_sync.sh → FT + Economist + FA scrape
+- wake_and_sync.sh: scrape → enrich → push to VPS
+- CRITICAL: Flask scheduler no longer triggers scrapers — launchd is sole authority
+  This was fixed Session 51d to eliminate double Playwright sessions on same profiles
+  (was causing potential bot detection risk)
 
-**Step 1 — Gate check (scrape_suggested_articles)**
-Before doing anything, checks the current hour to determine the slot:
-- Hour < 10 → slot key `ai_pick_last_run_morning`
-- Hour >= 10 → slot key `ai_pick_last_run_midday`
-Reads `kt_meta` for that key. If already set to today's date, skips entirely.
-This ensures each slot fires at most once per calendar day regardless of how
-many times the scheduler loop ticks.
+### Flask scheduler — post-scrape tasks only
+- **06:30 Geneva (04:30 UTC)** — newsletter sync + run_agent + auto_dismiss + kt/tag-new + enrich_image_insights
+- No scrape triggers in Flask scheduler
 
-**Step 2 — AI web search (ai_pick_web_search)**
-Uses the Anthropic API (Haiku + web_search tool) to do two targeted searches
-covering the last 7 days:
-1. Geopolitics / war / diplomacy / sanctions / energy
-2. Macroeconomics / finance / central banking / trade
+### Profile usage windows (avoid running AI pick during these)
+- ft_profile/: ~05:40–06:10, ~11:40–12:10
+- eco_chrome_profile/: ~05:40–06:10, ~11:40–12:10
+- fa_profile/: ~05:40–06:10, ~11:40–12:10
 
-The trusted_prompt instructs the model to:
-- Search only The Economist, FT, Foreign Affairs, Bloomberg
-- Find 4-8 articles total
-- Score each 0-10 for relevance to the user's inferred interests
-- Exclude podcasts, newsletters, live blogs, sport, lifestyle, quizzes
-- Be strict with 9-10 — reserve for articles a senior analyst would call unmissable
+---
 
-The selective_prompt runs a second pass for non-core/broader sources with
-stricter criteria (score 9-10 only).
+## AI Pick Architecture — BEING REDESIGNED (Session 51)
 
-**Step 3 — Routing by score**
-- Score 9-10 → `feed_articles` → saved directly to `articles` table with
-  `auto_saved=1`, appear immediately in the main Feed
-- Score 6-8 → `suggested_articles` table, appear in the Suggested panel for
-  manual review
-- Score < 6 → discarded
+### Decision: feed-scraping + Sonnet scoring
+After extensive iteration (web search tool, pure recall), agreed approach:
 
-**Step 4 — run_agent()**
-Also runs in the scheduler after `scrape_suggested_articles()`. Queries
-`suggested_articles WHERE status='new' AND score >= 9` and promotes any
-matching rows to the main Feed (articles table, auto_saved=1). This handles
-articles that were previously scored and sat in Suggested but now meet the
-raised threshold.
+1. **Sources:**
+   - FT: `ft.com/myft/following/197493b5-7e8e-4f13-8463-3c046200835c/time` (personalised feed, auth required)
+   - Economist: `economist.com/for-you/topics` (personalised topics feed, auth required, needs Load More click)
+   - Foreign Affairs: `foreignaffairs.com/most-read` (public, no auth)
+2. **Method:** Playwright with existing profiles (ft_profile/, eco_chrome_profile/) — same auth sessions already in use
+3. **Scoring:** Single Sonnet call — pass unsaved article titles/URLs, score 0-10 against interests, return JSON
+4. **Routing:** score ≥9 → Feed (auto_saved=1), score 6-8 → Suggested
+5. **Cost:** ~$0.007/run (Sonnet, ~2200 input + 500 output tokens) — negligible
 
-**Step 5 — Gate write**
-After a successful run, writes today's date to the slot key in `kt_meta`,
-preventing re-runs until the next slot.
+### Timing (agreed Session 51)
+Reading windows: 06:00-10:00, 12:00-14:00, 18:30-19:30 Geneva
+Safe AI pick slots (no profile conflicts with scrapers):
+- **07:30 Geneva** — after morning scrape window, catches today's first FT/Economist articles
+- **12:30 Geneva** — after lunch scrape window
+- **17:30 Geneva** — before evening commute
 
-### Thresholds summary
-| Score | Destination |
-|---|---|
-| 9-10 | Feed (auto_saved=1) — unmissable only |
-| 6-8 | Suggested panel — review queue |
-| 0-5 | Discarded |
+### ⚠️ NOT YET BUILT — Next session
+- Need new `ai_pick_feed_scrape()` function replacing `ai_pick_web_search()`
+- Need new launchd plist entries for 07:30, 12:30, 17:30
+- `scrape_suggested_articles()` to be hollowed out / replaced
+- Gate key: single `ai_pick_last_run` per slot (morning/lunch/evening)
 
-### Schedule
-| Slot | Geneva time | Gate key |
-|---|---|---|
-| Morning | ~05:50 | `ai_pick_last_run_morning` |
-| Midday | ~11:50 | `ai_pick_last_run_midday` |
-
-### Cost
-Haiku + web_search tool. Estimated ~$0.10-0.15 per run, ~$0.20-0.30/day total
-for both slots. Fits within the ~$0.32/day budget alongside enrichment.
-
-### State as of Session 51
-- 21 AI-picked articles in Feed (auto_saved=1)
-- 101 articles in Suggested table
-- Both gate keys null — will fire fresh at next sync
+### Why not web search tool
+- Anthropic web search tool doesn't reliably index paywalled FT/Economist articles
+- Only Bloomberg (not paywalled) returned consistently
+- Pure Claude recall gave 2025 articles with hallucinated URLs
+- Feed scraping gives real, personalised, authenticated, live articles
 
 ---
 
 ## API Cost Profile (~$0.32/day)
-- enrich_article_with_ai → Haiku
+- enrich_article_with_ai → Haiku (~$0.001/article, dominant cost)
 - health check → Haiku, ~$0.003/call, manual-only
-- scrape_suggested → Haiku + web_search, twice daily (~$0.20-0.30/day)
+- AI pick → Sonnet, ~$0.007/run × 3 runs/day = ~$0.02/day (once built)
+- KT theme generation → Sonnet, infrequent
 
 ---
 
 ## Outstanding Issues / Next Sessions
 
-### 🔴 Priority
-1. FA 11 pending — delete paywall-truncated stubs from VPS
-2. FA pub_dates — check if FA also has URL vs page date discrepancy
-3. FT pub_dates — check if FT also has URL vs page date discrepancy
-4. FA cookie renewal — expires 2026-05-23
+### 🔴 Build next session
+1. Build `ai_pick_feed_scrape()` — Playwright reads FT/Economist/FA feeds, Sonnet scores
+2. Add launchd slots at 07:30, 12:30, 17:30 Geneva for AI pick
+3. Remove/hollow out `scrape_suggested_articles()` and `ai_pick_web_search()`
+
+### 🔴 Priority fixes
+4. FA 11 pending — delete paywall-truncated stubs from VPS
+5. FA pub_dates — check if FA also has URL vs page date discrepancy
+6. FT pub_dates — check if FT also has URL vs page date discrepancy
+7. FA cookie renewal — expires 2026-05-23
 
 ### 🔴 Monitor
-5. Economist CDP session — will expire, run eco_login_setup.py to renew
+8. Economist CDP session — will expire, run eco_login_setup.py to renew
 
 ### 🟡 Planned Features
-6. Newsletter push after 06:30 sync (close the VPS timing gap)
-7. Daily briefing backend — briefings table, Sonnet, morning sync
-8. Daily briefing UI — Read/Scan/Listen
-9. Chat Q&A — keyword retrieval, Haiku
+9. Newsletter push after 06:30 sync (close the VPS timing gap)
+10. Daily briefing backend — briefings table, Sonnet, morning sync
+11. Daily briefing UI — Read/Scan/Listen
+12. Chat Q&A — keyword retrieval, Haiku
 
 ---
 
 ## Build History
 
-### 13 April 2026 (Session 51)
-- Applied all pending AI pick patches from Session 50 (patch script had early-exit bug)
+### 13 April 2026 (Session 51 — multiple sub-sessions)
+
+**51a — AI pick patches (from Session 50 backlog)**
 - score >= 8 → score >= 9 in ai_pick_web_search() and run_agent()
 - Once-daily gate → twice-daily (morning/midday) with slot-keyed kt_meta keys
 - Gate write fixed: hardcoded 'ai_pick_last_run' → _gate_key variable
-- Scheduler re-enabled: DISABLED comment block replaced with live scrape_suggested_articles() + save_suggested_snapshot()
-- Prompt: "Find 4-6" → "Find 4-8", "5-6: moderate" scoring line removed
-- ast.parse() clean, deployed to VPS, Mac Flask restarted
+- Scheduler re-enabled: DISABLED block → live scrape_suggested_articles() + save_suggested_snapshot()
+- Prompt: "Find 4-6" → "Find 4-8", "5-6: moderate" line removed
+
+**51b — AI pick cost reduction**
+- Fixed agentic loop bug: was sending stub "Search completed." — Claude never got real data
+- Search window: LAST 7 DAYS → LAST 24 HOURS
+- Gate simplified to once-daily
+- scrape_suggested_articles() rewritten — 300 lines → 45 lines, all dead code removed
+  (Playwright scoring loop, external sources call, date-lookup loop all gone)
+
+**51c — AI pick rewrite: pure Claude recall (then abandoned)**
+- Replaced ai_pick_web_search() with no-tool Haiku recall call
+- Removed: _run_agentic_search, extract_pub_date_from_url, _month_name (all dead)
+- Abandoned: Haiku recalled 2025 articles with hallucinated URLs — training cutoff issue
+- Decided: need real web search or feed scraping
+
+**51b/c — Backfill attempt: Apr 8-13**
+- Wrote standalone backfill script using Anthropic web search tool
+- Diagnosed: web search tool works server-side (server_tool_use blocks, single end_turn)
+- FT/Economist not well-indexed (paywalled) — only Bloomberg articles came back reliably
+- Saved 5 real Bloomberg AI picks: 3× Apr 8, 1× Apr 10, 1× Apr 13
+
+**51d — Remove redundant Flask scrape triggers**
+- SCHEDULER_TIMES_UTC (03:50, 09:50 UTC) removed from Flask scheduler
+- Background: Flask scheduler was originally built for VPS; launchd for Mac
+  Now both ran on Mac → double Playwright session on same profiles (bot detection risk)
+- launchd is now sole scrape authority (05:40, 11:40 Geneva)
+- Flask scheduler: newsletter sync + post-scrape tasks only (06:30 Geneva)
 
 ### 13 April 2026 (Session 50)
 - Investigated AI pick function end-to-end
@@ -250,7 +258,6 @@ for both slots. Fits within the ~$0.32/day budget alongside enrichment.
 - Added newsletter-only scheduler at 04:30 UTC (06:30 Geneva)
 - Investigated newsletter timing gap — Bloomberg delivers after morning push
 - Manually pushed today's Points of Return to VPS
-- Clarified VPS/Mac architecture: VPS exists solely for travel/mobile access
 
 ### 12 April 2026 (Session 49)
 - FT, Economist, FA scrapers completely rewritten
@@ -282,13 +289,15 @@ window.shell = (cmd) => fetch('http://localhost:4242/api/dev/shell', {
 ### Key patterns
 - Write patch scripts via filesystem:write_file → execute via window.shell()
 - Always exact text str.replace() — never line-number patches
-- Shell bridge filters "api","fetch" etc — write to tmp_*.txt
+- For large blocks use positional replacement (str.find + slice) — avoids escaping
+- Write new function bodies to separate .txt files to avoid escaping in patch scripts
+- Shell bridge filters "api","fetch" etc — write to tmp_*.txt, read via filesystem MCP
 - NEVER use bare `await` in non-async JS context — wrap in async IIFE
 - NEVER use --headless=new for Economist — use off-screen window
 - NEVER use f-strings with complex interpolation in subprocess scripts
 - NEVER use URL date for Economist pub_date — always use page/bookmarks date
 - eco_fetch_sub timeout must be ≥ (num_articles × 12s)
-- NEVER let patch scripts exit early before writing — always write on success, check all patches first
+- NEVER let patch scripts exit early before writing — assert all patches first, write once at end
 
 ### Session startup
 1. Load MCPs: tabs_context_mcp, javascript_tool, filesystem write_file
