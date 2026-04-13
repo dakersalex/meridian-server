@@ -1694,9 +1694,9 @@ def ai_pick_feed_scrape():
     score >=9  -> Feed (auto_saved=1)
     score 6-8  -> Suggested inbox
 
-    Both FT and Economist use subprocess + off-screen real Chrome to bypass
-    Cloudflare without spawning visible windows in the Flask process.
-    FA: plain HTTP fetch (public page).
+    FT: uses _feedTimelineTeasers JS variable — gives title, URL, publishedDate, standfirst
+    Economist: subprocess off-screen Chrome (feed pages blocked, skip for now)
+    FA: plain HTTP fetch (public page)
     Gate: twice daily keyed as ai_pick_last_run_morning / ai_pick_last_run_midday.
     """
     import json as _j
@@ -1737,78 +1737,57 @@ def ai_pick_feed_scrape():
 
     candidates = []
 
-    def _run_feed_subprocess(profile_dir, feed_url, source_name, extra_filter=""):
-        """Run a feed scrape in a subprocess with off-screen real Chrome.
-        Returns list of {title, url, source} dicts."""
-        _script = _tf.NamedTemporaryFile(mode='w', suffix='.py', delete=False, dir='/tmp')
-        _out = _tf.NamedTemporaryFile(mode='w', suffix='.json', delete=False, dir='/tmp')
-        _script_path = _script.name
-        _out_path = _out.name
-        _script.write(f"""
+    # ── 1. FT personalised feed — extract _feedTimelineTeasers JS variable ────
+    FT_FEED = "https://www.ft.com/myft/following/197493b5-7e8e-4f13-8463-3c046200835c/time"
+    try:
+        _ft_script = _tf.NamedTemporaryFile(mode='w', suffix='.py', delete=False, dir='/tmp')
+        _ft_out = _tf.NamedTemporaryFile(mode='w', suffix='.json', delete=False, dir='/tmp')
+        _ft_script_path = _ft_script.name
+        _ft_out_path = _ft_out.name
+        _ft_script.write(f"""
 import json, os, sys
 from playwright.sync_api import sync_playwright
 
 profile = sys.argv[1]
-url = sys.argv[2]
-out_path = sys.argv[3]
+out_path = sys.argv[2]
 
 lock = os.path.join(profile, 'SingletonLock')
-if os.path.exists(lock):
-    os.remove(lock)
+if os.path.exists(lock): os.remove(lock)
 
 with sync_playwright() as pw:
     browser = pw.chromium.launch_persistent_context(
-        profile,
-        headless=False,
+        profile, headless=False,
         args=["--no-sandbox", "--window-position=-3000,-3000", "--window-size=1280,900"]
     )
     page = browser.new_page()
-    page.goto(url, wait_until="domcontentloaded", timeout=30000)
+    page.goto("{FT_FEED}", wait_until="domcontentloaded", timeout=30000)
     page.wait_for_timeout(3000)
-    # Click Load More if present (Economist)
-    try:
-        btn = page.query_selector('button:has-text("Load more")')
-        if btn:
-            btn.scroll_into_view_if_needed()
-            btn.click()
-            page.wait_for_timeout(2000)
-    except: pass
-    links = page.evaluate('''() => {{
+
+    articles = page.evaluate('''() => {{
+        // Use _feedTimelineTeasers JS variable — contains full article data with dates
+        if (window._feedTimelineTeasers && window._feedTimelineTeasers.length > 0) {{
+            return window._feedTimelineTeasers
+                .filter(a => a.type === 'article' && a.url && a.title)
+                .map(a => ({{
+                    title: a.title,
+                    url: a.url.split('?')[0],
+                    source: 'Financial Times',
+                    pub_date: a.publishedDate ? a.publishedDate.substring(0, 10) : '',
+                    standfirst: a.standfirst || '',
+                    is_opinion: a.indicators ? a.indicators.isOpinion : false,
+                    is_podcast: a.indicators ? a.indicators.isPodcast : false,
+                    already_saved: false
+                }}));
+        }}
+        // Fallback: DOM scrape without dates
         const results = [];
         const seen = new Set();
-        document.querySelectorAll('a').forEach(a => {{
-            const href = a.href || '';
-            const text = a.innerText.trim();
-            const url = href.split('?')[0];
-            if (
-                text.length > 15 &&
-                url.length > 20 &&
-                !seen.has(url) &&
-                !url.includes('adverti') &&
-                !url.includes('help.') &&
-                !url.includes('aboutus.') &&
-                !url.includes('/myft') &&
-                !url.includes('/for-you') &&
-                !url.includes('/topics') &&
-                !url.includes('/sections') &&
-                !url.includes('/about') &&
-                !url.includes('/newsletters') &&
-                !url.includes('/#')
-            ) {{
-                // Check if already saved/bookmarked
-                let el = a;
-                let saved = false;
-                for (let i = 0; i < 6; i++) {{
-                    if (!el.parentElement) break;
-                    el = el.parentElement;
-                    if (
-                        el.querySelector('[aria-label*="Saved"]') ||
-                        el.querySelector('[data-trackable*="save"][aria-pressed="true"]') ||
-                        el.querySelector('[aria-label*="Remove bookmark"]')
-                    ) {{ saved = true; break; }}
-                }}
+        document.querySelectorAll('a[href*="/content/"]').forEach(a => {{
+            const url = a.href.split('?')[0];
+            const title = a.innerText.trim();
+            if (title.length > 15 && url.includes('ft.com/content/') && !seen.has(url)) {{
                 seen.add(url);
-                results.push({{title: text, url, saved}});
+                results.push({{title, url, source: 'Financial Times', pub_date: '', standfirst: '', is_opinion: false, is_podcast: false, already_saved: false}});
             }}
         }});
         return results;
@@ -1816,60 +1795,34 @@ with sync_playwright() as pw:
     browser.close()
 
 with open(out_path, 'w') as f:
-    json.dump(links, f)
+    json.dump(articles, f)
 """)
-        _script.close()
-        _out.close()
-        try:
-            _proc = _sp.run(
-                ["python3", _script_path, str(profile_dir), feed_url, _out_path],
-                timeout=90, capture_output=True
-            )
-            if _proc.returncode == 0:
-                with open(_out_path) as f:
-                    _articles = _j.load(f)
-                _new = [
-                    {"title": a["title"], "url": a["url"], "source": source_name}
-                    for a in _articles
-                    if not a.get("saved") and a["url"] not in _known
-                    and source_name_filter(a["url"], source_name)
-                ]
-                log.info(f"AI pick: {source_name} feed — {len(_articles)} articles, {len(_new)} unsaved/new")
-                return _new
-            else:
-                log.warning(f"AI pick: {source_name} subprocess failed: {_proc.stderr.decode()[:200]}")
-                return []
-        except Exception as _e:
-            log.warning(f"AI pick: {source_name} feed scrape error: {_e}")
-            return []
-        finally:
-            try: _os.unlink(_script_path)
-            except: pass
-            try: _os.unlink(_out_path)
-            except: pass
+        _ft_script.close()
+        _ft_out.close()
+        _proc = _sp.run(
+            ["python3", _ft_script_path, str(BASE_DIR / "ft_profile"), _ft_out_path],
+            timeout=90, capture_output=True
+        )
+        if _proc.returncode == 0:
+            with open(_ft_out_path) as f:
+                _ft_articles = _j.load(f)
+            _ft_new = [a for a in _ft_articles
+                       if not a.get('already_saved')
+                       and not a.get('is_podcast')
+                       and a['url'] not in _known
+                       and '/content/' in a['url']]
+            log.info(f"AI pick: FT feed — {len(_ft_articles)} articles, {len(_ft_new)} unsaved/new")
+            candidates.extend(_ft_new)
+        else:
+            log.warning(f"AI pick: FT subprocess failed: {_proc.stderr.decode()[:200]}")
+        try: _os.unlink(_ft_script_path)
+        except: pass
+        try: _os.unlink(_ft_out_path)
+        except: pass
+    except Exception as _e:
+        log.warning(f"AI pick: FT feed scrape failed: {_e}")
 
-    def source_name_filter(url, source):
-        """Confirm URL domain matches expected source."""
-        domain_map = {
-            "Financial Times": "ft.com",
-            "The Economist": "economist.com",
-        }
-        expected = domain_map.get(source)
-        return expected is None or expected in url
-
-    # ── 1. FT personalised feed ───────────────────────────────────────────────
-    FT_FEED = "https://www.ft.com/myft/following/197493b5-7e8e-4f13-8463-3c046200835c/time"
-    _ft_results = _run_feed_subprocess(BASE_DIR / "ft_profile", FT_FEED, "Financial Times")
-    # FT-specific filter: only /content/ URLs
-    _ft_results = [a for a in _ft_results if "/content/" in a["url"]]
-    candidates.extend(_ft_results)
-
-    # ── 2. Economist for-you/topics feed ─────────────────────────────────────
-    ECO_FEED = "https://www.economist.com/for-you/topics"
-    _eco_results = _run_feed_subprocess(BASE_DIR / "eco_chrome_profile", ECO_FEED, "The Economist")
-    candidates.extend(_eco_results)
-
-    # ── 3. Foreign Affairs most-read (public, plain HTTP) ────────────────────
+    # ── 2. Foreign Affairs most-read (public, plain HTTP) ────────────────────
     FA_MOST_READ = "https://www.foreignaffairs.com/most-read"
     try:
         _req = _ur.Request(FA_MOST_READ, headers={"User-Agent": "Mozilla/5.0"})
@@ -1882,7 +1835,10 @@ with open(out_path, 'w') as f:
             _url = "https://www.foreignaffairs.com" + _path.split("?")[0]
             _title = _title.strip()
             if _url not in _known and _url not in _fa_seen and len(_title) > 15:
-                candidates.append({"title": _title, "url": _url, "source": "Foreign Affairs"})
+                candidates.append({
+                    "title": _title, "url": _url, "source": "Foreign Affairs",
+                    "pub_date": "", "standfirst": "", "is_opinion": False, "is_podcast": False
+                })
                 _fa_seen.add(_url)
         log.info(f"AI pick: FA most-read — {len(_fa_seen)} new candidates")
     except Exception as _e:
@@ -1904,17 +1860,7 @@ with open(out_path, 'w') as f:
     candidates = _deduped
     log.info(f"AI pick: {len(candidates)} total candidates across all sources")
 
-    # ── Sonnet scoring ────────────────────────────────────────────────────────
-    _api_key = load_creds().get("anthropic_api_key", "")
-    if not _api_key:
-        log.warning("AI pick: no API key")
-        return [], []
-
-    _articles_list = _j.dumps([
-        {"title": a["title"], "url": a["url"], "source": a["source"]}
-        for a in candidates
-    ])
-    # Load followed topics and taste titles from kt_meta
+    # ── Load taste profile ────────────────────────────────────────────────────
     with sqlite3.connect(DB_PATH) as _pcx:
         _ft_row = _pcx.execute("SELECT value FROM kt_meta WHERE key='ai_pick_followed_topics'").fetchone()
         _tt_row = _pcx.execute("SELECT value FROM kt_meta WHERE key='ai_pick_taste_titles'").fetchone()
@@ -1923,11 +1869,22 @@ with open(out_path, 'w') as f:
     _topics_str = ", ".join(_followed_topics) if _followed_topics else _interests
     _taste_str = "\n".join(f"- {t}" for t in _taste_titles[:50])
 
+    # ── Sonnet scoring ────────────────────────────────────────────────────────
+    _api_key = load_creds().get("anthropic_api_key", "")
+    if not _api_key:
+        log.warning("AI pick: no API key")
+        return [], []
+
+    _articles_list = _j.dumps([
+        {"title": a["title"], "url": a["url"], "source": a["source"],
+         "standfirst": a.get("standfirst", "")}
+        for a in candidates
+    ])
+
     _prompt = (
         "You are scoring news articles for a senior intelligence analyst.\n"
         "FOLLOWED TOPICS: " + _topics_str + ".\n\n"
-        + ("RECENT SAVES (articles they chose to read — use to calibrate taste):\n"
-           + _taste_str + "\n\n" if _taste_str else "")
+        + ("RECENT SAVES (use to calibrate taste):\n" + _taste_str + "\n\n" if _taste_str else "")
         + "Score each candidate article 0-10:\n"
         "9-10: CONCRETE BREAKING DEVELOPMENT — war starts/ends, sanctions, central bank decision, "
         "major diplomatic event, energy crisis, market shock. Not reading it today = missed a real event.\n"
@@ -1938,6 +1895,7 @@ with open(out_path, 'w') as f:
         "company earnings unrelated to macro.\n"
         "CRITICAL: 9-10 = concrete event. A thoughtful essay = 6-7. "
         "Calibrate against the recent saves above — match that taste level.\n"
+        "Use the standfirst (subtitle) where provided to improve scoring accuracy.\n"
         "Respond ONLY with a JSON array in the same order as input, no prose, no markdown:\n"
         '[{"score":7,"reason":"one sentence"}]'
         "\n\nCandidate articles:\n" + _articles_list
@@ -1995,6 +1953,7 @@ with open(out_path, 'w') as f:
         _source = _art["source"]
         _url = _art["url"]
         _title = _art["title"]
+        _pub_date = _art.get("pub_date", "")
 
         if _source not in TRUSTED_SOURCES: continue
         if _url in _known: continue
@@ -2007,12 +1966,12 @@ with open(out_path, 'w') as f:
                 "id": _art_id, "source": _source, "url": _url, "title": _title,
                 "body": "", "summary": _reason, "topic": "", "tags": "[]",
                 "saved_at": now_ts(), "fetched_at": now_ts(),
-                "status": "title_only", "pub_date": "", "auto_saved": 1
+                "status": "title_only", "pub_date": _pub_date, "auto_saved": 1
             })
         elif _score >= 6:
             suggested_out.append({
                 "title": _title, "url": _url, "source": _source,
-                "score": _score, "reason": _reason, "pub_date": ""
+                "score": _score, "reason": _reason, "pub_date": _pub_date
             })
 
     # ── Save Feed picks ───────────────────────────────────────────────────────
@@ -2029,7 +1988,7 @@ with open(out_path, 'w') as f:
                          _fp["fetched_at"], _fp["status"], _fp["pub_date"], 1)
                     )
         log.info(f"AI pick: saved {len(feed_articles)} -> Feed")
-        # Prepend new Feed titles to taste_titles, keep last 100
+        # Update taste_titles
         try:
             with sqlite3.connect(DB_PATH) as _ucx:
                 _tt2 = _ucx.execute("SELECT value FROM kt_meta WHERE key='ai_pick_taste_titles'").fetchone()
