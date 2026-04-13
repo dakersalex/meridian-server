@@ -2473,10 +2473,12 @@ def agent_feedback():
 
 # Fixed run times in UTC: 03:50 and 09:50 (= 05:50 and 11:50 Geneva/CEST)
 SCHEDULER_TIMES_UTC = [(3, 50), (9, 50)]
+NEWSLETTER_SYNC_TIMES_UTC = [(4, 30)]  # 06:30 Geneva (UTC+2) — catches Bloomberg delivery
 
 def scheduler_loop(interval_hours):
     log.info(f"Scheduler: fixed times UTC {SCHEDULER_TIMES_UTC}")
     last_run_date = {t: None for t in SCHEDULER_TIMES_UTC}
+    nl_last_run_date = {t: None for t in NEWSLETTER_SYNC_TIMES_UTC}
     while True:
         now = datetime.utcnow()
         for (h, m) in SCHEDULER_TIMES_UTC:
@@ -2492,6 +2494,15 @@ def scheduler_loop(interval_hours):
                 import subprocess
                 subprocess.Popen(["python3", str(BASE_DIR / "newsletter_sync.py")])
                 log.info("Scheduler: triggered newsletter sync")
+        # Newsletter-only sync times
+        for (h, m) in NEWSLETTER_SYNC_TIMES_UTC:
+            scheduled = now.replace(hour=h, minute=m, second=0, microsecond=0)
+            diff_minutes = (now - scheduled).total_seconds() / 60
+            if 0 <= diff_minutes < 5 and nl_last_run_date[(h, m)] != now.date():
+                nl_last_run_date[(h, m)] = now.date()
+                log.info(f"Scheduler: newsletter-only sync at {h:02d}:{m:02d} UTC (06:30 Geneva)")
+                import subprocess as _sp2
+                _sp2.Popen(["python3", str(BASE_DIR / "newsletter_sync.py")])
                 def _suggested_and_agent():
                     try:
                         # Suggested refresh DISABLED — high API cost
