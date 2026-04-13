@@ -1682,13 +1682,14 @@ def ai_pick_feed_scrape():
     score >=9  -> Feed (auto_saved=1)
     score 6-8  -> Suggested inbox
 
-    Uses existing Playwright profiles — ft_profile/ and eco_chrome_profile/.
-    FA most-read is public, fetched via plain HTTP.
+    FT: launch_persistent_context, headless=False off-screen (Cloudflare bypass)
+    Economist: CDP subprocess (same pattern as eco_scraper_sub.py)
+    FA: plain HTTP fetch (public page)
     Gate: twice daily keyed as ai_pick_last_run_morning / ai_pick_last_run_midday.
     """
     import json as _j
     import urllib.request as _ur
-    import urllib.error as _ue
+    import os as _os
 
     # ── Gate: twice daily ────────────────────────────────────────────────────
     _now_h = datetime.now().hour
@@ -1701,7 +1702,7 @@ def ai_pick_feed_scrape():
         log.info(f"AI pick: already ran today [{_gate_key}] — skipping")
         return [], []
 
-    # ── Build known URLs (skip already saved/suggested) ──────────────────────
+    # ── Build known URLs ──────────────────────────────────────────────────────
     with sqlite3.connect(DB_PATH) as _cx:
         _saved = set(r[0] for r in _cx.execute("SELECT url FROM articles WHERE url!=''").fetchall())
         _suggested = set(r[0] for r in _cx.execute("SELECT url FROM suggested_articles WHERE url!=''").fetchall())
@@ -1720,117 +1721,150 @@ def ai_pick_feed_scrape():
     _interests = ", ".join(sorted(_counts, key=lambda x: -_counts[x])[:15]) or "geopolitics, economics, finance, markets"
     log.info(f"AI pick: interests = {_interests[:80]}")
 
-    candidates = []  # list of {title, url, source}
+    candidates = []
 
-    # ── 1. FT personalised feed ───────────────────────────────────────────────
+    # ── 1. FT personalised feed — off-screen real Chrome ─────────────────────
     FT_FEED = "https://www.ft.com/myft/following/197493b5-7e8e-4f13-8463-3c046200835c/time"
     try:
         from playwright.sync_api import sync_playwright
+        _lock = BASE_DIR / "ft_profile" / "SingletonLock"
+        if _lock.exists(): _lock.unlink()
         with sync_playwright() as _pw:
             _ft_browser = _pw.chromium.launch_persistent_context(
                 str(BASE_DIR / "ft_profile"),
-                headless=True,
-                args=["--no-sandbox"]
+                headless=False,
+                args=["--no-sandbox", "--window-position=-3000,-3000", "--window-size=1280,900"]
             )
             _ft_page = _ft_browser.new_page()
             _ft_page.goto(FT_FEED, wait_until="domcontentloaded", timeout=30000)
             _ft_page.wait_for_timeout(3000)
-            # Extract article cards — title + URL, skip already-saved (filled bookmark icon)
             _ft_articles = _ft_page.evaluate("""() => {
                 const results = [];
+                const seen = new Set();
                 document.querySelectorAll('a[href*="/content/"]').forEach(a => {
                     const title = a.innerText.trim();
                     const url = a.href.split('?')[0];
-                    if (title && title.length > 15 && url.includes('ft.com/content/')) {
-                        // Check if already saved (bookmark icon filled = saved)
-                        const card = a.closest('li') || a.closest('article') || a.parentElement;
-                        const saved = card && card.querySelector('[data-trackable="save-button"][aria-label*="Saved"]');
-                        results.push({title, url, source: 'Financial Times', already_saved: !!saved});
+                    if (title && title.length > 15 && url.includes('ft.com/content/') && !seen.has(url)) {
+                        seen.add(url);
+                        // Walk up DOM to find saved indicator
+                        let el = a;
+                        let saved = false;
+                        for (let i = 0; i < 6; i++) {
+                            if (!el.parentElement) break;
+                            el = el.parentElement;
+                            if (el.querySelector('[aria-label*="Saved"]') ||
+                                el.querySelector('[data-trackable*="save"][aria-pressed="true"]')) {
+                                saved = true; break;
+                            }
+                        }
+                        results.push({title, url, source: 'Financial Times', already_saved: saved});
                     }
                 });
-                // Deduplicate by URL
-                const seen = new Set();
-                return results.filter(a => {
-                    if (seen.has(a.url)) return false;
-                    seen.add(a.url);
-                    return true;
-                });
+                return results;
             }""")
             _ft_browser.close()
-            _ft_new = [a for a in _ft_articles if not a.get('already_saved') and a['url'] not in _known]
-            log.info(f"AI pick: FT feed — {len(_ft_articles)} articles, {len(_ft_new)} unsaved/new")
-            candidates.extend(_ft_new)
+        _ft_new = [a for a in _ft_articles if not a.get('already_saved') and a['url'] not in _known]
+        log.info(f"AI pick: FT feed — {len(_ft_articles)} articles, {len(_ft_new)} unsaved/new")
+        candidates.extend(_ft_new)
     except Exception as _e:
         log.warning(f"AI pick: FT feed scrape failed: {_e}")
 
-    # ── 2. Economist for-you/topics feed (subprocess to avoid event loop conflict) ──
+    # ── 2. Economist for-you/topics — CDP subprocess ──────────────────────────
     ECO_FEED = "https://www.economist.com/for-you/topics"
     try:
         import tempfile, subprocess as _sp
-        _eco_script = tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False)
-        _eco_out = tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False)
-        _eco_script.write(f"""
-import json
+        _eco_lock = BASE_DIR / "eco_chrome_profile" / "SingletonLock"
+        if _eco_lock.exists(): _eco_lock.unlink()
+        _eco_script = tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False, dir='/tmp')
+        _eco_out = tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False, dir='/tmp')
+        _eco_script_path = _eco_script.name
+        _eco_out_path = _eco_out.name
+        _eco_script.write("""
+import json, sys, time
 from playwright.sync_api import sync_playwright
-results = []
+
+ECO_FEED = "https://www.economist.com/for-you/topics"
+CDP_PROFILE = sys.argv[1]
+OUT_PATH = sys.argv[2]
+
 with sync_playwright() as pw:
     browser = pw.chromium.launch_persistent_context(
-        r"{str(BASE_DIR / 'eco_chrome_profile')}",
-        headless=True, args=["--no-sandbox"]
+        CDP_PROFILE,
+        headless=False,
+        args=["--no-sandbox", "--window-position=-3000,-3000", "--window-size=1280,900"]
     )
     page = browser.new_page()
-    page.goto("{ECO_FEED}", wait_until="domcontentloaded", timeout=30000)
-    page.wait_for_timeout(3000)
-    # Click Load More once to get more articles
+    page.goto(ECO_FEED, wait_until="domcontentloaded", timeout=30000)
+    page.wait_for_timeout(4000)
+    # Click Load More once
     try:
         btn = page.query_selector('button:has-text("Load more")')
+        if not btn:
+            btn = page.query_selector('button:has-text("load more")')
         if btn:
+            btn.scroll_into_view_if_needed()
             btn.click()
             page.wait_for_timeout(2000)
     except: pass
-    # Extract article links
-    links = page.evaluate('''() => {{
+    links = page.evaluate('''() => {
         const results = [];
-        document.querySelectorAll('a[href*="/"]').forEach(a => {{
-            const href = a.href;
-            const title = a.innerText.trim();
-            if (
-                title && title.length > 15 &&
-                href.includes('economist.com') &&
-                !href.includes('/for-you') &&
-                !href.includes('/topics') &&
-                !href.includes('/sections') &&
-                href.split('/').length > 4
-            ) {{
-                results.push({{title, url: href.split('?')[0], source: 'The Economist'}});
-            }}
-        }});
         const seen = new Set();
-        return results.filter(a => {{
-            if (seen.has(a.url)) return false;
-            seen.add(a.url);
-            return true;
-        }});
-    }}''')
+        document.querySelectorAll('a').forEach(a => {
+            const href = a.href || '';
+            const text = a.innerText.trim();
+            const url = href.split('?')[0];
+            if (
+                text.length > 15 &&
+                url.includes('economist.com') &&
+                !url.includes('/for-you') &&
+                !url.includes('/topics') &&
+                !url.includes('/sections') &&
+                !url.includes('/about') &&
+                !url.includes('/newsletters') &&
+                !url.includes('/#') &&
+                url.split('/').length > 4 &&
+                !seen.has(url)
+            ) {
+                seen.add(url);
+                // Check if bookmarked (filled bookmark icon nearby)
+                let el = a;
+                let saved = false;
+                for (let i = 0; i < 5; i++) {
+                    if (!el.parentElement) break;
+                    el = el.parentElement;
+                    if (el.querySelector('[aria-label*="Remove bookmark"]') ||
+                        el.querySelector('[data-analytics*="bookmark"][aria-pressed=\\'true\\']')) {
+                        saved = true; break;
+                    }
+                }
+                results.push({title: text, url, source: 'The Economist', already_saved: saved});
+            }
+        });
+        return results;
+    }''')
     browser.close()
-    results = links
-with open(r"{_eco_out.name}", "w") as f:
-    json.dump(results, f)
+
+with open(OUT_PATH, 'w') as f:
+    json.dump(links, f)
 """)
         _eco_script.close()
         _eco_out.close()
-        _proc = _sp.run(["python3", _eco_script.name], timeout=60, capture_output=True)
+        _proc = _sp.run(
+            ["python3", _eco_script_path, str(BASE_DIR / "eco_chrome_profile"), _eco_out_path],
+            timeout=90, capture_output=True
+        )
         if _proc.returncode == 0:
-            with open(_eco_out.name) as f:
+            with open(_eco_out_path) as f:
                 _eco_articles = _j.load(f)
-            _eco_new = [a for a in _eco_articles if a['url'] not in _known]
+            _eco_new = [a for a in _eco_articles if not a.get('already_saved') and a['url'] not in _known]
             log.info(f"AI pick: Economist feed — {len(_eco_articles)} articles, {len(_eco_new)} new")
             candidates.extend(_eco_new)
         else:
-            log.warning(f"AI pick: Economist subprocess failed: {_proc.stderr.decode()[:200]}")
-        import os
-        os.unlink(_eco_script.name)
-        os.unlink(_eco_out.name)
+            log.warning(f"AI pick: Economist subprocess failed: {_proc.stderr.decode()[:300]}")
+        try: _os.unlink(_eco_script_path)
+        except: pass
+        try: _os.unlink(_eco_out_path)
+        except: pass
     except Exception as _e:
         log.warning(f"AI pick: Economist feed scrape failed: {_e}")
 
@@ -1840,9 +1874,8 @@ with open(r"{_eco_out.name}", "w") as f:
         _req = _ur.Request(FA_MOST_READ, headers={"User-Agent": "Mozilla/5.0"})
         with _ur.urlopen(_req, timeout=15) as _resp:
             _html = _resp.read().decode("utf-8", errors="ignore")
-        # Extract article links from most-read page
         import re as _re
-        _fa_links = _re.findall(r'href="(/articles/[^"]+)"[^>]*>([^<]{15,})<', _html)
+        _fa_links = _re.findall(r'href="(/articles/[^"]+)"[^>]*>\s*([^<]{15,})<', _html)
         _fa_seen = set()
         for _path, _title in _fa_links:
             _url = "https://www.foreignaffairs.com" + _path.split("?")[0]
@@ -1856,19 +1889,25 @@ with open(r"{_eco_out.name}", "w") as f:
 
     if not candidates:
         log.warning("AI pick: no candidates found from any source")
+        # Still write gate so we don't retry immediately
+        with sqlite3.connect(DB_PATH) as _rx:
+            _rx.execute("INSERT OR REPLACE INTO kt_meta (key, value) VALUES (?, ?)", (_gate_key, _today))
         return [], []
 
-    # Deduplicate candidates across sources
-    _seen_urls = set()
+    # Deduplicate across sources
+    _seen_c = set()
+    candidates = [c for c in candidates if not (_seen_c.add(c['url']) or c['url'] in _seen_c - {c['url']})]
+    # Simpler dedup
+    _seen_u = set()
     _deduped = []
     for _c in candidates:
-        if _c['url'] not in _seen_urls:
-            _seen_urls.add(_c['url'])
+        if _c['url'] not in _seen_u:
+            _seen_u.add(_c['url'])
             _deduped.append(_c)
     candidates = _deduped
     log.info(f"AI pick: {len(candidates)} total candidates across all sources")
 
-    # ── Sonnet scoring call ───────────────────────────────────────────────────
+    # ── Sonnet scoring ────────────────────────────────────────────────────────
     _api_key = load_creds().get("anthropic_api_key", "")
     if not _api_key:
         log.warning("AI pick: no API key")
@@ -1884,7 +1923,7 @@ with open(r"{_eco_out.name}", "w") as f:
         "6: relevant but not urgent. "
         "0-5: not relevant — lifestyle, sport, culture, science unrelated to interests. "
         "Be STRICT with 9-10 — only articles a senior analyst would consider unmissable today. "
-        "Sources are Financial Times, The Economist, Foreign Affairs — all high quality, so score purely on topic relevance. "
+        "Sources are all high quality — score purely on topic relevance to the analyst's interests. "
         "Respond ONLY with a JSON array in the same order as input, no prose, no markdown: "
         '[{"score":9,"reason":"one sentence"}]'
         "\n\nArticles to score:\n" + _articles_list
@@ -1988,7 +2027,6 @@ with open(r"{_eco_out.name}", "w") as f:
 
     log.info(f"AI pick complete: {len(feed_articles)} -> Feed, {len(suggested_out)} -> Suggested")
     return feed_articles, suggested_out
-
 
 def scrape_suggested_articles():
     """Thin stub — delegates to ai_pick_feed_scrape().
