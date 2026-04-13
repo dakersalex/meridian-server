@@ -4170,7 +4170,7 @@ async function updateActivityBar() {
 
       // ── Row 3: Last scraped ───────────────────────────────────────────
       const gC=d=>d<=1?'#2d6b45':d<=3?'#8b7020':d<=7?'#c4783a':'#8c2020';
-      const gL=d=>d<=1?'Yesterday':d+'d ago';
+      const gL=d=>d===0?'Today':d===1?'Yesterday':d+'d ago';
       // Last Scraped: fetch from /api/sync/last-run (persisted in kt_meta)
       const scEl=se('sp-last-scraped');
       (async()=>{
