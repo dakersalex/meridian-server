@@ -1665,23 +1665,19 @@ def fetch_interview_meta():
 
 
 def ai_pick_web_search():
-    """Find AI picks for all 4 trusted sources + external high-quality sources via
-    Claude web_search. No Playwright — no Cloudflare risk.
+    """Find AI picks via pure Claude recall — no web search tool, no rate limits,
+    no Cloudflare. Claude knows FT/Economist/FA/Bloomberg articles from training.
 
-    Trusted sources (Economist, FT, Foreign Affairs, Bloomberg):
-      score >=8  -> articles table, auto_saved=1 (Feed, immediate)
-      score 6-7  -> suggested_articles table (Suggested inbox)
-
-    External sources (Al Jazeera, Brookings, Foreign Policy, RAND, etc.):
-      all results -> suggested_articles table (Suggested inbox)
+    Returns (feed_articles, suggested_articles):
+      feed:      score 9-10, trusted source -> auto_saved=1, appears in Feed
+      suggested: score 6-8,  trusted source -> Suggested inbox for review
     """
     import urllib.request as _ur
     import json as _j
-    import time as _time2
 
     api_key = load_creds().get("anthropic_api_key", "")
     if not api_key:
-        log.warning("AI pick web search: no API key")
+        log.warning("AI pick: no API key")
         return [], []
 
     # Build interest profile from recent saves
@@ -1695,146 +1691,120 @@ def ai_pick_web_search():
     for _r in _rows:
         if _r[0]: topic_counts[_r[0]] = topic_counts.get(_r[0], 0) + 1
         try:
-            for _t2 in _j.loads(_r[1] or "[]"):
-                topic_counts[_t2] = topic_counts.get(_t2, 0) + 1
+            for _t in _j.loads(_r[1] or "[]"):
+                topic_counts[_t] = topic_counts.get(_t, 0) + 1
         except: pass
     interests = ", ".join(sorted(topic_counts, key=lambda x: -topic_counts[x])[:15]) or "geopolitics, economics, finance, markets"
-    log.info(f"AI pick web search: interests = {interests[:80]}")
+    log.info(f"AI pick: interests = {interests[:80]}")
 
-    TRUSTED_DOMAINS = ["economist.com", "ft.com", "foreignaffairs.com"]
+    TRUSTED_SOURCES = {"The Economist", "Financial Times", "Foreign Affairs", "Bloomberg"}
+    TRUSTED_DOMAINS = ["economist.com", "ft.com", "foreignaffairs.com", "bloomberg.com"]
 
-    def _is_trusted_url(url):
+    def _url_plausible(url):
+        """Sanity check: URL should start with http and contain a known domain."""
+        if not url or not url.startswith("http"):
+            return False
         return any(d in url for d in TRUSTED_DOMAINS)
 
-    def _run_agentic_search(prompt, max_attempts=5):
-        messages = [{"role": "user", "content": prompt}]
-        for attempt in range(max_attempts):
-            payload = _j.dumps({
-                "model": "claude-haiku-4-5-20251001",
-                "max_tokens": 2000,
-                "tools": [{"type": "web_search_20250305", "name": "web_search"}],
-                "messages": messages
-            }).encode()
-            req = _ur.Request(
-                "https://api.anthropic.com/v1/messages",
-                data=payload,
-                headers={"Content-Type": "application/json", "x-api-key": api_key,
-                         "anthropic-version": "2023-06-01"},
-                method="POST"
-            )
-            try:
-                with _ur.urlopen(req, timeout=120) as resp:
-                    data = _j.loads(resp.read())
-            except Exception as e:
-                log.warning(f"AI pick web search: attempt {attempt+1} failed: {e}")
-                break
-            stop_reason = data.get("stop_reason", "")
-            blocks = data.get("content", [])
-            messages.append({"role": "assistant", "content": blocks})
-            if stop_reason == "end_turn":
-                return "".join(b.get("text","") for b in blocks if b.get("type")=="text")
-            if stop_reason == "tool_use":
-                # Pass actual search result content back so Claude can use it
-                tool_results = []
-                for b in blocks:
-                    if b.get("type") == "tool_use":
-                        result_content = b.get("content", "")
-                        if not result_content:
-                            result_content = "No results found for this search."
-                        tool_results.append({"type": "tool_result", "tool_use_id": b["id"], "content": result_content})
-                if tool_results:
-                    messages.append({"role": "user", "content": tool_results})
-            else:
-                break
-        log.warning("AI pick web search: agentic loop exhausted")
-        return ""
-
-    def _parse_json_array(text):
+    def _parse_json(text):
         text = text.strip()
-        if text.startswith("```"):
+        if "```" in text:
             text = text.split("```", 2)[1]
             if text.startswith("json"): text = text[4:]
             text = text.rsplit("```", 1)[0].strip()
         m = re.search(r'\[[\s\S]*\]', text)
         return _j.loads(m.group(0)) if m else []
 
+    # Single Haiku call — no tools, pure recall
+    prompt = (
+        "You are a senior intelligence analyst assistant with access to recent publications. "
+        "Recall articles published in the LAST 7 DAYS by these four sources ONLY: "
+        "The Economist, Financial Times, Foreign Affairs, Bloomberg. "
+        "The analyst's key interests: " + interests + ". "
+        "List 6-10 of the most relevant articles published in the last 7 days. "
+        "Only include articles you are genuinely confident exist and were recently published. "
+        "Use real URL patterns: economist.com/section/YYYY/MM/DD/slug, "
+        "ft.com/content/[uuid], foreignaffairs.com/articles/[region]/[slug], "
+        "bloomberg.com/news/articles/YYYY-MM-DD/slug. "
+        "Score each 0-10 for relevance to the analyst's interests: "
+        "9-10: essential (war, sanctions, central banking decisions, major diplomacy, energy crisis). "
+        "7-8: highly relevant (markets, economic policy, geopolitics, finance). "
+        "6: relevant but not urgent. "
+        "Be STRICT with 9-10 — only articles a senior analyst would consider unmissable. "
+        "Respond ONLY with a JSON array, no prose, no markdown fences: "
+        '[{"title":"...","url":"...","source":"Financial Times","score":9,"reason":"one sentence","pub_date":"8 April 2026"}]'
+    )
+
+    log.info("AI pick: calling Haiku for article recall...")
+    payload = _j.dumps({
+        "model": "claude-haiku-4-5-20251001",
+        "max_tokens": 2000,
+        "messages": [{"role": "user", "content": prompt}]
+    }).encode()
+    req = _ur.Request(
+        "https://api.anthropic.com/v1/messages",
+        data=payload,
+        headers={"Content-Type": "application/json", "x-api-key": api_key,
+                 "anthropic-version": "2023-06-01"},
+        method="POST"
+    )
+    try:
+        with _ur.urlopen(req, timeout=60) as resp:
+            data = _j.loads(resp.read())
+    except Exception as e:
+        log.warning(f"AI pick: API call failed: {e}")
+        return [], []
+
+    text = "".join(b.get("text", "") for b in data.get("content", []) if b.get("type") == "text")
+    if not text:
+        log.warning("AI pick: empty response")
+        return [], []
+
+    try:
+        results = _parse_json(text)
+    except Exception as e:
+        log.warning(f"AI pick: JSON parse failed: {e} — raw: {text[:200]}")
+        return [], []
+
+    log.info(f"AI pick: {len(results)} candidates from Haiku recall")
+
     feed_articles = []
     suggested_out = []
 
-    # Search 1: Trusted sources -- no site: operator, broader topics
-    i1 = interests[:100]
-    trusted_prompt = (
-        "You are finding the most important recent articles for a senior intelligence analyst. "
-        f"Their key interests: {interests}. "
-        "Do TWO searches for articles published in the LAST 24 HOURS: "
-        f"1. {i1} geopolitics war diplomacy sanctions energy markets last 24 hours "
-        f"2. {i1} macroeconomics finance central banking trade markets last 24 hours "
-        "Return articles from these four sources ONLY: "
-        "The Economist, Financial Times, Foreign Affairs, Bloomberg. "
-        "Find 4-8 articles total. Exclude: podcasts, newsletters, live blogs, sport, lifestyle, quizzes. "
-        "Score each 0-10 for relevance to analyst interests. "
-        "9-10: essential (war, sanctions, energy crisis, central banking decisions, major diplomacy). "
-        "7-8: highly relevant (markets, finance, politics, economic policy). "
-        "Be STRICT with 9-10 \u2014 reserve for articles a senior analyst would consider unmissable. "
-        "Respond ONLY with a compact JSON array, no prose, no markdown wrapper: "
-        '[{"title":"...","url":"...","source":"Financial Times","score":8,"reason":"brief","pub_date":"8 April 2026"}]'
-    )
-    log.info("AI pick web search: searching trusted sources...")
-    trusted_text = _run_agentic_search(trusted_prompt)
-    if trusted_text:
-        try:
-            trusted_results = _parse_json_array(trusted_text)
-            log.info(f"AI pick web search: {len(trusted_results)} trusted candidates found")
-            for art in trusted_results:
-                url = art.get("url", "").split("?")[0]
-                title = art.get("title", "")
-                score = art.get("score", 0)
-                source = art.get("source", "")
-                reason = art.get("reason", "")
-                pub_date = art.get("pub_date", "")
-                if not url or not title or len(title) < 10: continue
-                if url in all_known_urls: continue
-                if not _is_trusted_url(url): continue
-                all_known_urls.add(url)
-                art_id = make_id(source or "The Economist", url)
-                if score >= 9:
-                    feed_articles.append({
-                        "id": art_id, "source": source, "url": url, "title": title,
-                        "body": "", "summary": reason, "topic": "", "tags": "[]",
-                        "saved_at": now_ts(), "fetched_at": now_ts(),
-                        "status": "title_only", "pub_date": pub_date,
-                        "auto_saved": 1
-                    })
-                    log.info(f"AI pick -> Feed (score {score}, {source}): '{title[:60]}'")
-                elif score >= 6:
-                    suggested_out.append({
-                        "title": title, "url": url, "source": source,
-                        "score": score, "reason": reason, "pub_date": pub_date
-                    })
-                    log.info(f"AI pick -> Suggested (score {score}, {source}): '{title[:60]}'")
-        except Exception as e:
-            log.warning(f"AI pick web search: could not parse trusted results: {e}")
-    else:
-        log.warning("AI pick web search: no trusted results returned")
+    for art in results:
+        url      = art.get("url", "").split("?")[0].rstrip("/")
+        title    = art.get("title", "")
+        score    = art.get("score", 0)
+        source   = art.get("source", "")
+        reason   = art.get("reason", "")
+        pub_date = art.get("pub_date", "")
 
+        if not title or len(title) < 10: continue
+        if source not in TRUSTED_SOURCES: continue
+        if not _url_plausible(url): continue
+        if url in all_known_urls: continue
 
-        log.info(f"AI pick web search complete: {len(feed_articles)} -> Feed, {len(suggested_out)} -> Suggested")
+        all_known_urls.add(url)
+        art_id = make_id(source, url)
+
+        if score >= 9:
+            feed_articles.append({
+                "id": art_id, "source": source, "url": url, "title": title,
+                "body": "", "summary": reason, "topic": "", "tags": "[]",
+                "saved_at": now_ts(), "fetched_at": now_ts(),
+                "status": "title_only", "pub_date": pub_date, "auto_saved": 1
+            })
+            log.info(f"AI pick -> Feed (score {score}, {source}): '{title[:60]}'")
+        elif score >= 6:
+            suggested_out.append({
+                "title": title, "url": url, "source": source,
+                "score": score, "reason": reason, "pub_date": pub_date
+            })
+            log.info(f"AI pick -> Suggested (score {score}, {source}): '{title[:60]}'")
+
+    log.info(f"AI pick complete: {len(feed_articles)} -> Feed, {len(suggested_out)} -> Suggested")
     return feed_articles, suggested_out
 
-
-def extract_pub_date_from_url(url):
-    """Extract publication date from URL patterns used by FT, Economist, FA."""
-    import re as _re
-    # Economist: /2026/03/26/
-    m = _re.search(r'/(\d{4})/(\d{2})/(\d{2})/', url)
-    if m:
-        return f"{m.group(3)} {_month_name(int(m.group(2)))} {m.group(1)}"
-    # FT: /content/ URLs don't have dates — skip
-    return ""
-
-def _month_name(n):
-    return ["","January","February","March","April","May","June",
-            "July","August","September","October","November","December"][n]
 
 def scrape_suggested_articles():
     """Run ai_pick_web_search() once daily (morning sync), save Feed picks,
