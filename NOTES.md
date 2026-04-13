@@ -1,5 +1,5 @@
 # Meridian — Technical Notes
-Last updated: 13 April 2026 (Session 50 — AI pick redesign, newsletter timing fixes)
+Last updated: 13 April 2026 (Session 51 — AI pick redesign fully applied)
 
 ## Overview
 Personal news aggregator. Flask API + SQLite backend on Hetzner VPS (always-on).
@@ -32,7 +32,7 @@ Frontend at https://meridianreader.com/meridian.html
 
 ---
 
-## Database (13 April 2026 — end of session)
+## Database (13 April 2026 — end of session 51)
 | Source | Mac | VPS |
 |---|---|---|
 | FT | ~229 | ~229 |
@@ -40,7 +40,7 @@ Frontend at https://meridianreader.com/meridian.html
 | FA | ~139 | ~139 |
 | Bloomberg | ~38 | ~38 |
 | Other | ~18 | ~18 |
-| **Total** | **~751** | **~751** |
+| **Total** | **~752** | **~752** |
 
 API balance: ~$9 — ~28 days runway at ~$0.32/day
 
@@ -92,7 +92,7 @@ return 0 content. Solution: real Chrome with off-screen window.
 - Paginates through all saved pages, stops when entire page all-existing
 - pub_date: extracted from article page `<time>` element ✓
 - 1 pending unenriched: "North Sea rethink" — unfetchable, ignore
-- TODO next session: verify pub_dates are correct (same URL date issue may apply)
+- TODO: verify pub_dates are correct (same URL date issue may apply)
 
 ## Foreign Affairs Scraper
 - Playwright, fa_profile/, headless=True
@@ -100,7 +100,7 @@ return 0 content. Solution: real Chrome with off-screen window.
 - Shared `seen` set prevents duplicates
 - FA cookie expires 2026-05-23
 - 11 pending unenriched on VPS — paywall-truncated stubs, need cleanup
-- TODO next session: clean 11 FA pending + check FA pub_dates
+- TODO: clean 11 FA pending + check FA pub_dates
 
 ---
 
@@ -132,49 +132,89 @@ return 0 content. Solution: real Chrome with off-screen window.
 
 ---
 
-## AI Pick Architecture — REDESIGNED Session 50 (PARTIALLY APPLIED)
+## AI Pick Architecture — FULLY DEPLOYED (Session 51)
 
-### Design (agreed Session 50)
-- Sources: core 4 only (FT, Economist, Foreign Affairs, Bloomberg)
-- Feed threshold: score 9-10 only (was 8+) — "unmissable" articles only
-- Suggested threshold: score 6-8
-- Frequency: twice daily (morning 05:50 + midday 11:50 Geneva)
-- Gate: per-slot (morning/midday) keyed as `ai_pick_last_run_morning` / `ai_pick_last_run_midday`
+### How it works
+AI picks run automatically twice per day inside the scheduler, triggered at the
+morning sync (~05:50 Geneva) and midday sync (~11:50 Geneva). The entry point is
+`scrape_suggested_articles()`, which calls `ai_pick_web_search()` internally.
 
-### ⚠️ INCOMPLETE — Must finish at start of Session 51
-The patch script had an early-exit bug (SELECTIVE line unicode mismatch caused exit
-before write). Only the SELECTIVE prompt line was saved. The following changes are
-still pending in server.py:
+**Step 1 — Gate check (scrape_suggested_articles)**
+Before doing anything, checks the current hour to determine the slot:
+- Hour < 10 → slot key `ai_pick_last_run_morning`
+- Hour >= 10 → slot key `ai_pick_last_run_midday`
+Reads `kt_meta` for that key. If already set to today's date, skips entirely.
+This ensures each slot fires at most once per calendar day regardless of how
+many times the scheduler loop ticks.
 
-1. `score >= 8` → `score >= 9` in `ai_pick_web_search()` (line ~1795, Feed threshold)
-2. `score >= 8` → `score >= 9` in `run_agent()` (line ~2309)
-3. Twice-daily gate replacing once-per-day gate in `scrape_suggested_articles()`
-4. Gate write key: `'ai_pick_last_run'` → `_gate_key` (slot-keyed)
-5. Scheduler re-enabled: replace DISABLED block with `scrape_suggested_articles()` call
-6. Prompt: "Find 4-6" → "Find 4-8", "5-6: moderate" line removed, strict 9-10 language
-   (SELECTIVE line already patched ✓)
+**Step 2 — AI web search (ai_pick_web_search)**
+Uses the Anthropic API (Haiku + web_search tool) to do two targeted searches
+covering the last 7 days:
+1. Geopolitics / war / diplomacy / sanctions / energy
+2. Macroeconomics / finance / central banking / trade
 
-See Session 51 starter prompt below.
+The trusted_prompt instructs the model to:
+- Search only The Economist, FT, Foreign Affairs, Bloomberg
+- Find 4-8 articles total
+- Score each 0-10 for relevance to the user's inferred interests
+- Exclude podcasts, newsletters, live blogs, sport, lifestyle, quizzes
+- Be strict with 9-10 — reserve for articles a senior analyst would call unmissable
 
-### Current state (before Session 51 fix)
-- `scrape_suggested_articles()` disabled in scheduler (commented out, high API cost note)
-- `ai_pick_last_run` gate key broken (never written correctly)
-- 21 AI-picked articles in Feed (17 Economist, 3 FA, 1 FT), all auto_saved=1
-- 96 articles in Suggested (61 saved, 35 new, 5 dismissed), last batch 2026-04-07
+The selective_prompt runs a second pass for non-core/broader sources with
+stricter criteria (score 9-10 only).
+
+**Step 3 — Routing by score**
+- Score 9-10 → `feed_articles` → saved directly to `articles` table with
+  `auto_saved=1`, appear immediately in the main Feed
+- Score 6-8 → `suggested_articles` table, appear in the Suggested panel for
+  manual review
+- Score < 6 → discarded
+
+**Step 4 — run_agent()**
+Also runs in the scheduler after `scrape_suggested_articles()`. Queries
+`suggested_articles WHERE status='new' AND score >= 9` and promotes any
+matching rows to the main Feed (articles table, auto_saved=1). This handles
+articles that were previously scored and sat in Suggested but now meet the
+raised threshold.
+
+**Step 5 — Gate write**
+After a successful run, writes today's date to the slot key in `kt_meta`,
+preventing re-runs until the next slot.
+
+### Thresholds summary
+| Score | Destination |
+|---|---|
+| 9-10 | Feed (auto_saved=1) — unmissable only |
+| 6-8 | Suggested panel — review queue |
+| 0-5 | Discarded |
+
+### Schedule
+| Slot | Geneva time | Gate key |
+|---|---|---|
+| Morning | ~05:50 | `ai_pick_last_run_morning` |
+| Midday | ~11:50 | `ai_pick_last_run_midday` |
+
+### Cost
+Haiku + web_search tool. Estimated ~$0.10-0.15 per run, ~$0.20-0.30/day total
+for both slots. Fits within the ~$0.32/day budget alongside enrichment.
+
+### State as of Session 51
+- 21 AI-picked articles in Feed (auto_saved=1)
+- 101 articles in Suggested table
+- Both gate keys null — will fire fresh at next sync
 
 ---
 
 ## API Cost Profile (~$0.32/day)
 - enrich_article_with_ai → Haiku
 - health check → Haiku, ~$0.003/call, manual-only
-- scrape_suggested → Haiku + web_search, twice daily once re-enabled
+- scrape_suggested → Haiku + web_search, twice daily (~$0.20-0.30/day)
 
 ---
 
 ## Outstanding Issues / Next Sessions
 
-### 🔴 Session 51 — do first
-0. Re-apply AI pick patches (see starter prompt below)
+### 🔴 Priority
 1. FA 11 pending — delete paywall-truncated stubs from VPS
 2. FA pub_dates — check if FA also has URL vs page date discrepancy
 3. FT pub_dates — check if FT also has URL vs page date discrepancy
@@ -192,6 +232,15 @@ See Session 51 starter prompt below.
 ---
 
 ## Build History
+
+### 13 April 2026 (Session 51)
+- Applied all pending AI pick patches from Session 50 (patch script had early-exit bug)
+- score >= 8 → score >= 9 in ai_pick_web_search() and run_agent()
+- Once-daily gate → twice-daily (morning/midday) with slot-keyed kt_meta keys
+- Gate write fixed: hardcoded 'ai_pick_last_run' → _gate_key variable
+- Scheduler re-enabled: DISABLED comment block replaced with live scrape_suggested_articles() + save_suggested_snapshot()
+- Prompt: "Find 4-6" → "Find 4-8", "5-6: moderate" scoring line removed
+- ast.parse() clean, deployed to VPS, Mac Flask restarted
 
 ### 13 April 2026 (Session 50)
 - Investigated AI pick function end-to-end
