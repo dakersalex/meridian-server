@@ -874,20 +874,26 @@ class EconomistScraper:
 
 
 class ForeignAffairsScraper:
-    """Scrapes Foreign Affairs from two sources:
-    1. Saved articles page (explicit saves, single scroll page)
-    2. Three recent issues (full table of contents, ~16 articles each)
-    All new articles fetched for full text + AI enriched immediately.
-    Deduplication handled by article_exists() — no stopping logic needed."""
+    """Scrapes Foreign Affairs from three sources:
+    1. Saved articles page (your FA bookmarks)
+    2. Two most recent issues (dynamically discovered from /issues landing page)
+    3. Most-read page
+    Uses h3 a selector — consistent article title heading across all FA pages.
+    Deduplication via article_exists(). Cookie expires 2026-05-23."""
 
-    name = "Foreign Affairs"
     BASE = "https://www.foreignaffairs.com"
     SAVED_URL = BASE + "/my-foreign-affairs/saved-articles"
-    ISSUE_URLS = [
-        BASE + "/issues/2026/105/2",   # Mar/Apr 2026
-        BASE + "/issues/2026/105/1",   # Jan/Feb 2026
-        BASE + "/issues/2025/104/6",   # Nov/Dec 2025
-    ]
+    ISSUES_URL = BASE + "/issues"
+    MOST_READ_URL = BASE + "/most-read"
+
+    SKIP_PREFIXES = (
+        "/issues/", "/topics/", "/tags/", "/my-foreign-affairs/",
+        "/account", "/login", "/subscribe", "/podcast", "/newsletter",
+        "/about", "/contact", "/search", "/archive", "/books",
+        "/regions/", "/sections/", "/graduate", "/permissions",
+        "/gift", "/audio", "/video", "/events", "/browse/",
+        "/authors/", "/staff", "/collections/",
+    )
 
     def __init__(self, email="", password=""):
         pass
@@ -898,6 +904,7 @@ class ForeignAffairsScraper:
         profile_dir = BASE_DIR / "fa_profile"
         profile_dir.mkdir(exist_ok=True)
         articles = []
+        seen = set()
 
         with sync_playwright() as p:
             browser = p.chromium.launch_persistent_context(
@@ -906,20 +913,24 @@ class ForeignAffairsScraper:
                 args=["--disable-blink-features=AutomationControlled", "--no-sandbox"])
             page = browser.new_page()
             try:
-                # ── 1. Saved articles ─────────────────────────────────────
-                seen = set()
-
-                saved = self._scrape_saved(page, seen)
+                # 1. Saved articles
+                saved = self._scrape_page(page, self.SAVED_URL, seen, "saved", requires_login=True)
                 articles.extend(saved)
                 log.info("FA: saved articles — %d new" % len(saved))
 
-                # ── 2. Recent issues ──────────────────────────────────────
-                for issue_url in self.ISSUE_URLS:
-                    issue_arts = self._scrape_issue(page, issue_url, seen)
+                # 2. Two most recent issues (discovered dynamically)
+                issue_urls = self._discover_issues(page)
+                for issue_url in issue_urls:
+                    issue_arts = self._scrape_page(page, issue_url, seen, "issue")
                     articles.extend(issue_arts)
-                    log.info("FA: issue %s — %d new" % (issue_url[-10:], len(issue_arts)))
+                    log.info("FA: issue %s — %d new" % (issue_url, len(issue_arts)))
 
-                # ── 3. Fetch text + enrich all new articles ───────────────
+                # 3. Most read
+                most_read = self._scrape_page(page, self.MOST_READ_URL, seen, "most-read")
+                articles.extend(most_read)
+                log.info("FA: most-read — %d new" % len(most_read))
+
+                # Fetch full text + enrich all new articles
                 log.info("FA: %d new articles total — fetching text" % len(articles))
                 for art in articles:
                     log.info("FA: fetching '%s'" % art["title"][:55])
@@ -940,101 +951,90 @@ class ForeignAffairsScraper:
 
         return articles
 
-    def _scrape_saved(self, page, seen=None):
-        """Scrape the saved articles page. Single scroll, no pagination."""
+    def _discover_issues(self, page):
+        """Discover the two most recent issue URLs from the /issues landing page."""
         try:
-            page.goto(self.SAVED_URL, wait_until="domcontentloaded", timeout=45000)
-            page.wait_for_timeout(4000)
-
-            # Handle login if needed
-            if "sign-in" in page.url or "login" in page.url:
-                if not self._login(page):
-                    log.warning("FA: login failed — skipping saved articles")
-                    return []
-                page.goto(self.SAVED_URL, wait_until="domcontentloaded", timeout=40000)
-                page.wait_for_timeout(3000)
-
-            # Scroll to bottom to ensure all articles loaded
-            page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+            page.goto(self.ISSUES_URL, wait_until="domcontentloaded", timeout=30000)
             page.wait_for_timeout(2000)
-
-            return self._extract_articles(page, source="saved", seen=seen)
-
+            from bs4 import BeautifulSoup as _BS
+            soup = _BS(page.content(), "html.parser")
+            seen_urls = []
+            for a in soup.select("a[href]"):
+                href = a.get("href", "")
+                if "/issues/20" in href and href not in seen_urls:
+                    seen_urls.append(href)
+                if len(seen_urls) >= 2:
+                    break
+            if seen_urls:
+                log.info("FA: discovered issues: %s" % seen_urls)
+                return [self.BASE + u if u.startswith("/") else u for u in seen_urls]
         except Exception as e:
-            log.warning("FA: saved articles scrape failed: %s" % e)
-            return []
+            log.warning("FA: issue discovery failed: %s" % e)
+        # Fallback to known recent issues
+        return [self.BASE + "/issues/2026/105/2", self.BASE + "/issues/2026/105/1"]
 
-    def _scrape_issue(self, page, url, seen=None):
-        """Scrape a single issue page. All articles load at once (~16 per issue)."""
+    def _scrape_page(self, page, url, seen, label, requires_login=False):
+        """Navigate to a page and extract new FA articles using h3 a selector."""
         try:
-            page.goto(url, wait_until="domcontentloaded", timeout=30000)
+            page.goto(url, wait_until="domcontentloaded", timeout=45000)
             page.wait_for_timeout(3000)
 
-            if "sign-in" in page.url or "login" in page.url:
-                log.warning("FA: login required for issue page %s" % url)
-                return []
+            if requires_login and ("sign-in" in page.url or "login" in page.url):
+                if not self._login(page):
+                    log.warning("FA: login failed — skipping %s" % label)
+                    return []
+                page.goto(url, wait_until="domcontentloaded", timeout=40000)
+                page.wait_for_timeout(3000)
 
-            return self._extract_articles(page, source="issue", seen=seen)
+            # Scroll to load lazy content on saved/most-read pages
+            page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+            page.wait_for_timeout(1500)
+
+            return self._extract_articles(page, label, seen)
 
         except Exception as e:
-            log.warning("FA: issue scrape failed for %s: %s" % (url, e))
+            log.warning("FA: %s scrape failed: %s" % (label, e))
             return []
 
-    def _extract_articles(self, page, source="unknown", seen=None):
-        """Extract new articles from current page.
-        FA article URLs always follow: /region-or-category/article-slug
-        exactly 2 path segments, slug is long and hyphenated.
-        Nav/footer links are either 1 segment or known skip paths."""
+    def _extract_articles(self, page, label, seen):
+        """Extract new articles from current page using h3 a selector.
+        h3 elements are article title headings consistently across all FA pages."""
         from bs4 import BeautifulSoup as _BS
-        import re as _re
-
-        # Known non-article path prefixes to skip
-        SKIP_PREFIXES = (
-            "/issues/", "/topics/", "/tags/", "/my-foreign-affairs/",
-            "/account", "/login", "/subscribe", "/podcast", "/newsletter",
-            "/about", "/contact", "/search", "/archive", "/books",
-            "/regions/", "/sections/", "/graduate", "/permissions",
-            "/gift", "/audio", "/video", "/events",
-        )
-        # Known non-article domains
-        SKIP_DOMAINS = ("cfr.org", "mailto:", "javascript", "#")
-
         soup = _BS(page.content(), "html.parser")
         new_articles = []
-        if seen is None:
-            seen = set()
 
-        for a in soup.select("a[href]"):
+        for h3 in soup.select("h3"):
+            a = h3.find("a", href=True)
+            if not a:
+                # Also try: the h3 itself might be wrapped in an <a>
+                parent_a = h3.find_parent("a", href=True)
+                if parent_a:
+                    a = parent_a
+            if not a:
+                continue
+
             href = a.get("href", "")
-            if not href:
-                continue
+            title = h3.get_text(strip=True)
 
-            # Skip external links and known non-article patterns
-            if any(d in href for d in SKIP_DOMAINS):
-                continue
-            if any(href.startswith(p) for p in SKIP_PREFIXES):
-                continue
-
-            # Must be a relative path
+            # Must be a relative FA path
             if not href.startswith("/"):
                 continue
 
-            # FA article URLs have exactly 2 path segments: /category/slug
+            # Skip known non-article prefixes
+            if any(href.startswith(p) for p in self.SKIP_PREFIXES):
+                continue
+
+            # Must have at least 2 path segments
             parts = [p for p in href.split("?")[0].split("/") if p]
-            if len(parts) != 2:
+            if len(parts) < 2:
                 continue
 
-            # The article slug (second segment) must be substantial
-            slug = parts[1]
-            if len(slug) < 15 or not "-" in slug:
+            # Title must be meaningful
+            if not title or len(title) < 8:
                 continue
 
-            # Skip obvious non-article slugs
-            if slug in ("saved-articles", "my-account", "current-issue"):
-                continue
-
-            url = (self.BASE + "/" + "/".join(parts))
-            art_id = make_id(self.name, url)
+            url = self.BASE + href.split("?")[0]
+            art_id = make_id("Foreign Affairs", url)
 
             if art_id in seen:
                 continue
@@ -1043,35 +1043,9 @@ class ForeignAffairsScraper:
             if article_exists(art_id):
                 continue
 
-            # Extract title from heading near the link
-            title = ""
-            for ancestor in [a.parent,
-                             a.parent.parent if a.parent else None,
-                             a.parent.parent.parent if (a.parent and a.parent.parent) else None]:
-                if ancestor is None:
-                    continue
-                heading = ancestor.find(["h1", "h2", "h3"])
-                if heading:
-                    t = heading.get_text(strip=True)
-                    if t and len(t) > 10:
-                        title = t
-                        break
-            if not title:
-                t = a.get_text(strip=True)
-                if t and len(t) > 10 and not t.isupper():
-                    title = t
-            if not title or len(title) < 8:
-                continue
-
-            # Skip nav-like titles
-            if title in ("Current Issue", "Browse by Section", "Most Recent",
-                         "Most Read", "All Regions", "Issue Archive",
-                         "Author Directory", "Book Reviews", "Audio Articles"):
-                continue
-
             new_articles.append({
                 "id": art_id,
-                "source": self.name,
+                "source": "Foreign Affairs",
                 "url": url,
                 "title": title[:200],
                 "body": "",
@@ -1085,62 +1059,9 @@ class ForeignAffairsScraper:
                 "auto_saved": 0,
             })
 
-        log.info("FA: extracted %d new articles from %s page" % (len(new_articles), source))
+        log.info("FA: extracted %d new articles from %s page" % (len(new_articles), label))
         return new_articles
 
-    def _login(self, page):
-        """Attempt auto-login using credentials.json."""
-        try:
-            creds = load_creds()
-            fa_creds = creds.get("fa", {})
-            fa_email = fa_creds.get("email", "")
-            fa_pass  = fa_creds.get("password", "")
-            if not fa_email or not fa_pass:
-                log.warning("FA: no credentials in credentials.json")
-                return False
-
-            page.goto("https://www.foreignaffairs.com/login",
-                      wait_until="domcontentloaded", timeout=30000)
-            page.wait_for_timeout(2000)
-
-            for sel in ['input[type="email"]', '#email', 'input[name="email"]']:
-                try:
-                    loc = page.locator(sel).first
-                    if loc.is_visible(timeout=1500):
-                        loc.fill(fa_email)
-                        break
-                except Exception:
-                    continue
-
-            pass_loc = None
-            for sel in ['input[type="password"]', '#password', 'input[name="password"]']:
-                try:
-                    loc = page.locator(sel).first
-                    if loc.is_visible(timeout=1500):
-                        loc.fill(fa_pass)
-                        pass_loc = loc
-                        break
-                except Exception:
-                    continue
-
-            if pass_loc:
-                pass_loc.press("Enter")
-                page.wait_for_url(
-                    lambda u: "login" not in u and "sign-in" not in u,
-                    timeout=20000
-                )
-                log.info("FA: login successful")
-                return True
-            return False
-        except Exception as e:
-            log.warning("FA: login failed: %s" % e)
-            return False
-
-
-SCRAPERS = {"ft": FTScraper, "economist": EconomistScraper, "fa": ForeignAffairsScraper}
-
-# ── Sync state ────────────────────────────────────────────────────────────────
-sync_status = {}
 
 def run_sync(source_key):
     global sync_status

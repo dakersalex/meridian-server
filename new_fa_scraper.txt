@@ -1,0 +1,189 @@
+class ForeignAffairsScraper:
+    """Scrapes Foreign Affairs from three sources:
+    1. Saved articles page (your FA bookmarks)
+    2. Two most recent issues (dynamically discovered from /issues landing page)
+    3. Most-read page
+    Uses h3 a selector — consistent article title heading across all FA pages.
+    Deduplication via article_exists(). Cookie expires 2026-05-23."""
+
+    BASE = "https://www.foreignaffairs.com"
+    SAVED_URL = BASE + "/my-foreign-affairs/saved-articles"
+    ISSUES_URL = BASE + "/issues"
+    MOST_READ_URL = BASE + "/most-read"
+
+    SKIP_PREFIXES = (
+        "/issues/", "/topics/", "/tags/", "/my-foreign-affairs/",
+        "/account", "/login", "/subscribe", "/podcast", "/newsletter",
+        "/about", "/contact", "/search", "/archive", "/books",
+        "/regions/", "/sections/", "/graduate", "/permissions",
+        "/gift", "/audio", "/video", "/events", "/browse/",
+        "/authors/", "/staff", "/collections/",
+    )
+
+    def __init__(self, email="", password=""):
+        pass
+
+    def scrape(self):
+        if not PLAYWRIGHT_OK:
+            raise RuntimeError("playwright not installed")
+        profile_dir = BASE_DIR / "fa_profile"
+        profile_dir.mkdir(exist_ok=True)
+        articles = []
+        seen = set()
+
+        with sync_playwright() as p:
+            browser = p.chromium.launch_persistent_context(
+                str(profile_dir), headless=True,
+                user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+                args=["--disable-blink-features=AutomationControlled", "--no-sandbox"])
+            page = browser.new_page()
+            try:
+                # 1. Saved articles
+                saved = self._scrape_page(page, self.SAVED_URL, seen, "saved", requires_login=True)
+                articles.extend(saved)
+                log.info("FA: saved articles — %d new" % len(saved))
+
+                # 2. Two most recent issues (discovered dynamically)
+                issue_urls = self._discover_issues(page)
+                for issue_url in issue_urls:
+                    issue_arts = self._scrape_page(page, issue_url, seen, "issue")
+                    articles.extend(issue_arts)
+                    log.info("FA: issue %s — %d new" % (issue_url, len(issue_arts)))
+
+                # 3. Most read
+                most_read = self._scrape_page(page, self.MOST_READ_URL, seen, "most-read")
+                articles.extend(most_read)
+                log.info("FA: most-read — %d new" % len(most_read))
+
+                # Fetch full text + enrich all new articles
+                log.info("FA: %d new articles total — fetching text" % len(articles))
+                for art in articles:
+                    log.info("FA: fetching '%s'" % art["title"][:55])
+                    text, pub_date = fetch_fa_article_text(page, art["url"])
+                    if pub_date:
+                        art["pub_date"] = pub_date
+                    if text:
+                        art["body"] = text
+                        enrich_article_with_ai(art)
+                    else:
+                        art["status"] = "title_only"
+                        log.info("FA: no text for '%s'" % art["title"][:50])
+
+            except Exception as e:
+                log.error("FA error: %s" % e, exc_info=True)
+            finally:
+                browser.close()
+
+        return articles
+
+    def _discover_issues(self, page):
+        """Discover the two most recent issue URLs from the /issues landing page."""
+        try:
+            page.goto(self.ISSUES_URL, wait_until="domcontentloaded", timeout=30000)
+            page.wait_for_timeout(2000)
+            from bs4 import BeautifulSoup as _BS
+            soup = _BS(page.content(), "html.parser")
+            seen_urls = []
+            for a in soup.select("a[href]"):
+                href = a.get("href", "")
+                if "/issues/20" in href and href not in seen_urls:
+                    seen_urls.append(href)
+                if len(seen_urls) >= 2:
+                    break
+            if seen_urls:
+                log.info("FA: discovered issues: %s" % seen_urls)
+                return [self.BASE + u if u.startswith("/") else u for u in seen_urls]
+        except Exception as e:
+            log.warning("FA: issue discovery failed: %s" % e)
+        # Fallback to known recent issues
+        return [self.BASE + "/issues/2026/105/2", self.BASE + "/issues/2026/105/1"]
+
+    def _scrape_page(self, page, url, seen, label, requires_login=False):
+        """Navigate to a page and extract new FA articles using h3 a selector."""
+        try:
+            page.goto(url, wait_until="domcontentloaded", timeout=45000)
+            page.wait_for_timeout(3000)
+
+            if requires_login and ("sign-in" in page.url or "login" in page.url):
+                if not self._login(page):
+                    log.warning("FA: login failed — skipping %s" % label)
+                    return []
+                page.goto(url, wait_until="domcontentloaded", timeout=40000)
+                page.wait_for_timeout(3000)
+
+            # Scroll to load lazy content on saved/most-read pages
+            page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+            page.wait_for_timeout(1500)
+
+            return self._extract_articles(page, label, seen)
+
+        except Exception as e:
+            log.warning("FA: %s scrape failed: %s" % (label, e))
+            return []
+
+    def _extract_articles(self, page, label, seen):
+        """Extract new articles from current page using h3 a selector.
+        h3 elements are article title headings consistently across all FA pages."""
+        from bs4 import BeautifulSoup as _BS
+        soup = _BS(page.content(), "html.parser")
+        new_articles = []
+
+        for h3 in soup.select("h3"):
+            a = h3.find("a", href=True)
+            if not a:
+                # Also try: the h3 itself might be wrapped in an <a>
+                parent_a = h3.find_parent("a", href=True)
+                if parent_a:
+                    a = parent_a
+            if not a:
+                continue
+
+            href = a.get("href", "")
+            title = h3.get_text(strip=True)
+
+            # Must be a relative FA path
+            if not href.startswith("/"):
+                continue
+
+            # Skip known non-article prefixes
+            if any(href.startswith(p) for p in self.SKIP_PREFIXES):
+                continue
+
+            # Must have at least 2 path segments
+            parts = [p for p in href.split("?")[0].split("/") if p]
+            if len(parts) < 2:
+                continue
+
+            # Title must be meaningful
+            if not title or len(title) < 8:
+                continue
+
+            url = self.BASE + href.split("?")[0]
+            art_id = make_id("Foreign Affairs", url)
+
+            if art_id in seen:
+                continue
+            seen.add(art_id)
+
+            if article_exists(art_id):
+                continue
+
+            new_articles.append({
+                "id": art_id,
+                "source": "Foreign Affairs",
+                "url": url,
+                "title": title[:200],
+                "body": "",
+                "summary": "",
+                "topic": "",
+                "tags": "[]",
+                "saved_at": now_ts(),
+                "fetched_at": now_ts(),
+                "status": "fetched",
+                "pub_date": "",
+                "auto_saved": 0,
+            })
+
+        log.info("FA: extracted %d new articles from %s page" % (len(new_articles), label))
+        return new_articles
+
