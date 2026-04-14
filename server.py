@@ -892,7 +892,7 @@ class ForeignAffairsScraper:
         "/about", "/contact", "/search", "/archive", "/books",
         "/regions/", "/sections/", "/graduate", "/permissions",
         "/gift", "/audio", "/video", "/events", "/browse/",
-        "/authors/", "/staff", "/collections/",
+        "/authors/", "/staff", "/collections/", "/book-reviews/",
     )
 
     def __init__(self, email="", password=""):

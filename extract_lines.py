@@ -1,17 +1,17 @@
-with open('/Users/alexdakers/meridian-server/server.py', 'r') as f:
-    content = f.read()
+import sqlite3
 
-# Find sync_status definition
-lines = content.split('\n')
-found = []
-for i, line in enumerate(lines, 1):
-    if 'sync_status' in line and '=' in line and 'def ' not in line and '.get' not in line and 'not sync_status' not in line:
-        found.append(f"{i}: {line}")
-    if line.startswith('SCRAPERS'):
-        found.append(f"SCRAPERS at {i}: {line}")
-    if 'def run_sync' in line:
-        found.append(f"run_sync at {i}: {line}")
+db = sqlite3.connect('/Users/alexdakers/meridian-server/meridian.db')
+c = db.cursor()
 
-with open('/Users/alexdakers/meridian-server/logs/syncstatus.txt', 'w') as f:
-    f.write('\n'.join(found))
-print('\n'.join(found))
+# Preview before delete
+c.execute("SELECT id, title, url FROM articles WHERE source='Foreign Affairs' AND url LIKE '%/book-reviews/%'")
+rows = c.fetchall()
+print(f"Found {len(rows)} book-review stubs:")
+for r in rows:
+    print(f"  {r[1]} | {r[2]}")
+
+# Delete them
+c.execute("DELETE FROM articles WHERE source='Foreign Affairs' AND url LIKE '%/book-reviews/%'")
+print(f"Deleted {c.rowcount} rows")
+db.commit()
+db.close()
