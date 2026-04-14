@@ -3827,7 +3827,7 @@ async function updateActivityBar() {
       if(scoreEl) scoreEl.textContent = '–';
 
       try {
-        const resp = await fetch('/api/health-check', {
+        const resp = await fetch(SERVER+'/api/health-check', {
           method:'POST',
           headers:{'Content-Type':'application/json'},
           body: JSON.stringify({stats: statsPayload})
@@ -4176,7 +4176,7 @@ async function updateActivityBar() {
       (async()=>{
         let lastRunBySource = {};
         try {
-          const lr = await fetch('/api/sync/last-run').then(r=>r.json());
+          const lr = await fetch(SERVER+'/api/sync/last-run').then(r=>r.json());
           const keyMap = {'ft':'Financial Times','economist':'The Economist','fa':'Foreign Affairs'};
           Object.entries(lr).forEach(([k,v])=>{ if(keyMap[k]) lastRunBySource[keyMap[k]]=new Date(v).getTime(); });
         } catch(e) {}
