@@ -1063,6 +1063,9 @@ class ForeignAffairsScraper:
         return new_articles
 
 
+SCRAPERS = {"ft": FTScraper, "economist": EconomistScraper, "fa": ForeignAffairsScraper}
+sync_status = {k: {"running": False, "last_run": None, "last_error": None, "articles_found": 0, "articles_new": 0} for k in SCRAPERS}
+
 def run_sync(source_key):
     global sync_status
     if source_key not in SCRAPERS:
