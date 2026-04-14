@@ -35,57 +35,10 @@ echo "$(date): Syncing newsletters from iCloud" >> "$LOG"
 curl -s -X POST "$API/api/newsletters/sync" >> "$LOG" 2>&1
 sleep 15
 
-# Push all full_text articles from Mac DB to VPS
-# Pushes ALL full_text (no time window) so VPS stays in sync permanently.
-# The VPS push-articles endpoint skips existing records with richer content, so this is safe to run every sync.
+# Push new/updated articles to VPS (incremental — only since last_push_ts watermark).
+# Also pushes kt_meta last_sync_* timestamps unconditionally so Last Scraped stays current.
 echo "$(date): Pushing articles to VPS" >> "$LOG"
-python3 - << 'PYEOF' >> "$LOG" 2>&1
-import sqlite3, json, urllib.request, time
-
-DB = "/Users/alexdakers/meridian-server/meridian.db"
-VPS = "https://meridianreader.com/api/push-articles"
-
-conn = sqlite3.connect(DB)
-conn.row_factory = sqlite3.Row
-rows = conn.execute("""
-    SELECT id, source, url, title, body, summary, topic, tags,
-           saved_at, fetched_at, status, pub_date, auto_saved
-    FROM articles
-    WHERE status IN ('full_text', 'fetched', 'title_only', 'agent')
-    ORDER BY saved_at DESC
-""").fetchall()
-conn.close()
-
-if not rows:
-    print("push: no full_text articles to push")
-else:
-    arts = []
-    for r in rows:
-        a = dict(r)
-        try: a['tags'] = json.loads(a.get('tags') or '[]')
-        except: a['tags'] = []
-        arts.append(a)
-
-    total_upserted = 0
-    total_skipped = 0
-    batch_size = 50
-    for i in range(0, len(arts), batch_size):
-        batch = arts[i:i+batch_size]
-        payload = json.dumps({'articles': batch}).encode()
-        req = urllib.request.Request(VPS, data=payload,
-            headers={'Content-Type': 'application/json'}, method='POST')
-        try:
-            with urllib.request.urlopen(req, timeout=30) as resp:
-                result = json.loads(resp.read())
-                total_upserted += result.get('upserted', 0)
-                total_skipped += result.get('skipped', 0)
-        except Exception as e:
-            print(f"push batch error: {e}")
-        time.sleep(0.3)
-
-    print(f"push: {total_upserted} upserted, {total_skipped} skipped of {len(arts)} articles")
-PYEOF
-
+python3 /Users/alexdakers/meridian-server/vps_push.py >> "$LOG" 2>&1
 
 # Push article_images (Economist charts) from Mac DB to VPS
 echo "$(date): Pushing images to VPS" >> "$LOG"
@@ -176,7 +129,6 @@ else:
     except Exception as e:
         print(f'push-interviews error: {e}')
 IVEOF
-
 
 
 # Trigger AI pick — scrapes FT/Economist/FA recommendation feeds, Sonnet scores
