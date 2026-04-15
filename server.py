@@ -1796,6 +1796,97 @@ with open(out_path, 'w') as f:
     except Exception as _e:
         log.warning(f"AI pick: FA most-read fetch failed: {_e}")
 
+    # ── 3. Foreign Affairs /search (most recent, has pub_dates + standfirst) ──
+    FA_SEARCH = "https://www.foreignaffairs.com/search"
+    try:
+        import tempfile as _tf2, subprocess as _sp2, os as _os2
+        _fa_search_script = _tf2.NamedTemporaryFile(mode="w", suffix=".py", delete=False)
+        _fa_search_out = _tf2.NamedTemporaryFile(mode="w", suffix=".json", delete=False)
+        _fa_search_script_path = _fa_search_script.name
+        _fa_search_out_path = _fa_search_out.name
+        _fa_search_script.write("""
+import sys, json, re
+from playwright.sync_api import sync_playwright
+from bs4 import BeautifulSoup
+from pathlib import Path
+
+profile_dir = sys.argv[1]
+out_path = sys.argv[2]
+BASE = "https://www.foreignaffairs.com"
+
+MONTHS = {"January":1,"February":2,"March":3,"April":4,"May":5,"June":6,
+          "July":7,"August":8,"September":9,"October":10,"November":11,"December":12}
+
+def parse_fa_date(text):
+    m = re.search(r"(January|February|March|April|May|June|July|August|September|October|November|December) (\\d{1,2}), (\\d{4})", text)
+    if m:
+        month = MONTHS[m.group(1)]
+        return f"{m.group(3)}-{month:02d}-{int(m.group(2)):02d}"
+    return ""
+
+articles = []
+with sync_playwright() as p:
+    browser = p.chromium.launch_persistent_context(
+        profile_dir, headless=True,
+        args=["--window-position=-3000,-3000","--window-size=1280,900",
+              "--disable-blink-features=AutomationControlled","--no-sandbox"]
+    )
+    page = browser.new_page()
+    page.goto(BASE + "/search", wait_until="domcontentloaded", timeout=30000)
+    page.wait_for_timeout(3000)
+    soup = BeautifulSoup(page.content(), "html.parser")
+    seen = set()
+    for card in soup.select("[class*='card']"):
+        h3 = card.find("h3")
+        if not h3: continue
+        a = h3.find("a", href=True)
+        if not a: continue
+        href = a.get("href", "")
+        if href.startswith("https://www.foreignaffairs.com"):
+            href = href[len("https://www.foreignaffairs.com"):]
+        if not href.startswith("/"): continue
+        if any(href.startswith(p) for p in ("/issues/","/topics/","/tags/",
+               "/book-reviews/","/podcast","/browse/","/authors/")): continue
+        url = BASE + href.split("?")[0]
+        if url in seen: continue
+        seen.add(url)
+        title = h3.get_text(strip=True)
+        card_text = card.get_text(separator="|", strip=True)
+        pub_date = parse_fa_date(card_text)
+        # Standfirst: second text block in card after title
+        parts = [p.strip() for p in card_text.split("|") if p.strip() and p.strip() != title]
+        standfirst = parts[0] if parts and len(parts[0]) > 15 and not re.match(r"[A-Z][a-z]+ \\d", parts[0]) else ""
+        articles.append({"title": title, "url": url, "pub_date": pub_date,
+                          "standfirst": standfirst, "source": "Foreign Affairs"})
+    browser.close()
+
+with open(out_path, "w") as f:
+    json.dump(articles, f)
+""")
+        _fa_search_script.close()
+        _fa_search_out.close()
+        _proc2 = _sp2.run(
+            ["python3", _fa_search_script_path,
+             str(BASE_DIR / "fa_profile"), _fa_search_out_path],
+            timeout=60, capture_output=True
+        )
+        if _proc2.returncode == 0:
+            with open(_fa_search_out_path) as f:
+                _fa_search_arts = _j.load(f)
+            _fa_search_new = [a for a in _fa_search_arts
+                              if a["url"] not in _known
+                              and a["url"] not in _manual_saves]
+            candidates.extend(_fa_search_new)
+            log.info(f"AI pick: FA search — {len(_fa_search_arts)} articles, {len(_fa_search_new)} unsaved/new")
+        else:
+            log.warning(f"AI pick: FA search failed: {_proc2.stderr.decode()[:200]}")
+        try: _os2.unlink(_fa_search_script_path)
+        except: pass
+        try: _os2.unlink(_fa_search_out_path)
+        except: pass
+    except Exception as _e:
+        log.warning(f"AI pick: FA search scrape failed: {_e}")
+
     if not candidates:
         log.warning("AI pick: no candidates found from any source")
         with sqlite3.connect(DB_PATH) as _rx:

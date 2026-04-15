@@ -1,7 +1,113 @@
-import subprocess
-r = subprocess.run(
-    ['ssh', 'root@204.168.179.158',
-     "python3 -c \"import sqlite3; db=sqlite3.connect('/opt/meridian-server/meridian.db'); c=db.cursor(); c.execute(\\\"DELETE FROM articles WHERE title='Recent Books' AND source='Foreign Affairs'\\\"); db.commit(); print('deleted', c.rowcount)\""],
-    capture_output=True, text=True, timeout=15
+import ast
+
+with open('/Users/alexdakers/meridian-server/server.py', 'r') as f:
+    content = f.read()
+
+# Find the FA most-read block end and add search source after it
+old_anchor = (
+    '    if not candidates:\n'
+    '        log.warning("AI pick: no candidates found from any source")\n'
 )
-print(r.stdout + r.stderr)
+
+new_fa_search = (
+    '    # ── 3. Foreign Affairs /search (most recent, has pub_dates + standfirst) ──\n'
+    '    FA_SEARCH = "https://www.foreignaffairs.com/search"\n'
+    '    try:\n'
+    '        import tempfile as _tf2, subprocess as _sp2, os as _os2\n'
+    '        _fa_search_script = _tf2.NamedTemporaryFile(mode="w", suffix=".py", delete=False)\n'
+    '        _fa_search_out = _tf2.NamedTemporaryFile(mode="w", suffix=".json", delete=False)\n'
+    '        _fa_search_script_path = _fa_search_script.name\n'
+    '        _fa_search_out_path = _fa_search_out.name\n'
+    '        _fa_search_script.write("""\nimport sys, json, re\n'
+    'from playwright.sync_api import sync_playwright\n'
+    'from bs4 import BeautifulSoup\n'
+    'from pathlib import Path\n'
+    '\n'
+    'profile_dir = sys.argv[1]\n'
+    'out_path = sys.argv[2]\n'
+    'BASE = "https://www.foreignaffairs.com"\n'
+    '\n'
+    'MONTHS = {"January":1,"February":2,"March":3,"April":4,"May":5,"June":6,\n'
+    '          "July":7,"August":8,"September":9,"October":10,"November":11,"December":12}\n'
+    '\n'
+    'def parse_fa_date(text):\n'
+    '    m = re.search(r"(January|February|March|April|May|June|July|August|September|October|November|December) (\\\\d{1,2}), (\\\\d{4})", text)\n'
+    '    if m:\n'
+    '        month = MONTHS[m.group(1)]\n'
+    '        return f"{m.group(3)}-{month:02d}-{int(m.group(2)):02d}"\n'
+    '    return ""\n'
+    '\n'
+    'articles = []\n'
+    'with sync_playwright() as p:\n'
+    '    browser = p.chromium.launch_persistent_context(\n'
+    '        profile_dir, headless=True,\n'
+    '        args=["--window-position=-3000,-3000","--window-size=1280,900",\n'
+    '              "--disable-blink-features=AutomationControlled","--no-sandbox"]\n'
+    '    )\n'
+    '    page = browser.new_page()\n'
+    '    page.goto(BASE + "/search", wait_until="domcontentloaded", timeout=30000)\n'
+    '    page.wait_for_timeout(3000)\n'
+    '    soup = BeautifulSoup(page.content(), "html.parser")\n'
+    '    seen = set()\n'
+    '    for card in soup.select("[class*=\'card\']"):\n'
+    '        h3 = card.find("h3")\n'
+    '        if not h3: continue\n'
+    '        a = h3.find("a", href=True)\n'
+    '        if not a: continue\n'
+    '        href = a.get("href", "")\n'
+    '        if href.startswith("https://www.foreignaffairs.com"):\n'
+    '            href = href[len("https://www.foreignaffairs.com"):]\n'
+    '        if not href.startswith("/"): continue\n'
+    '        if any(href.startswith(p) for p in ("/issues/","/topics/","/tags/",\n'
+    '               "/book-reviews/","/podcast","/browse/","/authors/")): continue\n'
+    '        url = BASE + href.split("?")[0]\n'
+    '        if url in seen: continue\n'
+    '        seen.add(url)\n'
+    '        title = h3.get_text(strip=True)\n'
+    '        card_text = card.get_text(separator="|", strip=True)\n'
+    '        pub_date = parse_fa_date(card_text)\n'
+    '        # Standfirst: second text block in card after title\n'
+    '        parts = [p.strip() for p in card_text.split("|") if p.strip() and p.strip() != title]\n'
+    '        standfirst = parts[0] if parts and len(parts[0]) > 15 and not re.match(r"[A-Z][a-z]+ \\\\d", parts[0]) else ""\n'
+    '        articles.append({"title": title, "url": url, "pub_date": pub_date,\n'
+    '                          "standfirst": standfirst, "source": "Foreign Affairs"})\n'
+    '    browser.close()\n'
+    '\n'
+    'with open(out_path, "w") as f:\n'
+    '    json.dump(articles, f)\n'
+    '""")\n'
+    '        _fa_search_script.close()\n'
+    '        _fa_search_out.close()\n'
+    '        _proc2 = _sp2.run(\n'
+    '            ["python3", _fa_search_script_path,\n'
+    '             str(BASE_DIR / "fa_profile"), _fa_search_out_path],\n'
+    '            timeout=60, capture_output=True\n'
+    '        )\n'
+    '        if _proc2.returncode == 0:\n'
+    '            with open(_fa_search_out_path) as f:\n'
+    '                _fa_search_arts = _j.load(f)\n'
+    '            _fa_search_new = [a for a in _fa_search_arts\n'
+    '                              if a["url"] not in _known\n'
+    '                              and a["url"] not in _manual_saves]\n'
+    '            candidates.extend(_fa_search_new)\n'
+    '            log.info(f"AI pick: FA search — {len(_fa_search_arts)} articles, {len(_fa_search_new)} unsaved/new")\n'
+    '        else:\n'
+    '            log.warning(f"AI pick: FA search failed: {_proc2.stderr.decode()[:200]}")\n'
+    '        try: _os2.unlink(_fa_search_script_path)\n'
+    '        except: pass\n'
+    '        try: _os2.unlink(_fa_search_out_path)\n'
+    '        except: pass\n'
+    '    except Exception as _e:\n'
+    '        log.warning(f"AI pick: FA search scrape failed: {_e}")\n'
+    '\n'
+)
+
+assert old_anchor in content, "Anchor not found"
+content = content.replace(old_anchor, new_fa_search + old_anchor, 1)
+
+ast.parse(content)
+print("Syntax OK")
+
+with open('/Users/alexdakers/meridian-server/server.py', 'w') as f:
+    f.write(content)
+print("Done")
