@@ -1631,7 +1631,7 @@ def ai_pick_feed_scrape():
 
     # ── Gate: twice daily ────────────────────────────────────────────────────
     _now_h = datetime.now().hour
-    _gate_key = 'ai_pick_last_run_morning' if _now_h < 12 else 'ai_pick_last_run_midday'
+    _gate_key = 'ai_pick_last_run_morning' if _now_h < 13 else 'ai_pick_last_run_midday'
     _today = datetime.now().strftime('%Y-%m-%d')
     with sqlite3.connect(DB_PATH) as _gx:
         _gx.execute("CREATE TABLE IF NOT EXISTS kt_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
@@ -1885,7 +1885,7 @@ with open(out_path, 'w') as f:
         _art_id = make_id(_source, _url)
         log.info(f"AI pick: score={_score} [{_source}] {_title[:60]}")
 
-        if _score >= 9:
+        if _score >= 8:
             feed_articles.append({
                 "id": _art_id, "source": _source, "url": _url, "title": _title,
                 "body": "", "summary": _reason, "topic": "", "tags": "[]",
@@ -2204,7 +2204,7 @@ print(f'Scraped {{len(articles)}} articles')
         _art_id = make_id("The Economist", _url)
         log.info(f"Economist weekly: score={_score} {_title[:60]}")
 
-        if _score >= 9:
+        if _score >= 8:
             feed_articles.append({
                 "id": _art_id, "source": "The Economist", "url": _url, "title": _title,
                 "body": "", "summary": _reason, "topic": "", "tags": "[]",
