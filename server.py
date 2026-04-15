@@ -1032,6 +1032,12 @@ class ForeignAffairsScraper:
             # Title must be meaningful
             if not title or len(title) < 8:
                 continue
+            # Skip book review index pages and generic nav titles
+            if "/book-reviews/" in href:
+                continue
+            if title in ("Recent Books", "Book Reviews", "Current Issue",
+                         "Most Read", "Author Directory", "Audio Articles"):
+                continue
 
             url = self.BASE + href.split("?")[0]
             art_id = make_id("Foreign Affairs", url)
