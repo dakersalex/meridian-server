@@ -1946,7 +1946,7 @@ async function suggestFoldersForArticles(arts){
   if(folders.length===0)return;
   const fl=folders.map(f=>`"${f.name}"${f.keywords.length?' (keywords: '+f.keywords.join(', ')+')':''}`).join(', ');
   try{
-    const resp=await fetch(SERVER+'/api/claude',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:800,system:`You are a research assistant. Given articles and folders, suggest the best folder for each. Respond ONLY with JSON mapping article id to folder name or null. Available folders: ${fl}`,messages:[{role:'user',content:`Articles:\n${JSON.stringify(arts.map(a=>({id:a.id,title:a.title,source:a.source})))}`}]})});
+    const resp=await fetch(SERVER+'/api/claude',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'claude-sonnet-4-6',max_tokens:800,system:`You are a research assistant. Given articles and folders, suggest the best folder for each. Respond ONLY with JSON mapping article id to folder name or null. Available folders: ${fl}`,messages:[{role:'user',content:`Articles:\n${JSON.stringify(arts.map(a=>({id:a.id,title:a.title,source:a.source})))}`}]})});
     const data=await resp.json();const text=(data.content?.map(c=>c.text||'').join('')||'').trim();
     const suggestions=JSON.parse(text.replace(/```json|```/g,''));
     let changed=false;
@@ -2324,7 +2324,7 @@ Respond ONLY with a JSON object (no markdown):
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({
-        model:'claude-sonnet-4-20250514',
+        model:'claude-sonnet-4-6',
         max_tokens:4000,
         system:systemPrompt,
         messages:[{
@@ -2487,7 +2487,7 @@ async function submitArticle(mode){
     let messages;
     if(mode==='screenshot'&&selectedImage){messages=[{role:'user',content:[{type:'image',source:{type:'base64',media_type:selectedImage.type,data:selectedImage.data}},{type:'text',text:'Analyse this article.'}]}];}
     else{messages=[{role:'user',content:contentForAI}];}
-    const resp=await fetch(SERVER+'/api/claude',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:1000,system:sys,messages})});
+    const resp=await fetch(SERVER+'/api/claude',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'claude-sonnet-4-6',max_tokens:1000,system:sys,messages})});
     const data=await resp.json();const text=(data.content?.map(c=>c.text||'').join('')||'').trim();
     const parsed=JSON.parse(text.replace(/```json|```/g,''));
     const article={id:'local_'+Date.now(),ts:Date.now(),url:urlValue,source:parsed.source||sourceValue||'Unknown',title:parsed.title||'Untitled',summary:parsed.summary||'',fullSummary:parsed.fullSummary||'',keyPoints:parsed.keyPoints||[],tags:parsed.tags||[],topic:'',folder:''};
@@ -2816,7 +2816,7 @@ async function sendAIMessage(){
       }
     }catch(e){}
     const context=articleContext+newsletterContext+interviewContext;
-    const resp=await fetch(SERVER+'/api/claude',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:3500,system:'You are an expert intelligence analyst producing professional briefings. Structure your response EXACTLY as follows:\n\n1. EXECUTIVE SUMMARY (2-3 sentences capturing the single most important insight)\n\n2. KEY THEMES (each theme as ## Header, with bullet points, always cite [Source, Date] for every statistic or claim)\n\n3. IMPLICATIONS (2-3 bullet points on what this means going forward)\n\nALWAYS cite sources and dates. Prioritise the most recent articles. Aim for exactly 4 KEY THEMES each with 4 bullet points, and 3 IMPLICATIONS of 2-3 sentences each. Total response should be approximately 600-700 words.',messages:[{role:'user',content:'My saved articles ('+aiFiltered.length+' articles, '+dateLabel+'): '+context+' Question: '+question}]})});
+    const resp=await fetch(SERVER+'/api/claude',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'claude-sonnet-4-6',max_tokens:3500,system:'You are an expert intelligence analyst producing professional briefings. Structure your response EXACTLY as follows:\n\n1. EXECUTIVE SUMMARY (2-3 sentences capturing the single most important insight)\n\n2. KEY THEMES (each theme as ## Header, with bullet points, always cite [Source, Date] for every statistic or claim)\n\n3. IMPLICATIONS (2-3 bullet points on what this means going forward)\n\nALWAYS cite sources and dates. Prioritise the most recent articles. Aim for exactly 4 KEY THEMES each with 4 bullet points, and 3 IMPLICATIONS of 2-3 sentences each. Total response should be approximately 600-700 words.',messages:[{role:'user',content:'My saved articles ('+aiFiltered.length+' articles, '+dateLabel+'): '+context+' Question: '+question}]})});
     const data=await resp.json();
     const text=(data.content?.map(c=>c.text||'').join('')||'').trim();
     clearInterval(thinkingInterval);
@@ -3093,7 +3093,7 @@ async function autoGenerateInterviewBio(id, title, source) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-sonnet-4-6',
         max_tokens: 400,
         system: 'You are a research assistant. Write a concise speaker bio (3-4 sentences) covering: who they are, their career and key roles, and why they are a credible voice on the specific topic of this interview. Be factual and specific. No bullet points.',
         messages: [{ role: 'user', content: 'Interview title: ' + title + '\nSource: ' + source + '\n\nWrite a bio of the speaker relevant to this interview topic.' }]
@@ -3125,7 +3125,7 @@ async function generateInterviewSummary(id) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-sonnet-4-6',
         max_tokens: 1500,
         system: 'You are an expert analyst. Summarise this interview transcript into 4-6 paragraphs covering: the main argument, key claims and evidence, most important quotes or moments, and implications. Write in prose, no bullet points.',
         messages: [{ role: 'user', content: 'Interview: ' + iv.title + '\nSource: ' + iv.source + '\n\nTranscript:\n' + iv.transcript.slice(0, 12000) }]
@@ -4983,7 +4983,7 @@ async function bgGenerate() {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-sonnet-4-6',
         max_tokens: maxTokens,
         system,
         messages: [{role: 'user', content: userMsg}]
