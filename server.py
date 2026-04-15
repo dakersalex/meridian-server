@@ -918,12 +918,23 @@ class ForeignAffairsScraper:
                 articles.extend(saved)
                 log.info("FA: saved articles — %d new" % len(saved))
 
-                # 2. Two most recent issues (discovered dynamically)
-                issue_urls = self._discover_issues(page)
-                for issue_url in issue_urls:
-                    issue_arts = self._scrape_page(page, issue_url, seen, "issue")
-                    articles.extend(issue_arts)
-                    log.info("FA: issue %s — %d new" % (issue_url, len(issue_arts)))
+                # 2. Latest issue only — skip if same as last scrape
+                latest_issue = self._discover_latest_issue(page)
+                if latest_issue:
+                    with sqlite3.connect(DB_PATH) as _icx:
+                        _last_issue = _icx.execute(
+                            "SELECT value FROM kt_meta WHERE key='fa_last_issue_url'"
+                        ).fetchone()
+                    if _last_issue and _last_issue[0] == latest_issue:
+                        log.info("FA: issue unchanged (%s) — skipping" % latest_issue)
+                    else:
+                        issue_arts = self._scrape_page(page, latest_issue, seen, "issue")
+                        articles.extend(issue_arts)
+                        log.info("FA: issue %s — %d new" % (latest_issue, len(issue_arts)))
+                        with sqlite3.connect(DB_PATH) as _icx:
+                            _icx.execute(
+                                "INSERT OR REPLACE INTO kt_meta (key, value) VALUES ('fa_last_issue_url', ?)"
+                                , (latest_issue,))
 
                 # 3. Most-read handled exclusively by AI pick pipeline
                 # (avoids bypassing quality scoring gate)
@@ -949,27 +960,23 @@ class ForeignAffairsScraper:
 
         return articles
 
-    def _discover_issues(self, page):
-        """Discover the two most recent issue URLs from the /issues landing page."""
+    def _discover_latest_issue(self, page):
+        """Discover the single most recent issue URL from the /issues landing page."""
         try:
             page.goto(self.ISSUES_URL, wait_until="domcontentloaded", timeout=30000)
             page.wait_for_timeout(2000)
             from bs4 import BeautifulSoup as _BS
             soup = _BS(page.content(), "html.parser")
-            seen_urls = []
             for a in soup.select("a[href]"):
                 href = a.get("href", "")
-                if "/issues/20" in href and href not in seen_urls:
-                    seen_urls.append(href)
-                if len(seen_urls) >= 2:
-                    break
-            if seen_urls:
-                log.info("FA: discovered issues: %s" % seen_urls)
-                return [self.BASE + u if u.startswith("/") else u for u in seen_urls]
+                if "/issues/20" in href:
+                    url = self.BASE + href if href.startswith("/") else href
+                    log.info("FA: latest issue: %s" % url)
+                    return url
         except Exception as e:
             log.warning("FA: issue discovery failed: %s" % e)
-        # Fallback to known recent issues
-        return [self.BASE + "/issues/2026/105/2", self.BASE + "/issues/2026/105/1"]
+        # Fallback
+        return self.BASE + "/issues/2026/105/2"
 
     def _scrape_page(self, page, url, seen, label, requires_login=False):
         """Navigate to a page and extract new FA articles using h3 a selector."""
