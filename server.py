@@ -1944,17 +1944,23 @@ with open(out_path, "w") as f:
         "\n\nCandidate articles:\n" + _articles_list
     )
 
-    # Filter to articles published in last 36h, sort newest-first, cap at 50
+    # Filter to last 36h, then apply per-source caps for fair representation
+    # FT: up to 30 newest; FA: up to 15 newest; Economist: all (small number)
     from datetime import datetime as _dt, timezone as _tz, timedelta as _td
     _cutoff = (_dt.now(_tz.utc) - _td(hours=36)).strftime("%Y-%m-%d")
     _before = len(candidates)
     candidates = [a for a in candidates if not a.get("pub_date") or a.get("pub_date","") >= _cutoff]
     if len(candidates) < _before:
         log.info(f"AI pick: filtered {_before - len(candidates)} old candidates (older than 36h), {len(candidates)} remain")
-    candidates.sort(key=lambda a: a.get("pub_date",""), reverse=True)
-    if len(candidates) > 50:
-        candidates = candidates[:50]
-        log.info(f"AI pick: capped to 50 newest candidates")
+    def _cap_source(cands, source, limit):
+        sc = sorted([c for c in cands if c.get("source") == source],
+                    key=lambda a: a.get("pub_date",""), reverse=True)
+        return sc[:limit]
+    _ft_cands  = _cap_source(candidates, "Financial Times", 30)
+    _fa_cands  = _cap_source(candidates, "Foreign Affairs", 15)
+    _eco_cands = [c for c in candidates if c.get("source") == "The Economist"]
+    candidates = _ft_cands + _fa_cands + _eco_cands
+    log.info(f"AI pick: per-source caps — FT:{len(_ft_cands)} FA:{len(_fa_cands)} Eco:{len(_eco_cands)} total:{len(candidates)}")
     if not candidates:
         log.info("AI pick: no candidates within last 36h — nothing to score")
         with sqlite3.connect(DB_PATH) as _rx:
