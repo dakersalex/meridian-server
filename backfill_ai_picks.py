@@ -69,7 +69,7 @@ with sync_playwright() as p:
         if (window._feedTimelineTeasers) {
             return window._feedTimelineTeasers.map(a => ({
                 title: a.title || a.headline || "",
-                url: "https://www.ft.com" + (a.url || a.relativeUrl || ""),
+                url: (a.url || a.relativeUrl || "").startsWith("http") ? (a.url || a.relativeUrl || "") : "https://www.ft.com" + (a.url || a.relativeUrl || ""),
                 pub_date: a.publishedDate ? a.publishedDate.slice(0,10) : "",
                 standfirst: a.standfirst || a.summary || "",
                 is_podcast: a.indicators ? a.indicators.isPodcast : false,
