@@ -1825,10 +1825,15 @@ with open(out_path, 'w') as f:
         "\n\nCandidate articles:\n" + _articles_list
     )
 
+    # Sort newest-first, then cap at 50 to avoid token limit / timeout
+    candidates.sort(key=lambda a: a.get("pub_date",""), reverse=True)
+    if len(candidates) > 50:
+        candidates = candidates[:50]
+        log.info(f"AI pick: capped to 50 newest candidates")
     log.info(f"AI pick: calling Sonnet to score {len(candidates)} candidates...")
     _payload = _j.dumps({
         "model": "claude-sonnet-4-6",
-        "max_tokens": 2000,
+        "max_tokens": 6000,
         "messages": [{"role": "user", "content": _prompt}]
     }).encode()
     _req2 = _ur.Request(
@@ -1839,7 +1844,7 @@ with open(out_path, 'w') as f:
         method="POST"
     )
     try:
-        with _ur.urlopen(_req2, timeout=60) as _resp2:
+        with _ur.urlopen(_req2, timeout=120) as _resp2:
             _data = _j.loads(_resp2.read())
     except Exception as _e:
         log.warning(f"AI pick: Sonnet call failed: {_e}")
