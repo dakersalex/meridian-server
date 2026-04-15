@@ -2838,6 +2838,25 @@ def push_images():
     log.info(f"push-images: upserted {upserted}, skipped {skipped} of {len(images)}")
     return jsonify({"ok": True, "upserted": upserted, "skipped": skipped})
 
+
+@app.route("/api/dev/restart", methods=["POST"])
+def dev_restart():
+    """Restart Flask by spawning a new process then exiting.
+    The shell bridge survives long enough to return the response before the old process dies."""
+    import subprocess, sys, os, time, threading
+    def _restart():
+        time.sleep(0.5)
+        subprocess.Popen(
+            [sys.executable, os.path.abspath(__file__)],
+            stdout=open(os.path.join(BASE_DIR, "meridian.log"), "a"),
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+            cwd=str(BASE_DIR)
+        )
+        os._exit(0)
+    threading.Thread(target=_restart, daemon=True).start()
+    return jsonify({"ok": True, "message": "Restarting..."})
+
 @app.route("/api/dev/shell", methods=["POST"])
 def dev_shell():
     """Localhost-only shell exec for Claude automation. Never expose publicly."""
