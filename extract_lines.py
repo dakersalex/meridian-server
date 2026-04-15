@@ -1,38 +1,30 @@
-import ast
+import re
 
-with open('/Users/alexdakers/meridian-server/server.py', 'r') as f:
+with open('/Users/alexdakers/meridian-server/NOTES.md', 'r') as f:
     content = f.read()
 
-# Find the dev/shell endpoint to anchor near it
-anchor = '@app.route("/api/dev/shell"'
-assert anchor in content, "anchor not found"
+old = '''## Mac Flask
+- Restart (clean, avoids shell bridge dying): 
+  `nohup bash -c "sleep 1 && kill $(lsof -ti tcp:4242) && sleep 2 && python3 ~/meridian-server/server.py" > /dev/null 2>&1 &`
+- CRITICAL: restart after every deploy
+- launchd throttles after repeated kills — if stuck, run `python3 ~/meridian-server/server.py &` directly in Terminal
+- computer tool (Chrome MCP) cannot switch apps or open Terminal — must use shell bridge or Terminal manually'''
 
-new_endpoint = '''
-@app.route("/api/dev/restart", methods=["POST"])
-def dev_restart():
-    """Restart Flask by spawning a new process then exiting.
-    The shell bridge survives long enough to return the response before the old process dies."""
-    import subprocess, sys, os, time, threading
-    def _restart():
-        time.sleep(0.5)
-        subprocess.Popen(
-            [sys.executable, os.path.abspath(__file__)],
-            stdout=open(os.path.join(BASE_DIR, "meridian.log"), "a"),
-            stderr=subprocess.STDOUT,
-            start_new_session=True,
-            cwd=str(BASE_DIR)
-        )
-        os._exit(0)
-    threading.Thread(target=_restart, daemon=True).start()
-    return jsonify({"ok": True, "message": "Restarting..."})
+new = '''## Mac Flask
+- **Clean restart (preferred):** `POST /api/dev/restart` — Flask spawns new process and exits cleanly, shell bridge survives
+  ```js
+  fetch('http://localhost:4242/api/dev/restart', {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'})
+  ```
+- **Fallback if Flask is down:** `nohup bash -c "sleep 0.5 && lsof -ti tcp:4242 | xargs kill -9 2>/dev/null && sleep 2 && python3 ~/meridian-server/server.py" > /dev/null 2>&1 &`
+  Fire-and-forget (no await) so shell bridge survives long enough
+- **Last resort:** `python3 ~/meridian-server/server.py &` directly in Terminal
+- CRITICAL: restart after every deploy
+- launchd throttles after repeated kills in quick succession — use /api/dev/restart to avoid this
+- computer tool (Chrome MCP) is scoped to browser viewport — cannot switch to Terminal or other apps'''
 
-'''
+assert old in content, "Pattern not found"
+content = content.replace(old, new, 1)
 
-content = content.replace(anchor, new_endpoint + anchor, 1)
-
-ast.parse(content)
-print("Syntax OK")
-
-with open('/Users/alexdakers/meridian-server/server.py', 'w') as f:
+with open('/Users/alexdakers/meridian-server/NOTES.md', 'w') as f:
     f.write(content)
 print("Done")
