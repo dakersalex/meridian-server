@@ -1,17 +1,13 @@
-import sqlite3
+with open('/Users/alexdakers/meridian-server/meridian.html', 'r') as f:
+    lines = f.readlines()
 
-db = sqlite3.connect('/Users/alexdakers/meridian-server/meridian.db')
-c = db.cursor()
+results = []
+for i, line in enumerate(lines, 1):
+    if 'swim' in line.lower() or ('lane' in line.lower() and 'date' in line.lower()):
+        results.append(f"{i}: {line.rstrip()}")
+    if 'articleDate' in line or 'article_date' in line or ('pub_date' in line and 'saved_at' in line):
+        results.append(f"{i}: {line.rstrip()}")
 
-# Preview before delete
-c.execute("SELECT id, title, url FROM articles WHERE source='Foreign Affairs' AND url LIKE '%/book-reviews/%'")
-rows = c.fetchall()
-print(f"Found {len(rows)} book-review stubs:")
-for r in rows:
-    print(f"  {r[1]} | {r[2]}")
-
-# Delete them
-c.execute("DELETE FROM articles WHERE source='Foreign Affairs' AND url LIKE '%/book-reviews/%'")
-print(f"Deleted {c.rowcount} rows")
-db.commit()
-db.close()
+with open('/Users/alexdakers/meridian-server/logs/swimlane_logic.txt', 'w') as f:
+    f.write('\n'.join(results[:40]))
+print(f"Found {len(results)}")
