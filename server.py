@@ -1185,6 +1185,16 @@ def sync_all():
         enrich_fetched_articles()
         # score_and_autosave_new_articles() removed — AI picks sourced from
         # homepage scraping only, never retrospectively from saved lists.
+        # Push new articles to VPS automatically after every sync
+        try:
+            import subprocess as _sp
+            _r = _sp.run(
+                ["python3", str(BASE_DIR / "vps_push.py")],
+                capture_output=True, text=True, timeout=120
+            )
+            log.info(f"Auto VPS push after sync: {_r.stdout.strip()}")
+        except Exception as _pe:
+            log.warning(f"Auto VPS push failed: {_pe}")
     if threads:
         threading.Thread(target=_enrich_after_sync, daemon=True).start()
     return jsonify({"ok": True, "started": started})
