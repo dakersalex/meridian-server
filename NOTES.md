@@ -1,5 +1,5 @@
 # Meridian — Technical Notes
-Last updated: 15 April 2026 (Session 55 — AI pick fixes, backfill, JSON scoring overhaul)
+Last updated: 15 April 2026 (Session 55 — AI pick fixes, FA scraper overhaul, auto VPS push)
 
 ## Overview
 Personal news aggregator. Flask API + SQLite backend on Hetzner VPS (always-on).
@@ -65,12 +65,17 @@ API balance: check console.anthropic.com
 - kt_meta (last_sync_* timestamps) never pushed → "Last Scraped" always showed stale on VPS
 
 ### New behaviour
-- `vps_push.py` — standalone script, called from wake_and_sync.sh
+- `vps_push.py` — standalone script, called from wake_and_sync.sh AND automatically after every `/api/sync`
 - Reads `last_push_ts` watermark from kt_meta → only pushes articles newer than that
 - Always pushes last 48h to catch enrichment updates on recently saved articles
 - After article push, explicitly pushes `last_sync_ft/economist/fa` to VPS via `/api/push-meta`
 - Normal syncs: ~5-20 articles pushed instead of 771
 - New `/api/push-meta` endpoint on server.py (both Mac + VPS) — upserts kt_meta key-value pairs
+
+### Auto-push after every sync (Session 55)
+- `_enrich_after_sync()` in Flask now calls `vps_push.py` as subprocess after enrichment completes
+- Applies to ALL sync triggers: launchd schedule, UI "Sync all" button, direct API call
+- No more articles sitting on Mac but missing from meridianreader.com
 
 ### Last Scraped display fix
 - Bug: stats panel fetch used bare `/api/sync/last-run` (no SERVER prefix) → hit port 8080 → HTML 404
@@ -249,6 +254,7 @@ if session expired (log warning, don't hang on login page).
 2. **Economist delivery gaps** — 3 zero-days (04-08, 04-11, 04-13); check bookmarks scraper logs + session health
 3. **FT unenriched backlog** — 59 pending (includes 38 backfilled title_only articles); trigger enrichment
 4. **API credit indicator** — no programmatic endpoint; consider failure-rate proxy in stats panel
+5. **wake_and_sync.sh push redundancy** — now that Flask auto-pushes after sync, the explicit vps_push.py call in wake_and_sync.sh is redundant for articles (but still needed for newsletters/images/interviews); review and simplify
 
 ### 🔴 Priority fixes
 5. Economist scraper: add login-redirect detection — fail gracefully, don't hang
@@ -310,8 +316,19 @@ if session expired (log warning, don't hang on login page).
 - New endpoint: spawns new Flask process in detached thread, exits cleanly
 - Shell bridge gets response before old process dies → no launchd throttle loop
 
-**DB counts: ~847 articles after backfill + cleanup (FT ~286, Eco 327, FA 159, Bloomberg 45, Other 46)**
+**DB counts: ~872 articles (FT ~262, Eco 362, FA 157, Bloomberg 45, Other 46)**
 AI picks total: ~114
+
+**FA scraper overhaul (Session 55 continued)**
+- Removed most-read from regular scraper — now exclusively AI pick territory
+- Single latest issue only (was two); skips if URL unchanged via kt_meta watermark (`fa_last_issue_url`)
+- AI pick: manually saved FA articles now scored but not duplicated (`_manual_saves` set)
+- `Recent Books` and `/book-reviews/` blocked at both URL and title level
+- Deleted 2 stale "Recent Books" stubs from Mac + VPS
+
+**Auto VPS push after every sync**
+- `_enrich_after_sync()` now calls `vps_push.py` after enrichment
+- Applies to all sync triggers (launchd, UI, API) — articles appear on VPS immediately after scrape
 
 ### 14 April 2026 (Session 54)
 
