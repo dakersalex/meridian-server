@@ -1021,7 +1021,9 @@ class ForeignAffairsScraper:
             href = a.get("href", "")
             title = h3.get_text(strip=True)
 
-            # Must be a relative FA path
+            # Normalise to relative path
+            if href.startswith("https://www.foreignaffairs.com"):
+                href = href[len("https://www.foreignaffairs.com"):]
             if not href.startswith("/"):
                 continue
 
