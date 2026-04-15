@@ -925,10 +925,8 @@ class ForeignAffairsScraper:
                     articles.extend(issue_arts)
                     log.info("FA: issue %s — %d new" % (issue_url, len(issue_arts)))
 
-                # 3. Most read
-                most_read = self._scrape_page(page, self.MOST_READ_URL, seen, "most-read")
-                articles.extend(most_read)
-                log.info("FA: most-read — %d new" % len(most_read))
+                # 3. Most-read handled exclusively by AI pick pipeline
+                # (avoids bypassing quality scoring gate)
 
                 # Fetch full text + enrich all new articles
                 log.info("FA: %d new articles total — fetching text" % len(articles))
@@ -1648,9 +1646,14 @@ def ai_pick_feed_scrape():
 
     # ── Build known URLs ──────────────────────────────────────────────────────
     with sqlite3.connect(DB_PATH) as _cx:
-        _saved = set(r[0] for r in _cx.execute("SELECT url FROM articles WHERE url!=''").fetchall())
+        # All articles (for dedup) — split by manual vs AI saved
+        _all_saved = _cx.execute("SELECT url, auto_saved FROM articles WHERE url!=''").fetchall()
+        _saved = set(r[0] for r in _all_saved)  # all URLs
+        _manual_saves = set(r[0] for r in _all_saved if not r[1])  # auto_saved=0
         _suggested = set(r[0] for r in _cx.execute("SELECT url FROM suggested_articles WHERE url!=''").fetchall())
-    _known = _saved | _suggested
+    _known = _saved | _suggested  # used to skip already-AI-picked or suggested
+    # Manual saves are NOT in _known — they get scored but not duplicated
+    _known = _known - _manual_saves
 
     # ── Build interest profile ────────────────────────────────────────────────
     with sqlite3.connect(DB_PATH) as _cx:
@@ -1915,9 +1918,14 @@ with open(out_path, 'w') as f:
         if _url in _known: continue
 
         _art_id = make_id(_source, _url)
+        _already_manual = _url in _manual_saves
         log.info(f"AI pick: score={_score} [{_source}] {_title[:60]}")
 
         if _score >= 8:
+            if _already_manual:
+                # Already saved manually — don't duplicate, just log
+                log.info(f"AI pick: score={_score} — already manually saved, skipping duplicate")
+                continue
             feed_articles.append({
                 "id": _art_id, "source": _source, "url": _url, "title": _title,
                 "body": "", "summary": _reason, "topic": "", "tags": "[]",
