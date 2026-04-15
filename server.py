@@ -1820,8 +1820,8 @@ with open(out_path, 'w') as f:
         "CRITICAL: 9-10 = concrete event. A thoughtful essay = 6-7. "
         "Calibrate against the recent saves above — match that taste level.\n"
         "Use the standfirst (subtitle) where provided to improve scoring accuracy.\n"
-        "Respond ONLY with a JSON array in the same order as input, no prose, no markdown:\n"
-        '[{"score":7,"reason":"one sentence"}]'
+        "Respond ONLY with a flat JSON array of integer scores in the same order as input, no prose, no markdown:\n"
+        '[7, 4, 9, 6, 8]'
         "\n\nCandidate articles:\n" + _articles_list
     )
 
@@ -1874,7 +1874,17 @@ with open(out_path, 'w') as f:
             _text = _text.rsplit("```", 1)[0].strip()
         import re as _re2
         _m = _re2.search(r'\[[\s\S]*\]', _text)
-        _scores = _j.loads(_m.group(0)) if _m else []
+        _raw_json = _m.group(0) if _m else '[]'
+        try:
+            _scores = _j.loads(_raw_json)
+        except Exception as _je:
+            # Fallback: extract individual integers
+            log.warning(f"AI pick: JSON parse failed ({_je}), extracting integers...")
+            _scores = [int(x) for x in _re2.findall(r'\b([0-9]|10)\b', _raw_json)]
+            log.info(f"AI pick: recovered {len(_scores)} scores from raw text")
+            if not _scores:
+                log.warning(f"AI pick: score parse failed completely — raw: {_text[:200]}")
+                return [], []
     except Exception as _e:
         log.warning(f"AI pick: score parse failed: {_e} — raw: {_text[:200]}")
         return [], []
@@ -1888,8 +1898,8 @@ with open(out_path, 'w') as f:
 
     for _i, _art in enumerate(candidates):
         if _i >= len(_scores): break
-        _score = _scores[_i].get("score", 0)
-        _reason = _scores[_i].get("reason", "")
+        _score = _scores[_i] if isinstance(_scores[_i], int) else _scores[_i].get("score", 0)
+        _reason = ""
         _source = _art["source"]
         _url = _art["url"]
         _title = _art["title"]
