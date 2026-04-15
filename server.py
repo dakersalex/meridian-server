@@ -1825,11 +1825,22 @@ with open(out_path, 'w') as f:
         "\n\nCandidate articles:\n" + _articles_list
     )
 
-    # Sort newest-first, then cap at 50 to avoid token limit / timeout
+    # Filter to articles published in last 36h, sort newest-first, cap at 50
+    from datetime import datetime as _dt, timezone as _tz, timedelta as _td
+    _cutoff = (_dt.now(_tz.utc) - _td(hours=36)).strftime("%Y-%m-%d")
+    _before = len(candidates)
+    candidates = [a for a in candidates if not a.get("pub_date") or a.get("pub_date","") >= _cutoff]
+    if len(candidates) < _before:
+        log.info(f"AI pick: filtered {_before - len(candidates)} old candidates (older than 36h), {len(candidates)} remain")
     candidates.sort(key=lambda a: a.get("pub_date",""), reverse=True)
     if len(candidates) > 50:
         candidates = candidates[:50]
         log.info(f"AI pick: capped to 50 newest candidates")
+    if not candidates:
+        log.info("AI pick: no candidates within last 36h — nothing to score")
+        with sqlite3.connect(DB_PATH) as _rx:
+            _rx.execute("INSERT OR REPLACE INTO kt_meta (key, value) VALUES (?, ?)", (_gate_key, _today))
+        return [], []
     log.info(f"AI pick: calling Sonnet to score {len(candidates)} candidates...")
     _payload = _j.dumps({
         "model": "claude-sonnet-4-6",
