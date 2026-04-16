@@ -1898,6 +1898,20 @@ with open(out_path, "w") as f:
         log.warning("AI pick: no API key")
         return [], []
 
+    # Filter to last 36h FIRST — prompt must be built from filtered candidates
+    from datetime import datetime as _dt, timezone as _tz, timedelta as _td
+    _cutoff = (_dt.now(_tz.utc) - _td(hours=36)).strftime("%Y-%m-%d")
+    _before = len(candidates)
+    candidates = [a for a in candidates if not a.get("pub_date") or a.get("pub_date","") >= _cutoff]
+    if len(candidates) < _before:
+        log.info(f"AI pick: filtered {_before - len(candidates)} old candidates (>36h), {len(candidates)} remain")
+    if not candidates:
+        log.info("AI pick: no candidates within 36h — nothing to score")
+        with sqlite3.connect(DB_PATH) as _rx:
+            _rx.execute("INSERT OR REPLACE INTO kt_meta (key, value) VALUES (?, ?)", (_gate_key, _today))
+        return [], []
+
+    # Build prompt AFTER filter — so len(candidates) and articles_list are in sync
     _articles_list = _j.dumps([
         {"title": a["title"], "url": a["url"], "source": a["source"],
          "standfirst": a.get("standfirst", "")}
@@ -1924,19 +1938,6 @@ with open(out_path, "w") as f:
         + "\n\nCandidate articles:\n" + _articles_list
     )
 
-    # Filter to last 36h — no pre-scoring cap
-    # Removed per-source caps: risk of dropping high-scoring articles outweighs latency benefit
-    from datetime import datetime as _dt, timezone as _tz, timedelta as _td
-    _cutoff = (_dt.now(_tz.utc) - _td(hours=36)).strftime("%Y-%m-%d")
-    _before = len(candidates)
-    candidates = [a for a in candidates if not a.get("pub_date") or a.get("pub_date","") >= _cutoff]
-    if len(candidates) < _before:
-        log.info(f"AI pick: filtered {_before - len(candidates)} old candidates (>36h), {len(candidates)} remain")
-    if not candidates:
-        log.info("AI pick: no candidates within 36h — nothing to score")
-        with sqlite3.connect(DB_PATH) as _rx:
-            _rx.execute("INSERT OR REPLACE INTO kt_meta (key, value) VALUES (?, ?)", (_gate_key, _today))
-        return [], []
     log.info(f"AI pick: calling Sonnet to score {len(candidates)} candidates...")
     _payload = _j.dumps({
         "model": "claude-sonnet-4-6",
