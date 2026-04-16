@@ -1,37 +1,35 @@
-import ast, re
+import ast
 
 with open('/Users/alexdakers/meridian-server/server.py', 'r') as f:
     content = f.read()
 
-old_cap = re.search(
-    r'    # Filter to last 36h, then apply per-source caps.*?if not candidates:\n        log\.info\("AI pick: no candidates within last 36h — nothing to score"\)\n        with sqlite3\.connect\(DB_PATH\) as _rx:\n            _rx\.execute\("INSERT OR REPLACE INTO kt_meta \(key, value\) VALUES \(\?, \?\)", \(_gate_key, _today\)\)\n        return \[\], \[\]\n',
-    content, re.DOTALL
+# Fix 1: Update the prompt to use dynamic N and tighter max_tokens
+old_prompt_end = (
+    '        "Respond ONLY with a flat JSON array of integer scores in the same order as input, no prose, no markdown:\\n"\n'
+    '        \'[7, 4, 9, 6, 8]\'\n'
+    '        "\\n\\nCandidate articles:\\n" + _articles_list\n'
+    '    )\n'
 )
+new_prompt_end = (
+    '        f"Respond ONLY with a flat JSON array of EXACTLY {len(candidates)} integers in the same order as input, no prose, no markdown:\\n"\n'
+    '        + "[" + ", ".join(["7","4","9","6","8"][:len(candidates)]) + "]"\n'
+    '        + "\\n\\nCandidate articles:\\n" + _articles_list\n'
+    '    )\n'
+)
+assert old_prompt_end in content, "Prompt end not found"
+content = content.replace(old_prompt_end, new_prompt_end, 1)
+print("Fix 1 (dynamic N in prompt): applied")
 
-if not old_cap:
-    print("Pattern not found — trying simpler match")
-    # Show what's around that area
-    idx = content.find('# Filter to last 36h, then apply per-source caps')
-    print(repr(content[idx:idx+800]))
-else:
-    new_cap = (
-        '    # Filter to last 36h — no pre-scoring cap\n'
-        '    # Removed per-source caps: risk of dropping high-scoring articles outweighs latency benefit\n'
-        '    from datetime import datetime as _dt, timezone as _tz, timedelta as _td\n'
-        '    _cutoff = (_dt.now(_tz.utc) - _td(hours=36)).strftime("%Y-%m-%d")\n'
-        '    _before = len(candidates)\n'
-        '    candidates = [a for a in candidates if not a.get("pub_date") or a.get("pub_date","") >= _cutoff]\n'
-        '    if len(candidates) < _before:\n'
-        '        log.info(f"AI pick: filtered {_before - len(candidates)} old candidates (>36h), {len(candidates)} remain")\n'
-        '    if not candidates:\n'
-        '        log.info("AI pick: no candidates within 36h — nothing to score")\n'
-        '        with sqlite3.connect(DB_PATH) as _rx:\n'
-        '            _rx.execute("INSERT OR REPLACE INTO kt_meta (key, value) VALUES (?, ?)", (_gate_key, _today))\n'
-        '        return [], []\n'
-    )
-    content = content[:old_cap.start()] + new_cap + content[old_cap.end():]
-    ast.parse(content)
-    print("Syntax OK")
-    with open('/Users/alexdakers/meridian-server/server.py', 'w') as f:
-        f.write(content)
-    print("Done")
+# Fix 2: Tighten max_tokens — each score is ~2-3 tokens, 65 candidates max = ~200 tokens
+old_tokens = '"max_tokens": 6000,\n        "messages": [{"role": "user", "content": _prompt}]\n    }).encode()\n    _req2 = _ur.Request(\n        "https://api.anthropic.com/v1/messages",'
+new_tokens = '"max_tokens": 500,\n        "messages": [{"role": "user", "content": _prompt}]\n    }).encode()\n    _req2 = _ur.Request(\n        "https://api.anthropic.com/v1/messages",'
+assert old_tokens in content, "max_tokens not found"
+content = content.replace(old_tokens, new_tokens, 1)
+print("Fix 2 (max_tokens 6000->500): applied")
+
+ast.parse(content)
+print("Syntax OK")
+
+with open('/Users/alexdakers/meridian-server/server.py', 'w') as f:
+    f.write(content)
+print("Done")

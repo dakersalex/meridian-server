@@ -1919,9 +1919,9 @@ with open(out_path, "w") as f:
         "CRITICAL: 9-10 = concrete event. A thoughtful essay = 6-7. "
         "Calibrate against the recent saves above — match that taste level.\n"
         "Use the standfirst (subtitle) where provided to improve scoring accuracy.\n"
-        "Respond ONLY with a flat JSON array of integer scores in the same order as input, no prose, no markdown:\n"
-        '[7, 4, 9, 6, 8]'
-        "\n\nCandidate articles:\n" + _articles_list
+        f"Respond ONLY with a flat JSON array of EXACTLY {len(candidates)} integers in the same order as input, no prose, no markdown:\n"
+        + "[" + ", ".join(["7","4","9","6","8"][:len(candidates)]) + "]"
+        + "\n\nCandidate articles:\n" + _articles_list
     )
 
     # Filter to last 36h — no pre-scoring cap
@@ -1940,7 +1940,7 @@ with open(out_path, "w") as f:
     log.info(f"AI pick: calling Sonnet to score {len(candidates)} candidates...")
     _payload = _j.dumps({
         "model": "claude-sonnet-4-6",
-        "max_tokens": 6000,
+        "max_tokens": 500,
         "messages": [{"role": "user", "content": _prompt}]
     }).encode()
     _req2 = _ur.Request(
