@@ -1774,27 +1774,7 @@ with open(out_path, 'w') as f:
     except Exception as _e:
         log.warning(f"AI pick: FT feed scrape failed: {_e}")
 
-    # ── 2. Foreign Affairs most-read (public, plain HTTP) ────────────────────
-    FA_MOST_READ = "https://www.foreignaffairs.com/most-read"
-    try:
-        _req = _ur.Request(FA_MOST_READ, headers={"User-Agent": "Mozilla/5.0"})
-        with _ur.urlopen(_req, timeout=15) as _resp:
-            _html = _resp.read().decode("utf-8", errors="ignore")
-        import re as _re
-        _fa_links = _re.findall(r'href="(/articles/[^"]+)"[^>]*>\s*([^<]{15,})<', _html)
-        _fa_seen = set()
-        for _path, _title in _fa_links:
-            _url = "https://www.foreignaffairs.com" + _path.split("?")[0]
-            _title = _title.strip()
-            if _url not in _known and _url not in _fa_seen and len(_title) > 15:
-                candidates.append({
-                    "title": _title, "url": _url, "source": "Foreign Affairs",
-                    "pub_date": "", "standfirst": "", "is_opinion": False, "is_podcast": False
-                })
-                _fa_seen.add(_url)
-        log.info(f"AI pick: FA most-read — {len(_fa_seen)} new candidates")
-    except Exception as _e:
-        log.warning(f"AI pick: FA most-read fetch failed: {_e}")
+    # FA most-read removed — superseded by /search (pub_dates + standfirst)
 
     # ── 3. Foreign Affairs /search (most recent, has pub_dates + standfirst) ──
     FA_SEARCH = "https://www.foreignaffairs.com/search"
