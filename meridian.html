@@ -3207,7 +3207,7 @@ async function renderSuggested(autoRefreshCheck) {
         : '';
       const saveBtn = alreadySaved
         ? '<span style="font-size:11px;padding:4px 10px;color:var(--green);font-weight:500">✓ In Feed</span>'
-        : '<button onclick="saveFromSuggested(' + a.id + ',\'' + a.url.replace(/'/g,"\\'") + '\',\'' + a.title.replace(/'/g,"\\'") + '\',\'' + a.source + '\')" class="btn btn-dark" style="font-size:11px;padding:4px 10px" id="save-sug-' + a.id + '">+ Save to Feed</button>';
+        : '<button onclick="saveFromSuggested(' + a.id + ',\'' + a.url.replace(/'/g,"\\'") + '\',\'' + a.title.replace(/'/g,"\\'") + '\',\'' + a.source + '\')" class="btn btn-outline" style="font-size:11px;padding:4px 10px;color:var(--accent);border-color:var(--accent);font-weight:600" id="save-sug-' + a.id + '">+ Save to Feed</button>';
       const dismissBtn = a.status !== 'dismissed'
         ? '<button onclick="dismissSuggested(' + a.id + ')" class="btn btn-outline" style="font-size:11px;padding:4px 10px;color:var(--ink-3)">✕ Dismiss</button>'
         : '';
