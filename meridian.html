@@ -3212,7 +3212,7 @@ async function renderSuggested(autoRefreshCheck) {
         ? '<button onclick="dismissSuggested(' + a.id + ')" class="btn btn-outline" style="font-size:11px;padding:4px 10px;color:var(--ink-3)">✕ Dismiss</button>'
         : '';
       const cardOpacity = a.status === 'dismissed' ? '0.45' : '1';
-      return '<div class="' + (isFirst ? 'featured-card' : 'article-card') + '" style="position:relative;padding-top:14px;opacity:' + cardOpacity + '" id="sug-card-' + a.id + '">'
+      return '<div class="' + (isFirst ? 'featured-card' : 'article-card') + '" style="position:relative;padding-top:14px;padding-bottom:14px;opacity:' + cardOpacity + '" id="sug-card-' + a.id + '">'
         + '<div style="display:flex;align-items:flex-start;gap:10px">'
         + '<input type="checkbox" style="margin-top:4px;flex-shrink:0;cursor:pointer" onchange="toggleSuggestedCheck(' + a.id + ',this.checked)" id="sug-chk-' + a.id + '">'
         + '<div style="flex:1">'
