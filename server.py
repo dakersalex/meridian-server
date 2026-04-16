@@ -2009,7 +2009,8 @@ with open(out_path, "w") as f:
         _already_manual = _url in _manual_saves
         log.info(f"AI pick: score={_score} [{_source}] {_title[:60]}")
 
-        if _score >= 8:
+        _feed_threshold = 7 if _source == "Foreign Affairs" else 8
+        if _score >= _feed_threshold:
             if _already_manual:
                 # Already saved manually — don't duplicate, just log
                 log.info(f"AI pick: score={_score} — already manually saved, skipping duplicate")
@@ -2020,7 +2021,7 @@ with open(out_path, "w") as f:
                 "saved_at": now_ts(), "fetched_at": now_ts(),
                 "status": "title_only", "pub_date": _pub_date, "auto_saved": 1
             })
-        elif _score >= 6:
+        elif _score >= 6 and _score < _feed_threshold:
             suggested_out.append({
                 "title": _title, "url": _url, "source": _source,
                 "score": _score, "reason": _reason, "pub_date": _pub_date
