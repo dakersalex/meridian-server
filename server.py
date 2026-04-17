@@ -2086,305 +2086,191 @@ def scrape_suggested_articles():
     return suggested
 
 def ai_pick_economist_weekly():
-    """Scrape The Economist weekly edition page via CDP and score with Sonnet.
-    Runs once per edition (Thursday evening, keyed by edition date).
-    Uses eco_chrome_profile via CDP — same approach as eco_scraper_sub.py.
+    """Scrape The Economist weekly editions via CDP and score with Sonnet.
 
-    Gate key: ai_pick_economist_weekly_YYYY-MM-DD (edition date = following Saturday).
-    Scheduled: 22:00 UTC Thursdays.
+    Sources: /weeklyedition/archive -> 2 most recent edition URLs -> all articles.
+    Scores ALL articles (not just unsaved) so we always have enough candidates.
+    Gate: per-edition key in kt_meta so each edition is only scored once.
+    Scheduled: 22:00 UTC Thursdays. Can be triggered manually anytime.
     """
     import json as _j
-    import urllib.request as _ur
     import subprocess as _sp
     import tempfile as _tf
     import os as _os
-    import time as _t
-
-    # ── Calculate current edition date ───────────────────────────────────────
-    # Economist releases Thursday ~21:00 UTC, dated to FOLLOWING Saturday.
-    # Logic: if today is Thu after 20:00 UTC, Fri, or Sat -> this coming Saturday
-    #        otherwise -> last Saturday (edition already out)
-    from datetime import date, timedelta
-    from datetime import datetime as _dt
-    _today = date.today()
-    _now_utc = _dt.utcnow()
-    _weekday = _today.weekday()  # 0=Mon, 3=Thu, 4=Fri, 5=Sat, 6=Sun
-    # Days since last Saturday
-    _days_since_sat = (_weekday - 5) % 7
-    _last_sat = _today - timedelta(days=_days_since_sat)
-    # Days to next Saturday
-    _days_to_next_sat = (5 - _weekday) % 7 or 7
-    _next_sat = _today + timedelta(days=_days_to_next_sat)
-    # Use next Saturday if: today is Thursday after 20:00 UTC, Friday, or Saturday
-    if (_weekday == 3 and _now_utc.hour >= 20) or _weekday == 4 or _weekday == 5:
-        _edition_date = _next_sat
-    else:
-        _edition_date = _last_sat
-    _edition_str = _edition_date.strftime('%Y-%m-%d')
-    _gate_key = f"ai_pick_economist_weekly_{_edition_str}"
-    _edition_url = f"https://www.economist.com/weeklyedition/{_edition_str}"
-
-    log.info(f"Economist weekly: edition {_edition_str}, url={_edition_url}")
-
-    # ── Gate: once per edition ────────────────────────────────────────────────
-    with sqlite3.connect(DB_PATH) as _gx:
-        _gx.execute("CREATE TABLE IF NOT EXISTS kt_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
-        _last = _gx.execute("SELECT value FROM kt_meta WHERE key=?", (_gate_key,)).fetchone()
-    if _last:
-        log.info(f"Economist weekly: already ran for edition {_edition_str} — skipping")
-        return [], []
+    import re as _re
+    import hashlib as _hh
 
     # ── Build taste profile ───────────────────────────────────────────────────
     with sqlite3.connect(DB_PATH) as _cx:
-        _ft_row = _cx.execute("SELECT value FROM kt_meta WHERE key='ai_pick_followed_topics'").fetchone()
-        _tt_row = _cx.execute("SELECT value FROM kt_meta WHERE key='ai_pick_taste_titles'").fetchone()
-        _known_urls = set(r[0] for r in _cx.execute("SELECT url FROM articles WHERE url!=''").fetchall())
-        _sug_urls = set(r[0] for r in _cx.execute("SELECT url FROM suggested_articles WHERE url!=''").fetchall())
-    _known = _known_urls | _sug_urls
-    _followed = _j.loads(_ft_row[0]) if _ft_row else []
-    _taste = _j.loads(_tt_row[0]) if _tt_row else []
+        _ft_row  = _cx.execute("SELECT value FROM kt_meta WHERE key='ai_pick_followed_topics'").fetchone()
+        _tt_row  = _cx.execute("SELECT value FROM kt_meta WHERE key='ai_pick_taste_titles'").fetchone()
+        _known   = set(r[0] for r in _cx.execute("SELECT url FROM articles WHERE url!=''").fetchall())
+        _known  |= set(r[0] for r in _cx.execute("SELECT url FROM suggested_articles WHERE url!=''").fetchall())
+    _followed   = _j.loads(_ft_row[0]) if _ft_row else []
+    _taste      = _j.loads(_tt_row[0]) if _tt_row else []
     _topics_str = ", ".join(_followed) if _followed else "geopolitics, economics, finance, markets"
-    _taste_str = "\n".join(f"- {t}" for t in _taste[:50])
+    _taste_str  = "\n".join(f"- {t}" for t in _taste[:50])
 
-    # ── Scrape weekly edition via CDP subprocess ──────────────────────────────
+    # ── CDP scrape subprocess ─────────────────────────────────────────────────
     _profile = str(BASE_DIR / "eco_chrome_profile")
-    _lock = BASE_DIR / "eco_chrome_profile" / "SingletonLock"
-    if _lock.exists():
-        _lock.unlink()
+    _lock    = BASE_DIR / "eco_chrome_profile" / "SingletonLock"
+    if _lock.exists(): _lock.unlink()
 
-    _scrape_script = _tf.NamedTemporaryFile(mode='w', suffix='.py', delete=False, dir='/tmp')
-    _scrape_out = _tf.NamedTemporaryFile(mode='w', suffix='.json', delete=False, dir='/tmp')
-    _scrape_script_path = _scrape_script.name
-    _scrape_out_path = _scrape_out.name
+    _out = _tf.NamedTemporaryFile(mode='w', suffix='.json', delete=False, dir='/tmp')
+    _out_path = _out.name
+    _out.close()
 
-    _scrape_script.write(f"""
-import json, subprocess, time, os, sys
-from playwright.sync_api import sync_playwright
+    # Write the subprocess script
+    _sub_path = str(BASE_DIR / "eco_weekly_sub.py")
 
-PROFILE = sys.argv[1]
-URL = sys.argv[2]
-OUT = sys.argv[3]
-PORT = 9224
+    _proc = _sp.run(
+        ["python3", _sub_path, _profile, _out_path],
+        timeout=180, capture_output=True, text=True
+    )
+    log.info("Economist weekly scrape stderr: " + _proc.stderr[-600:])
 
-lock = os.path.join(PROFILE, 'SingletonLock')
-if os.path.exists(lock): os.remove(lock)
-
-chrome = subprocess.Popen([
-    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-    f'--remote-debugging-port={{PORT}}',
-    f'--user-data-dir={{PROFILE}}',
-    '--no-first-run', '--no-default-browser-check',
-    '--window-position=-3000,-3000', '--window-size=1280,900',
-], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-time.sleep(4)
-
-articles = []
-try:
-    with sync_playwright() as pw:
-        browser = pw.chromium.connect_over_cdp(f'http://localhost:{{PORT}}')
-        context = browser.contexts[0] if browser.contexts else browser.new_context()
-        page = context.new_page()
-        page.goto(URL, wait_until='domcontentloaded', timeout=30000)
-        page.wait_for_timeout(4000)
-
-        title = page.title()
-        if 'moment' in title.lower() or 'login' in page.url.lower():
-            print(f'BLOCKED: {{title}}', file=sys.stderr)
-        else:
-            articles = page.evaluate('''() => {{
-                const results = [];
-                const seen = new Set();
-                document.querySelectorAll('a[href*="/2026/"], a[href*="/2025/"]').forEach(a => {{
-                    const url = a.href.split('?')[0];
-                    const text = a.innerText.trim();
-                    if (text.length > 15 && !seen.has(url) &&
-                        !url.includes('/weeklyedition') && !url.includes('/for-you')) {{
-                        seen.add(url);
-                        // Walk up DOM to find standfirst <p>
-                        let el = a.parentElement;
-                        let standfirst = '';
-                        for (let i = 0; i < 8; i++) {{
-                            if (!el) break;
-                            const ps = el.querySelectorAll('p');
-                            for (const p of ps) {{
-                                const t = p.innerText.trim();
-                                if (t.length > 20 && t.length < 200) {{
-                                    standfirst = t;
-                                    break;
-                                }}
-                            }}
-                            if (standfirst) break;
-                            el = el.parentElement;
-                        }}
-                        results.push({{title: text, url, standfirst}});
-                    }}
-                }});
-                return results;
-            }}''')
-        browser.close()
-finally:
-    chrome.terminate()
-
-with open(OUT, 'w') as f:
-    json.dump(articles, f)
-print(f'Scraped {{len(articles)}} articles')
-""")
-    _scrape_script.close()
-    _scrape_out.close()
+    if _proc.returncode != 0:
+        log.error("Economist weekly scrape failed: " + _proc.stderr[-300:])
+        with sqlite3.connect(DB_PATH) as _cx:
+            _cx.execute("INSERT OR REPLACE INTO kt_meta (key,value) VALUES (?,?)",
+                       ("eco_cdp_status", "DOWN:" + datetime.now().strftime("%Y-%m-%d %H:%M")))
+        return [], []
 
     try:
-        _proc = _sp.run(
-            ["python3", _scrape_script_path, _profile, _edition_url, _scrape_out_path],
-            timeout=90, capture_output=True
-        )
-        if _proc.returncode != 0:
-            log.warning(f"Economist weekly: scrape failed: {_proc.stderr.decode()[:200]}")
-            return [], []
-        with open(_scrape_out_path) as f:
-            _raw_articles = _j.load(f)
-        log.info(f"Economist weekly: scraped {len(_raw_articles)} articles from {_edition_str}")
-    except Exception as _e:
-        log.warning(f"Economist weekly: scrape error: {_e}")
+        _result = _j.loads(open(_out_path).read())
+    except Exception as e:
+        log.error(f"Economist weekly JSON parse error: {e}")
         return [], []
     finally:
-        try: _os.unlink(_scrape_script_path)
-        except: pass
-        try: _os.unlink(_scrape_out_path)
+        try: _os.unlink(_out_path)
         except: pass
 
-    # Filter out already known, exclude cartoons/letters/indicators
-    EXCLUDE = ['cartoon', 'letters', 'economic-and-financial-indicators',
-               'the-world-this-week', 'interactive']
-    candidates = [
-        a for a in _raw_articles
-        if a['url'] not in _known
-        and not any(e in a['url'] for e in EXCLUDE)
-        and len(a['title']) > 15
-    ]
-    log.info(f"Economist weekly: {len(candidates)} new candidates after filtering")
+    _edition_urls = _result.get("edition_urls", [])
+    _all_candidates = _result.get("articles", [])
+    log.info(f"Economist weekly: {len(_all_candidates)} candidates from editions: {_edition_urls}")
 
-    if not candidates:
-        log.info("Economist weekly: no new candidates")
-        with sqlite3.connect(DB_PATH) as _rx:
-            _rx.execute("INSERT OR REPLACE INTO kt_meta (key, value) VALUES (?, ?)", (_gate_key, _edition_str))
+    if not _all_candidates:
+        log.info("Economist weekly: no candidates found")
         return [], []
 
-    # ── Sonnet scoring ────────────────────────────────────────────────────────
-    _api_key = load_creds().get("anthropic_api_key", "")
-    if not _api_key:
-        log.warning("Economist weekly: no API key")
-        return [], []
+    with sqlite3.connect(DB_PATH) as _cx:
+        _cx.execute("INSERT OR REPLACE INTO kt_meta (key,value) VALUES (?,?)",
+                   ("eco_cdp_status", "OK:" + datetime.now().strftime("%Y-%m-%d %H:%M")))
 
-    _articles_list = _j.dumps([
-        {"title": a["title"], "url": a["url"],
-         "standfirst": a.get("standfirst", ""), "source": "The Economist"}
-        for a in candidates
-    ])
+    _feed_articles = []
+    _suggested_out = []
 
-    _prompt = (
-        "You are scoring articles from The Economist weekly print edition for a senior intelligence analyst.\n"
-        "FOLLOWED TOPICS: " + _topics_str + ".\n\n"
-        + ("RECENT SAVES (use to calibrate taste):\n" + _taste_str + "\n\n" if _taste_str else "")
-        + "Score each article 0-10. Use the standfirst (subtitle) where provided to help score.\n"
-        "9-10: CONCRETE BREAKING DEVELOPMENT — war, sanctions, central bank decision, "
-        "major diplomatic event, energy crisis, market shock.\n"
-        "7-8: High-quality analysis — geopolitics, economic policy, markets, "
-        "AI with real-world impact, trade war, finance.\n"
-        "6: Relevant and interesting — quality essays, AI and society, analysis on followed topics.\n"
-        "0-5: Not relevant — lifestyle, sport, obituary (unless major figure), science unrelated to interests.\n"
-        "CRITICAL: 9-10 = concrete event. A thoughtful essay = 6-7.\n"
-        "Respond ONLY with a JSON array in the same order as input, no prose, no markdown:\n"
-        '[{"score":8,"reason":"one sentence"}]'
-        "\n\nArticles:\n" + _articles_list
-    )
+    for _edition_url in _edition_urls:
+        _m = _re.search(r'weeklyedition/([0-9-]+)', _edition_url)
+        _edition_str = _m.group(1) if _m else _edition_url
+        _gate_key = f"ai_pick_economist_weekly_{_edition_str}"
 
-    log.info(f"Economist weekly: calling Sonnet to score {len(candidates)} articles...")
-    _payload = _j.dumps({
-        "model": "claude-sonnet-4-6",
-        "max_tokens": 2000,
-        "messages": [{"role": "user", "content": _prompt}]
-    }).encode()
-    _req = _ur.Request(
-        "https://api.anthropic.com/v1/messages",
-        data=_payload,
-        headers={"Content-Type": "application/json", "x-api-key": _api_key,
-                 "anthropic-version": "2023-06-01"},
-        method="POST"
-    )
-    try:
-        with _ur.urlopen(_req, timeout=60) as _resp:
-            _data = _j.loads(_resp.read())
-    except Exception as _e:
-        log.warning(f"Economist weekly: Sonnet call failed: {_e}")
-        return [], []
+        with sqlite3.connect(DB_PATH) as _gx:
+            _gx.execute("CREATE TABLE IF NOT EXISTS kt_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+            _already = _gx.execute("SELECT value FROM kt_meta WHERE key=?", (_gate_key,)).fetchone()
+        if _already:
+            log.info(f"Economist weekly: already scored edition {_edition_str} — skipping")
+            continue
 
-    _text = "".join(b.get("text","") for b in _data.get("content",[]) if b.get("type")=="text")
-    try:
-        _text = _text.strip()
-        if "```" in _text:
-            _text = _text.split("```",2)[1]
-            if _text.startswith("json"): _text = _text[4:]
-            _text = _text.rsplit("```",1)[0].strip()
-        import re as _re
-        _m = _re.search(r'\[[\s\S]*\]', _text)
-        _scores = _j.loads(_m.group(0)) if _m else []
-    except Exception as _e:
-        log.warning(f"Economist weekly: score parse failed: {_e}")
-        return [], []
+        _edition_candidates = [c for c in _all_candidates if c.get("edition") == _edition_str]
+        log.info(f"Economist weekly: scoring {len(_edition_candidates)} candidates for {_edition_str}")
+        if not _edition_candidates:
+            continue
 
-    log.info(f"Economist weekly: Sonnet returned {len(_scores)} scores")
+        # ── Score with Haiku ──────────────────────────────────────────────────
+        _prompt_lines = []
+        for _i, _c in enumerate(_edition_candidates):
+            _sf = f" — {_c['standfirst']}" if _c.get("standfirst") else ""
+            _tag = "★ " if _c.get("url") in _known else ""
+            _prompt_lines.append(f"{_i}: {_tag}{_c['title']}{_sf}")
 
-    # ── Route by score ────────────────────────────────────────────────────────
-    feed_articles = []
-    suggested_out = []
+        _prompt = f"""You are scoring Economist articles for an analyst interested in: {_topics_str}.
 
-    for _i, _art in enumerate(candidates):
-        if _i >= len(_scores): break
-        _score = _scores[_i].get("score", 0)
-        _reason = _scores[_i].get("reason", "")
-        _url = _art["url"]
-        _title = _art["title"]
-        _art_id = make_id("The Economist", _url)
-        log.info(f"Economist weekly: score={_score} {_title[:60]}")
+Recent saves (taste profile):
+{_taste_str}
 
-        if _score >= 8:
-            feed_articles.append({
-                "id": _art_id, "source": "The Economist", "url": _url, "title": _title,
-                "body": "", "summary": _reason, "topic": "", "tags": "[]",
-                "saved_at": now_ts(), "fetched_at": now_ts(),
-                "status": "title_only", "pub_date": _edition_str, "auto_saved": 1
-            })
-        elif _score >= 6:
-            suggested_out.append({
-                "title": _title, "url": _url, "source": "The Economist",
-                "score": _score, "reason": _reason, "pub_date": _edition_str
-            })
+Score each article 1-10 based on relevance. ★ = already saved (still score it).
 
-    # ── Save to DB ────────────────────────────────────────────────────────────
-    if feed_articles:
-        with sqlite3.connect(DB_PATH) as _cx:
-            for _fp in feed_articles:
-                if not article_exists(_fp["id"]):
-                    _cx.execute(
-                        'INSERT OR IGNORE INTO articles '
-                        '(id,source,url,title,body,summary,topic,tags,saved_at,fetched_at,status,pub_date,auto_saved) '
-                        'VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
-                        (_fp["id"],_fp["source"],_fp["url"],_fp["title"],_fp["body"],
-                         _fp["summary"],_fp["topic"],_fp["tags"],_fp["saved_at"],
-                         _fp["fetched_at"],_fp["status"],_fp["pub_date"],1)
-                    )
-        log.info(f"Economist weekly: saved {len(feed_articles)} -> Feed")
+Articles ({len(_edition_candidates)} total):
+{chr(10).join(_prompt_lines)}
 
-    if suggested_out:
-        save_suggested_snapshot(suggested_out)
-        log.info(f"Economist weekly: saved {len(suggested_out)} -> Suggested")
+Respond with EXACTLY {len(_edition_candidates)} integers, one per line, nothing else."""
 
-    # ── Write gate ────────────────────────────────────────────────────────────
-    with sqlite3.connect(DB_PATH) as _rx:
-        _rx.execute("INSERT OR REPLACE INTO kt_meta (key, value) VALUES (?, ?)", (_gate_key, _edition_str))
+        try:
+            import urllib.request as _ur
+            with sqlite3.connect(DB_PATH) as _kx:
+                _creds = _j.loads(_kx.execute("SELECT value FROM kt_meta WHERE key='anthropic_credentials'").fetchone()[0])
+            _api_key = _creds.get("api_key", "")
+            _payload = _j.dumps({
+                "model": "claude-haiku-4-5-20251001",
+                "max_tokens": 300,
+                "messages": [{"role": "user", "content": _prompt}]
+            }).encode()
+            _req = _ur.Request(
+                "https://api.anthropic.com/v1/messages",
+                data=_payload,
+                headers={"Content-Type": "application/json",
+                         "x-api-key": _api_key,
+                         "anthropic-version": "2023-06-01"},
+                method="POST"
+            )
+            with _ur.urlopen(_req, timeout=60) as _resp:
+                _resp_data = _j.loads(_resp.read())
+            _text = _resp_data["content"][0]["text"].strip()
+            _scores = [int(x.strip()) for x in _text.split('\n') if x.strip().lstrip('-').isdigit()]
+            log.info(f"Economist weekly: Sonnet returned {len(_scores)} scores for {_edition_str}")
+        except Exception as e:
+            log.error(f"Economist weekly scoring error: {e}")
+            continue
 
-    log.info(f"Economist weekly complete: {len(feed_articles)} -> Feed, {len(suggested_out)} -> Suggested")
-    return feed_articles, suggested_out
+        if len(_scores) != len(_edition_candidates):
+            log.warning(f"Economist weekly: score mismatch {len(_scores)} vs {len(_edition_candidates)}")
+            _scores = (_scores + [0] * len(_edition_candidates))[:len(_edition_candidates)]
+
+        # ── Route ─────────────────────────────────────────────────────────────
+        for _c, _score in zip(_edition_candidates, _scores):
+            _url   = _c.get("url", "")
+            _title = _c.get("title", "")
+            log.info(f"Economist weekly: score={_score} {_title[:60]}")
+
+            if _score >= 8:
+                if _url not in _known:
+                    _aid = _hh.sha1(f"The Economist:{_url}".encode()).hexdigest()[:16]
+                    with sqlite3.connect(DB_PATH) as _fx:
+                        _fx.execute(
+                            "INSERT OR IGNORE INTO articles "
+                            "(id,source,url,title,body,summary,topic,tags,saved_at,fetched_at,status,pub_date,auto_saved) "
+                            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                            (_aid, "The Economist", _url, _title, "", "", "", "[]",
+                             now_ts(), now_ts(), "title_only", "", 1)
+                        )
+                    _feed_articles.append({"title": _title, "url": _url, "source": "The Economist"})
+                    _known.add(_url)
+                else:
+                    log.info(f"Economist weekly: score={_score} already in library, skip insert")
+
+            elif _score >= 6:
+                if _url not in _known:
+                    _suggested_out.append({
+                        "title": _title, "url": _url, "source": "The Economist",
+                        "score": _score, "reason": _c.get("standfirst", ""),
+                        "pub_date": ""
+                    })
+
+        # Mark edition done
+        with sqlite3.connect(DB_PATH) as _gx:
+            _gx.execute("INSERT OR REPLACE INTO kt_meta (key,value) VALUES (?,?)",
+                       (_gate_key, datetime.now().isoformat()))
+
+    if _feed_articles:
+        enrich_batch([a for a in _feed_articles])
+        push_to_vps(_feed_articles)
+
+    if _suggested_out:
+        save_suggested_snapshot(_suggested_out)
+
+    log.info(f"Economist weekly complete: {len(_feed_articles)} -> Feed, {len(_suggested_out)} -> Suggested")
+    return _feed_articles, _suggested_out
 
 
 def normalise_url(url):
