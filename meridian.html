@@ -1392,7 +1392,7 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
     <option value="ai">AI picks</option>
   </select>
 </div>
-<div id="feed-header-outer" style="display:flex;align-items:center;gap:8px;padding:7px 20px 7px 18px;background:var(--paper-2);border-bottom:2px solid var(--rule);position:sticky;top:147px;z-index:52;isolation:isolate;">
+<div id="feed-header-outer" style="display:flex;align-items:center;gap:8px;padding:7px 20px 7px 18px;background:var(--paper-2);border-bottom:2px solid var(--rule);position:sticky;top:147px;z-index:52;isolation:isolate;flex-wrap:nowrap;">
   <span style="font-size:10px;font-weight:500;letter-spacing:0.8px;text-transform:uppercase;color:var(--ink-3);margin-right:4px">Filter</span>
   <span class="feed-title" id="feed-title" style="display:none"></span>
   <select class="filter-select" id="status-filter" onchange="renderFeed()"><option value="all">All articles</option><option value="full_text">Full text only</option><option value="title_only">Title only</option></select>
@@ -2079,8 +2079,8 @@ function setView(view,el){currentView=view;currentFolder=null;document.querySele
   if(addIvBtn)addIvBtn.style.display=(view==='interviews'?'':'none');
   if(view==='newsletters'){const fho=document.getElementById('feed-header-outer');if(fho)fho.style.display='none';renderNewsletters();}
   else if(view==='interviews'){const controls=document.querySelector('.feed-controls');const counter=document.getElementById('feed-counter');const fho=document.getElementById('feed-header-outer');if(controls)controls.style.display='none';if(counter)counter.style.display='none';if(fho)fho.style.display='none';renderInterviews();}
-  else if(view==='suggested'){const controls=document.querySelector('.feed-controls');const counter=document.getElementById('feed-counter');const fho=document.getElementById('feed-header-outer');if(controls)controls.style.display='none';if(counter)counter.style.display='none';if(fho)fho.style.display='none';renderSuggested(true);}
-  else{const controls=document.querySelector('.feed-controls');const counter=document.getElementById('feed-counter');const fho=document.getElementById('feed-header-outer');if(controls)controls.style.display='';if(counter)counter.style.display='';if(fho)fho.style.display='';renderFeed();}}
+  else if(view==='suggested'){const controls=document.querySelector('.feed-controls');const counter=document.getElementById('feed-counter');const fho=document.getElementById('feed-header-outer');if(controls)controls.style.display='none';if(counter)counter.style.display='none';if(fho){fho.style.display='flex';fho.dataset.mode='suggested';}renderSuggested(true);}
+  else{const controls=document.querySelector('.feed-controls');const counter=document.getElementById('feed-counter');const fho=document.getElementById('feed-header-outer');if(controls)controls.style.display='';if(counter)counter.style.display='';if(fho){fho.style.display='flex';fho.dataset.mode='feed';}renderFeed();}}
 function setFolderView(folderId,el){currentView='folder';currentFolder=folderId;document.querySelectorAll('.nav-tab').forEach(t=>t.classList.remove('active'));if(el)el.classList.add('active');closeDetail();renderFeed();}
 
 function topicClass(t){return'pill-'+(t||'other').replace(/[^a-zA-Z]/g,'')||'pill-other';}
@@ -3278,6 +3278,12 @@ async function renderAgentLog(area) {
 }
 
 function renderSuggestedHeader(area, newCount) {
+  const fho = document.getElementById('feed-header-outer');
+  if (fho && fho.dataset.mode === 'suggested') {
+    // Render filter bar into sticky header
+    area = fho;
+  }
+
   const sources = ['', ...new Set(suggestedArticles.map(a => a.source).filter(Boolean))].sort();
   const sourceOpts = sources.map(s => '<option value="' + s + '" ' + (suggestedSource===s?'selected':'') + '>' + (s||'All sources') + '</option>').join('');
   const timeFilters = [
@@ -3290,14 +3296,17 @@ function renderSuggestedHeader(area, newCount) {
   const statusOpts = ['all','new','reviewed','saved','dismissed'].map(s =>
     '<option value="' + s + '" ' + (suggestedStatus===s?'selected':'') + '>' + s.charAt(0).toUpperCase()+s.slice(1) + '</option>'
   ).join('');
-  area.innerHTML = '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid var(--rule);flex-wrap:wrap">'
+  const isFho = area === document.getElementById('feed-header-outer');
+  const wrapStart = isFho ? '' : '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid var(--rule);flex-wrap:wrap">';
+  const wrapEnd = isFho ? '' : '</div>';
+  area.innerHTML = wrapStart
     + '<select class="filter-select" onchange="suggestedSince=this.value;renderSuggested()" style="font-size:11px">' + timeOpts + '</select>'
     + '<select class="filter-select" onchange="suggestedStatus=this.value;renderSuggested()" style="font-size:11px">' + statusOpts + '</select>'
     + '<select class="filter-select" onchange="suggestedSource=this.value;renderSuggested()" style="font-size:11px">' + sourceOpts + '</select>'
     + '<input type="date" class="filter-select" style="font-size:11px" value="' + (suggestedSince||'') + '" onchange="suggestedSince=this.value;renderSuggested()">'
     + '<span style="font-size:11px;color:var(--ink-3)">' + suggestedArticles.length + ' articles' + (newCount ? ' · <strong>' + newCount + ' new</strong>' : '') + '</span>'
     + '<select class="filter-select" onchange="suggestedSort=this.value;renderSuggested()" style="font-size:11px">'+ '<option value="score" ' + (suggestedSort==='score'?'selected':'') + '>★ Score</option>'+ '<option value="date" ' + (suggestedSort==='date'?'selected':'') + '>📅 Date</option>'+ '</select>'+ '<button onclick="startSuggestedRefresh(false)" class="btn btn-outline" id="sug-refresh-btn" style="margin-left:auto;font-size:11px;padding:4px 10px">🔍 Find Articles</button>'
-    + '</div>'
+    + wrapEnd
     + '<div id="sug-bulk-bar" style="display:none;align-items:center;gap:8px;margin-bottom:10px;padding:8px 12px;background:var(--bg-2);border-radius:8px;flex-wrap:wrap">'
     + '<span id="sug-bulk-count" style="font-size:12px;color:var(--ink-2)">0 selected</span>'
     + '<button onclick="selectAllSuggested()" class="btn btn-outline" style="font-size:11px;padding:3px 8px">Select all</button>'
