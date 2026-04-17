@@ -2232,12 +2232,15 @@ Respond with EXACTLY {len(_edition_candidates)} integers, one per line, nothing 
 
         # ── Route ─────────────────────────────────────────────────────────────
         for _c, _score in zip(_edition_candidates, _scores):
-            _url   = _c.get("url", "")
-            _title = _c.get("title", "")
-            log.info(f"Economist weekly: score={_score} {_title[:60]}")
+            _url       = _c.get("url", "")
+            _title     = _c.get("title", "")
+            _in_lib    = _url in _known
+            _tag       = " [already saved]" if _in_lib else ""
+            log.info(f"Economist weekly: score={_score}{_tag} {_title[:60]}")
 
             if _score >= 8:
-                if _url not in _known:
+                if not _in_lib:
+                    # New high-scorer — add to Feed
                     _aid = _hh.sha1(f"The Economist:{_url}".encode()).hexdigest()[:16]
                     with sqlite3.connect(DB_PATH) as _fx:
                         _fx.execute(
@@ -2249,16 +2252,17 @@ Respond with EXACTLY {len(_edition_candidates)} integers, one per line, nothing 
                         )
                     _feed_articles.append({"title": _title, "url": _url, "source": "The Economist"})
                     _known.add(_url)
-                else:
-                    log.info(f"Economist weekly: score={_score} already in library, skip insert")
+                # Already saved + score >= 8 → already in library, correct pick, nothing to insert
 
             elif _score >= 6:
-                if _url not in _known:
+                if not _in_lib:
+                    # New mid-scorer — add to Suggested
                     _suggested_out.append({
                         "title": _title, "url": _url, "source": "The Economist",
                         "score": _score, "reason": _c.get("standfirst", ""),
                         "pub_date": ""
                     })
+                # Already saved + score 6-7 → skip
 
         # Mark edition done + store as last scored edition
         with sqlite3.connect(DB_PATH) as _gx:
