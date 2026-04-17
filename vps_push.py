@@ -78,3 +78,33 @@ if meta_rows:
             print("push-meta: " + str(result.get('upserted', 0)) + " keys synced to VPS")
     except Exception as e:
         print("push-meta error: " + str(e))
+
+# ── Push suggested_articles to VPS ──────────────────────────────────────────
+# Push suggested articles added in last 48h (same window as articles)
+try:
+    with sqlite3.connect(DB_PATH) as cx:
+        sug_rows = cx.execute("""
+            SELECT title, url, source, snapshot_date, score, reason, added_at, status, pub_date
+            FROM suggested_articles
+            WHERE added_at >= ?
+            AND url NOT LIKE '%ft.comhttps://%'
+            AND url NOT LIKE '%#myft%'
+        """, (int((now - 172800) * 1000),)).fetchall()
+
+    if sug_rows:
+        cleaned = [[x if x is not None else '' for x in r] for r in sug_rows]
+        sug_payload = json.dumps({'articles': cleaned}).encode()
+        sug_req = urllib.request.Request(
+            VPS_BASE + '/api/push-suggested',
+            data=sug_payload,
+            headers={'Content-Type': 'application/json'},
+            method='POST'
+        )
+        try:
+            with urllib.request.urlopen(sug_req, timeout=30) as resp:
+                result = json.loads(resp.read())
+                print("push-suggested: " + str(result.get('added', 0)) + " new suggested articles synced to VPS")
+        except Exception as e:
+            print("push-suggested error: " + str(e))
+except Exception as e:
+    print("push-suggested local error: " + str(e))

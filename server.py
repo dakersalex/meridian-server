@@ -2918,6 +2918,27 @@ def push_articles():
 
 
 
+@app.route("/api/push-suggested", methods=["POST"])
+def push_suggested():
+    """Receive suggested articles from Mac and upsert to VPS DB."""
+    data = request.json or {}
+    articles = data.get("articles", [])
+    with sqlite3.connect(DB_PATH) as cx:
+        existing = set(r[0] for r in cx.execute("SELECT url FROM suggested_articles").fetchall())
+        added = 0
+        for a in articles:
+            if len(a) < 9: continue
+            title, url, source, snapshot_date, score, reason, added_at, status, pub_date = a[:9]
+            if not url or url in existing: continue
+            cx.execute(
+                "INSERT INTO suggested_articles (title,url,source,snapshot_date,score,reason,added_at,status,pub_date) VALUES (?,?,?,?,?,?,?,?,?)",
+                (title, url, source, snapshot_date, score, reason, added_at, status, pub_date)
+            )
+            existing.add(url)
+            added += 1
+    return jsonify({"ok": True, "added": added})
+
+
 @app.route("/api/push-meta", methods=["POST"])
 def push_meta():
     """Receive kt_meta key-value pairs from Mac and upsert into VPS kt_meta.
