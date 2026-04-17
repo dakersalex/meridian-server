@@ -2249,8 +2249,9 @@ Respond with EXACTLY {len(_edition_candidates)} integers, one per line, nothing 
                        (_gate_key, datetime.now().isoformat()))
 
     if _feed_articles:
-        enrich_batch([a for a in _feed_articles])
-        push_to_vps(_feed_articles)
+        import subprocess as _sp2
+        threading.Thread(target=enrich_title_only_articles, daemon=True).start()
+        _sp2.Popen(["python3", str(BASE_DIR / "vps_push.py")])
 
     if _suggested_out:
         save_suggested_snapshot(_suggested_out)
