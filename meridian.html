@@ -1393,7 +1393,7 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
   </select>
 </div>
 <div id="feed-header-outer" style="display:flex;align-items:center;gap:8px;padding:7px 20px 7px 18px;background:var(--paper-2);border-bottom:2px solid var(--rule);position:sticky;top:147px;z-index:52;isolation:isolate;flex-wrap:nowrap;">
-  <span style="font-size:10px;font-weight:500;letter-spacing:0.8px;text-transform:uppercase;color:var(--ink-3);margin-right:4px">Filter</span>
+  <span class="feed-controls-inner" style="display:contents"><span style="font-size:10px;font-weight:500;letter-spacing:0.8px;text-transform:uppercase;color:var(--ink-3);margin-right:4px">Filter</span>
   <span class="feed-title" id="feed-title" style="display:none"></span>
   <select class="filter-select" id="status-filter" onchange="renderFeed()"><option value="all">All articles</option><option value="full_text">Full text only</option><option value="title_only">Title only</option></select>
   <select class="filter-select" id="curation-filter" onchange="renderFeed()">
@@ -1415,7 +1415,7 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
     <option value="365">Last year</option>
     <option value="9999">All time</option>
   </select>
-  <div style="margin-left:auto;display:flex;align-items:center;gap:6px">
+  </span><div style="margin-left:auto;display:flex;align-items:center;gap:6px">
     <button id="stats-toggle-btn" onclick="toggleStatsStrip()" style="font-size:11px;padding:4px 10px;background:transparent;border:1px solid rgba(0,0,0,0.2);color:var(--ink-2);border-radius:4px;cursor:pointer;font-family:inherit;display:flex;align-items:center;gap:5px;">📊 Stats</button>
     <button class="btn btn-outline" onclick="clipBloomberg()" id="clip-bbg-btn" style="font-size:10px;padding:3px 7px;display:none">📎 Clip Bloomberg</button>
   </div>
@@ -2080,7 +2080,7 @@ function setView(view,el){currentView=view;currentFolder=null;document.querySele
   if(view==='newsletters'){const fho=document.getElementById('feed-header-outer');if(fho)fho.style.display='none';renderNewsletters();}
   else if(view==='interviews'){const controls=document.querySelector('.feed-controls');const counter=document.getElementById('feed-counter');const fho=document.getElementById('feed-header-outer');if(controls)controls.style.display='none';if(counter)counter.style.display='none';if(fho)fho.style.display='none';renderInterviews();}
   else if(view==='suggested'){const controls=document.querySelector('.feed-controls');const counter=document.getElementById('feed-counter');const fho=document.getElementById('feed-header-outer');if(controls)controls.style.display='none';if(counter)counter.style.display='none';if(fho){fho.style.display='flex';fho.dataset.mode='suggested';}renderSuggested(true);}
-  else{const controls=document.querySelector('.feed-controls');const counter=document.getElementById('feed-counter');const fho=document.getElementById('feed-header-outer');if(controls)controls.style.display='';if(counter)counter.style.display='';if(fho){fho.style.display='flex';fho.dataset.mode='feed';}renderFeed();}}
+  else{const controls=document.querySelector('.feed-controls');const counter=document.getElementById('feed-counter');const fho=document.getElementById('feed-header-outer');if(controls)controls.style.display='';if(counter)counter.style.display='';if(fho){fho.style.display='flex';fho.dataset.mode='feed';const sd=document.getElementById('suggested-filter-bar');if(sd)sd.remove();const fc=fho.querySelector('.feed-controls-inner');if(fc)fc.style.display='';}renderFeed();}}
 function setFolderView(folderId,el){currentView='folder';currentFolder=folderId;document.querySelectorAll('.nav-tab').forEach(t=>t.classList.remove('active'));if(el)el.classList.add('active');closeDetail();renderFeed();}
 
 function topicClass(t){return'pill-'+(t||'other').replace(/[^a-zA-Z]/g,'')||'pill-other';}
@@ -3282,8 +3282,12 @@ async function renderAgentLog(area) {
 function renderSuggestedHeader(area, newCount) {
   const fho = document.getElementById('feed-header-outer');
   if (fho && fho.dataset.mode === 'suggested') {
-    // Render filter bar into sticky header
-    area = fho;
+    // Hide feed controls, show suggested controls in fho
+    const feedControls = fho.querySelector('.feed-controls-inner');
+    if (feedControls) feedControls.style.display = 'none';
+    let sugDiv = document.getElementById('suggested-filter-bar');
+    if (!sugDiv) { sugDiv = document.createElement('div'); sugDiv.id = 'suggested-filter-bar'; sugDiv.style.cssText='display:flex;align-items:center;gap:8px;flex:1;flex-wrap:nowrap;'; fho.appendChild(sugDiv); }
+    area = sugDiv;
   }
 
   const sources = ['', ...new Set(suggestedArticles.map(a => a.source).filter(Boolean))].sort();
@@ -3298,7 +3302,7 @@ function renderSuggestedHeader(area, newCount) {
   const statusOpts = ['all','new','reviewed','saved','dismissed'].map(s =>
     '<option value="' + s + '" ' + (suggestedStatus===s?'selected':'') + '>' + s.charAt(0).toUpperCase()+s.slice(1) + '</option>'
   ).join('');
-  const isFho = area === document.getElementById('feed-header-outer');
+  const isFho = area && area.id === 'suggested-filter-bar';
   const wrapStart = isFho ? '' : '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid var(--rule);flex-wrap:wrap">';
   const wrapEnd = isFho ? '' : '</div>';
   area.innerHTML = wrapStart
