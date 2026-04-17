@@ -3189,6 +3189,7 @@ async function renderSuggested(autoRefreshCheck) {
       startSuggestedRefresh(true);
     }
     renderSuggestedHeader(area, newCount);
+    area.innerHTML = ''; // clear loading message now header is in fho
     if (!suggestedArticles.length) {
       area.innerHTML += '<div class="empty-state"><div class="empty-title">No suggestions</div><div class="empty-sub">Click <strong>Refresh</strong> to find articles matching your interests.</div></div>';
       return;
