@@ -1,22 +1,19 @@
 #!/usr/bin/env python3
 """
 eco_weekly_sub.py — Economist weekly edition scraper subprocess.
-Fetches archive page to find 2 most recent editions, then scrapes all articles
-from each edition page (title + standfirst). No prior-save filtering — scores ALL.
-
-Args: <profile_dir> <output_json>
+Uses same CDP approach as eco_scraper_sub.py (port 9223, subprocess.Popen).
 """
-import sys, json, subprocess, time, os, re
+import sys, json, subprocess, time, os, re, socket
 from playwright.sync_api import sync_playwright
 
 PROFILE = sys.argv[1]
 OUT     = sys.argv[2]
-PORT    = 9224
+PORT    = 9223  # Same port as eco_scraper_sub.py — works reliably
 CHROME  = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 ARCHIVE = "https://www.economist.com/weeklyedition/archive"
 
 JUNK_URL = ('/podcasts/', '/newsletters/', '/events/', '/films/', '/interactive/',
-            '/weeklyedition', '/for-you', '/the-world-this-week', '/graphic-detail/2')
+            '/weeklyedition', '/for-you', '/the-world-this-week')
 JUNK_TITLES = ('The world this week', 'The weekly cartoon', "KAL's cartoon",
                'This week', 'Letters to', 'A selection of correspondence',
                'The Economist', 'Weekly edition')
@@ -26,18 +23,38 @@ if os.path.exists(lock):
     os.remove(lock)
     print("Removed lock", file=sys.stderr)
 
-all_articles = {}  # url -> article dict
+all_articles = {}
 edition_urls = []
 error = None
 
+# Launch Chrome as detached subprocess — same pattern as eco_scraper_sub.py
 chrome = subprocess.Popen([
     CHROME,
     f"--remote-debugging-port={PORT}",
     f"--user-data-dir={PROFILE}",
     "--no-first-run", "--no-default-browser-check",
+    "--disable-default-apps",
     "--window-position=-3000,-3000", "--window-size=1280,900",
 ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-time.sleep(5)
+
+# Poll for port — up to 15s
+print("Waiting for Chrome CDP port...", file=sys.stderr)
+for attempt in range(15):
+    time.sleep(1)
+    try:
+        s = socket.create_connection(("127.0.0.1", PORT), timeout=1)
+        s.close()
+        print(f"Chrome ready after {attempt+1}s", file=sys.stderr)
+        break
+    except OSError:
+        pass
+else:
+    error = f"Chrome did not bind port {PORT} after 15s"
+    print(f"ERROR: {error}", file=sys.stderr)
+    chrome.terminate()
+    with open(OUT, 'w') as f:
+        json.dump({"articles": [], "edition_urls": [], "error": error}, f)
+    sys.exit(1)
 
 def scrape_edition(page, edition_url):
     m = re.search(r'weeklyedition/([0-9-]+)', edition_url)
@@ -72,21 +89,13 @@ def scrape_edition(page, edition_url):
     }""")
 
     for item in items:
-        url   = item['url']
-        title = item['title']
-        # Skip junk URLs
-        if any(j in url for j in JUNK_URL):
-            continue
-        # Skip junk titles
-        if any(title.startswith(t) for t in JUNK_TITLES):
-            continue
-        if len(title) < 15:
-            continue
+        url, title = item['url'], item['title']
+        if any(j in url for j in JUNK_URL): continue
+        if any(title.startswith(t) for t in JUNK_TITLES): continue
+        if len(title) < 15: continue
         arts[url] = {
-            'title': title,
-            'url': url,
-            'standfirst': item.get('standfirst', ''),
-            'edition': edition_str
+            'title': title, 'url': url,
+            'standfirst': item.get('standfirst', ''), 'edition': edition_str
         }
 
     print(f"Edition {edition_str}: {len(arts)} articles", file=sys.stderr)
@@ -94,14 +103,14 @@ def scrape_edition(page, edition_url):
 
 try:
     with sync_playwright() as pw:
-        browser = pw.chromium.connect_over_cdp(f"http://localhost:{PORT}")
+        browser = pw.chromium.connect_over_cdp(f"http://127.0.0.1:{PORT}")
         ctx = browser.contexts[0] if browser.contexts else browser.new_context()
 
-        # 1. Archive page → get 2 most recent edition URLs
+        # 1. Archive → 2 most recent editions
         page = ctx.new_page()
         print("Loading archive...", file=sys.stderr)
         page.goto(ARCHIVE, wait_until="domcontentloaded", timeout=30000)
-        page.wait_for_timeout(4000)
+        page.wait_for_timeout(5000)
 
         edition_urls = page.evaluate("""() => {
             const links = [];
@@ -109,27 +118,24 @@ try:
                 const href = a.href.split('?')[0];
                 if (!links.includes(href)) links.push(href);
             });
-            return links.slice(0, 1);
+            return links.slice(0, 2);
         }""")
         page.close()
         print(f"Edition URLs: {edition_urls}", file=sys.stderr)
 
         if not edition_urls:
             error = "No edition URLs found on archive page"
+            print(f"ERROR: {error}", file=sys.stderr)
         else:
-            # 2. Scrape each edition
             for eurl in edition_urls:
                 page = ctx.new_page()
                 print(f"Loading edition: {eurl}", file=sys.stderr)
                 page.goto(eurl, wait_until="domcontentloaded", timeout=30000)
                 page.wait_for_timeout(5000)
-
-                final_url = page.url
-                if 'login' in final_url or 'myaccount' in final_url:
+                if 'login' in page.url or 'myaccount' in page.url:
                     print(f"Blocked on {eurl}", file=sys.stderr)
                     page.close()
                     continue
-
                 arts = scrape_edition(page, eurl)
                 all_articles.update(arts)
                 page.close()
@@ -144,10 +150,5 @@ finally:
 
 articles_list = list(all_articles.values())
 print(f"Total: {len(articles_list)} unique articles from {len(edition_urls)} editions", file=sys.stderr)
-
 with open(OUT, 'w') as f:
-    json.dump({
-        "articles": articles_list,
-        "edition_urls": edition_urls,
-        "error": error
-    }, f)
+    json.dump({"articles": articles_list, "edition_urls": edition_urls, "error": error}, f)
