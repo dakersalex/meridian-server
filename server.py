@@ -2197,25 +2197,11 @@ Articles ({len(_edition_candidates)} total):
 Respond with EXACTLY {len(_edition_candidates)} integers, one per line, nothing else."""
 
         try:
-            import urllib.request as _ur
-            with sqlite3.connect(DB_PATH) as _kx:
-                _creds = _j.loads(_kx.execute("SELECT value FROM kt_meta WHERE key='anthropic_credentials'").fetchone()[0])
-            _api_key = _creds.get("api_key", "")
-            _payload = _j.dumps({
+            _resp_data = call_anthropic({
                 "model": "claude-haiku-4-5-20251001",
                 "max_tokens": 300,
                 "messages": [{"role": "user", "content": _prompt}]
-            }).encode()
-            _req = _ur.Request(
-                "https://api.anthropic.com/v1/messages",
-                data=_payload,
-                headers={"Content-Type": "application/json",
-                         "x-api-key": _api_key,
-                         "anthropic-version": "2023-06-01"},
-                method="POST"
-            )
-            with _ur.urlopen(_req, timeout=60) as _resp:
-                _resp_data = _j.loads(_resp.read())
+            }, timeout=60)
             _text = _resp_data["content"][0]["text"].strip()
             _scores = [int(x.strip()) for x in _text.split('\n') if x.strip().lstrip('-').isdigit()]
             log.info(f"Economist weekly: Sonnet returned {len(_scores)} scores for {_edition_str}")
