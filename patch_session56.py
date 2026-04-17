@@ -1,18 +1,21 @@
-with open('/Users/alexdakers/meridian-server/meridian.html', 'r') as f:
+import ast
+
+with open('/Users/alexdakers/meridian-server/server.py', 'r') as f:
     content = f.read()
 
-old = 'class="btn btn-dark" style="font-size:11px;padding:4px 10px" id="save-sug-'
-new = 'class="btn btn-outline" style="font-size:11px;padding:4px 10px;color:var(--accent);border-color:var(--accent);font-weight:600" id="save-sug-'
+old_order = (
+    '            f"SELECT * FROM suggested_articles {where} ORDER BY score DESC, added_at DESC",'
+)
+new_order = (
+    '            f"SELECT * FROM suggested_articles {where} ORDER BY " + ("pub_date DESC, added_at DESC" if request.args.get("sort") == "date" else "score DESC, added_at DESC"),'
+)
+assert old_order in content, "Order pattern not found"
+content = content.replace(old_order, new_order, 1)
+print("Server sort patch applied")
 
-assert old in content, "Not found"
-content = content.replace(old, new, 1)
+ast.parse(content)
+print("Syntax OK")
 
-count = content.count('<html lang')
-assert count == 1, f"html lang count: {count}"
-
-with open('/Users/alexdakers/meridian-server/meridian.html', 'w') as f:
+with open('/Users/alexdakers/meridian-server/server.py', 'w') as f:
     f.write(content)
-
-with open('/Users/alexdakers/meridian-server/logs/btn_patch.txt', 'w') as f:
-    f.write(f"Done. html lang count: {count}\n")
 print("Done")

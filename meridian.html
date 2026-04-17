@@ -3161,6 +3161,7 @@ let suggestedStatus = 'new';
 let suggestedChecked = new Set();
 let suggestedRefreshPoller = null;
 let suggestedSource = '';
+let suggestedSort = 'score';
 
 function isoDateDaysAgo(n) {
   const d = new Date();
@@ -3250,7 +3251,7 @@ async function runAgent() {
       toast('Agent saved ' + d.saved + ' article' + (d.saved !== 1 ? 's' : ''), 4000);
       if (d.saved > 0) {
         fetch(SERVER + '/api/articles?limit=2000').then(r=>r.json()).then(d=>{ articles = d.articles || []; }).catch(()=>{});
-        fetch(SERVER + '/api/suggested').then(r=>r.json()).then(d=>{ suggestedArticles = d.articles || []; renderSuggested(); }).catch(()=>{});
+        fetch(SERVER + '/api/suggested?sort=' + suggestedSort).then(r=>r.json()).then(d=>{ suggestedArticles = d.articles || []; renderSuggested(); }).catch(()=>{});
       }
     }
   } catch(e) { toast('Agent failed: ' + e.message); }
@@ -3295,7 +3296,7 @@ function renderSuggestedHeader(area, newCount) {
     + '<select class="filter-select" onchange="suggestedSource=this.value;renderSuggested()" style="font-size:11px">' + sourceOpts + '</select>'
     + '<input type="date" class="filter-select" style="font-size:11px" value="' + (suggestedSince||'') + '" onchange="suggestedSince=this.value;renderSuggested()">'
     + '<span style="font-size:11px;color:var(--ink-3)">' + suggestedArticles.length + ' articles' + (newCount ? ' · <strong>' + newCount + ' new</strong>' : '') + '</span>'
-    + '<button onclick="startSuggestedRefresh(false)" class="btn btn-outline" id="sug-refresh-btn" style="margin-left:auto;font-size:11px;padding:4px 10px">🔍 Find Articles</button>'
+    + '<select class="filter-select" onchange="suggestedSort=this.value;renderSuggested()" style="font-size:11px">'+ '<option value="score" ' + (suggestedSort==='score'?'selected':'') + '>★ Score</option>'+ '<option value="date" ' + (suggestedSort==='date'?'selected':'') + '>📅 Date</option>'+ '</select>'+ '<button onclick="startSuggestedRefresh(false)" class="btn btn-outline" id="sug-refresh-btn" style="margin-left:auto;font-size:11px;padding:4px 10px">🔍 Find Articles</button>'
     + '</div>'
     + '<div id="sug-bulk-bar" style="display:none;align-items:center;gap:8px;margin-bottom:10px;padding:8px 12px;background:var(--bg-2);border-radius:8px;flex-wrap:wrap">'
     + '<span id="sug-bulk-count" style="font-size:12px;color:var(--ink-2)">0 selected</span>'

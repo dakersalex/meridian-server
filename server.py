@@ -2422,7 +2422,7 @@ def get_suggested():
         conditions.append("status != 'saved'")
         where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
         rows = cx.execute(
-            f"SELECT * FROM suggested_articles {where} ORDER BY score DESC, added_at DESC",
+            f"SELECT * FROM suggested_articles {where} ORDER BY " + ("pub_date DESC, added_at DESC" if request.args.get("sort") == "date" else "score DESC, added_at DESC"),
             params
         ).fetchall()
         new_count = cx.execute("SELECT COUNT(*) FROM suggested_articles WHERE status='new'").fetchone()[0]
