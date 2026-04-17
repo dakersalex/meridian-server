@@ -1,25 +1,21 @@
 import sqlite3
-from datetime import datetime
 
 db = sqlite3.connect('/Users/alexdakers/meridian-server/meridian.db')
 c = db.cursor()
 
-# Articles added today from Economist as auto_saved (AI picks)
-c.execute("""
-    SELECT title, pub_date, status, saved_at
-    FROM articles
-    WHERE source='The Economist' AND auto_saved=1
-    AND DATE(datetime(saved_at/1000,'unixepoch','localtime')) = '2026-04-17'
-    ORDER BY saved_at DESC
-""")
-rows = c.fetchall()
+# Store Apr 18 as the last scored edition (the one we successfully scored today)
+c.execute("INSERT OR REPLACE INTO kt_meta (key,value) VALUES (?,?)",
+    ("eco_weekly_last_edition", "https://www.economist.com/weeklyedition/2026-04-18"))
 
-with open('/Users/alexdakers/meridian-server/logs/eco_picks_today.txt', 'w') as f:
-    f.write(f"Economist AI picks added today: {len(rows)}\n\n")
-    for r in rows:
-        f.write(f"  [{r[2]}] {r[0][:70]}\n")
+# Ensure gate key for Apr 18 is set (it should be, but just in case)
+from datetime import datetime
+c.execute("INSERT OR REPLACE INTO kt_meta (key,value) VALUES (?,?)",
+    ("ai_pick_economist_weekly_2026-04-18", datetime.now().isoformat()))
 
-print(f"Economist AI picks today: {len(rows)}")
-for r in rows:
-    print(f"  {r[0][:60]}")
+# Ensure gate key for Apr 11 is also set (scored in previous run even though post-processing failed)
+c.execute("INSERT OR REPLACE INTO kt_meta (key,value) VALUES (?,?)",
+    ("ai_pick_economist_weekly_2026-04-11", datetime.now().isoformat()))
+
+db.commit()
 db.close()
+print("Gate keys and last_edition set")

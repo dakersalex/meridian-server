@@ -2111,6 +2111,23 @@ def ai_pick_economist_weekly():
     _topics_str = ", ".join(_followed) if _followed else "geopolitics, economics, finance, markets"
     _taste_str  = "\n".join(f"- {t}" for t in _taste[:50])
 
+    # ── Early gate: skip Chrome launch if latest edition already scored ──────
+    # We store the last scored edition URL in kt_meta after each successful run.
+    # If it exists and its gate key is set, the new edition hasn't dropped yet.
+    with sqlite3.connect(DB_PATH) as _gx:
+        _gx.execute("CREATE TABLE IF NOT EXISTS kt_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+        _last_ed = _gx.execute("SELECT value FROM kt_meta WHERE key='eco_weekly_last_edition'").fetchone()
+    if _last_ed:
+        _last_ed_url = _last_ed[0]
+        _m = _re.search(r'weeklyedition/([0-9-]+)', _last_ed_url)
+        _last_ed_str = _m.group(1) if _m else ""
+        _last_gate = f"ai_pick_economist_weekly_{_last_ed_str}"
+        with sqlite3.connect(DB_PATH) as _gx:
+            _already_done = _gx.execute("SELECT value FROM kt_meta WHERE key=?", (_last_gate,)).fetchone()
+        if _already_done:
+            log.info(f"Economist weekly: last edition {_last_ed_str} already scored — skipping (no Chrome launch)")
+            return [], []
+
     # ── CDP scrape subprocess ─────────────────────────────────────────────────
     _profile = str(BASE_DIR / "eco_chrome_profile")
     _lock    = BASE_DIR / "eco_chrome_profile" / "SingletonLock"
@@ -2243,10 +2260,12 @@ Respond with EXACTLY {len(_edition_candidates)} integers, one per line, nothing 
                         "pub_date": ""
                     })
 
-        # Mark edition done
+        # Mark edition done + store as last scored edition
         with sqlite3.connect(DB_PATH) as _gx:
             _gx.execute("INSERT OR REPLACE INTO kt_meta (key,value) VALUES (?,?)",
                        (_gate_key, datetime.now().isoformat()))
+            _gx.execute("INSERT OR REPLACE INTO kt_meta (key,value) VALUES (?,?)",
+                       ("eco_weekly_last_edition", _edition_url))
 
     if _feed_articles:
         import subprocess as _sp2

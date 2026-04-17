@@ -109,7 +109,7 @@ try:
                 const href = a.href.split('?')[0];
                 if (!links.includes(href)) links.push(href);
             });
-            return links.slice(0, 2);
+            return links.slice(0, 1);
         }""")
         page.close()
         print(f"Edition URLs: {edition_urls}", file=sys.stderr)
