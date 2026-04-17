@@ -1,39 +1,22 @@
-import ast
-
-with open('/Users/alexdakers/meridian-server/server.py', 'r') as f:
+with open('/Users/alexdakers/meridian-server/NOTES.md', 'r') as f:
     content = f.read()
 
-# Fix the insert in ai_pick_economist_weekly to extract pub_date from URL
-old = (
-    '                    _aid = _hh.sha1(f"The Economist:{_url}".encode()).hexdigest()[:16]\n'
-    '                    with sqlite3.connect(DB_PATH) as _fx:\n'
-    '                        _fx.execute(\n'
-    '                            "INSERT OR IGNORE INTO articles "\n'
-    '                            "(id,source,url,title,body,summary,topic,tags,saved_at,fetched_at,status,pub_date,auto_saved) "\n'
-    '                            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",\n'
-    '                            (_aid, "The Economist", _url, _title, "", "", "", "[]",\n'
-    '                             now_ts(), now_ts(), "title_only", "", 1)\n'
-    '                        )\n'
-)
-new = (
-    '                    _aid = _hh.sha1(f"The Economist:{_url}".encode()).hexdigest()[:16]\n'
-    '                    _pm = _re.search(r"/(\\d{4})/(\\d{2})/(\\d{2})/", _url)\n'
-    '                    _pub = f"{_pm.group(1)}-{_pm.group(2)}-{_pm.group(3)}" if _pm else ""\n'
-    '                    with sqlite3.connect(DB_PATH) as _fx:\n'
-    '                        _fx.execute(\n'
-    '                            "INSERT OR IGNORE INTO articles "\n'
-    '                            "(id,source,url,title,body,summary,topic,tags,saved_at,fetched_at,status,pub_date,auto_saved) "\n'
-    '                            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",\n'
-    '                            (_aid, "The Economist", _url, _title, "", "", "", "[]",\n'
-    '                             now_ts(), now_ts(), "title_only", _pub, 1)\n'
-    '                        )\n'
-)
-assert old in content, "Insert pattern not found"
-content = content.replace(old, new, 1)
-print("pub_date from URL fix applied")
+old = """**Session 58 agenda:**
+1. FT enrichment backlog: ~30 pending title_only — trigger enrichment
+2. Feed filter Stats/Bloomberg tab-switch stacking — still needs CSS fix
+3. FA scraper: FA cookie renewal (expires 2026-05-23)
+4. Economist bookmarks zero-days: investigate whether CDP port binding issue persists"""
 
-ast.parse(content)
-print("Syntax OK")
-with open('/Users/alexdakers/meridian-server/server.py', 'w') as f:
+new = """**Session 58 agenda:**
+1. **FT enrichment — renew ft_profile session**: FT enrichment broken because ft_profile Playwright session expired. Need to open Chrome with ft_profile and log in manually to renew cookies. Zero articles being enriched (0/30-60 per run).
+2. **Chrome MCP enrichment**: Investigate using the logged-in Chrome session via Claude Chrome MCP to click through FT/Economist articles and enrich them directly — avoids Playwright session management entirely.
+3. **Bloomberg newsletters swim lane**: Add a swim lane in the stats panel showing Bloomberg newsletter articles (already in Newsletters tab). These are Bloomberg email digests already being scraped.
+4. **Bloomberg newsletter link extraction + AI scoring**: Parse Bloomberg newsletter bodies for embedded article links, fetch and score them via Sonnet, add qualifying articles to Feed/Suggested. Similar to web agent but sourced from newsletters we already have.
+5. Feed filter Stats/Bloomberg tab-switch stacking — CSS fix still pending
+6. FA scraper: FA cookie renewal (expires 2026-05-23)
+7. Economist bookmarks CDP port binding — monitor for recurrence"""
+
+content = content.replace(old, new, 1)
+with open('/Users/alexdakers/meridian-server/NOTES.md', 'w') as f:
     f.write(content)
-print("Done")
+print("NOTES.md updated")
