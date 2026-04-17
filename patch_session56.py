@@ -1,23 +1,10 @@
 with open('/Users/alexdakers/meridian-server/meridian.html', 'r') as f:
     content = f.read()
 
-old = (
-    "    let params = '';\n"
-    "    if (suggestedSince) params += '&since=' + suggestedSince;\n"
-    "    if (suggestedStatus !== 'all') params += '&status=' + suggestedStatus;\n"
-    "    if (suggestedSource) params += '&source=' + encodeURIComponent(suggestedSource);\n"
-    "    const r = await fetch(SERVER + '/api/suggested?' + params);"
-)
-new = (
-    "    let params = '';\n"
-    "    if (suggestedSince) params += '&since=' + suggestedSince;\n"
-    "    if (suggestedStatus !== 'all') params += '&status=' + suggestedStatus;\n"
-    "    if (suggestedSource) params += '&source=' + encodeURIComponent(suggestedSource);\n"
-    "    if (suggestedSort) params += '&sort=' + suggestedSort;\n"
-    "    const r = await fetch(SERVER + '/api/suggested?' + params);"
-)
+old = "      const pubDateDisplay = a.pub_date ? a.pub_date : new Date().toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'});"
+new = "      const pubDateDisplay = formatPubDate(a);"
 
-assert old in content, "Not found"
+assert old in content, "Pattern not found"
 content = content.replace(old, new, 1)
 
 count = content.count('<html lang')
