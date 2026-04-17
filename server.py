@@ -2225,13 +2225,15 @@ Respond with EXACTLY {len(_edition_candidates)} integers, one per line, nothing 
                 if not _in_lib:
                     # New high-scorer — add to Feed
                     _aid = _hh.sha1(f"The Economist:{_url}".encode()).hexdigest()[:16]
+                    _pm = _re.search(r"/(\d{4})/(\d{2})/(\d{2})/", _url)
+                    _pub = f"{_pm.group(1)}-{_pm.group(2)}-{_pm.group(3)}" if _pm else ""
                     with sqlite3.connect(DB_PATH) as _fx:
                         _fx.execute(
                             "INSERT OR IGNORE INTO articles "
                             "(id,source,url,title,body,summary,topic,tags,saved_at,fetched_at,status,pub_date,auto_saved) "
                             "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
                             (_aid, "The Economist", _url, _title, "", "", "", "[]",
-                             now_ts(), now_ts(), "title_only", "", 1)
+                             now_ts(), now_ts(), "title_only", _pub, 1)
                         )
                     _feed_articles.append({"title": _title, "url": _url, "source": "The Economist"})
                     _known.add(_url)
