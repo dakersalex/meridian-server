@@ -2379,6 +2379,26 @@ def normalise_url(url):
 
 def save_suggested_snapshot(articles):
     snapshot_date = datetime.now().strftime("%Y-%m-%d")
+    _SUG_MONTHS = {"january":1,"february":2,"march":3,"april":4,"may":5,"june":6,
+                   "july":7,"august":8,"september":9,"october":10,"november":11,"december":12}
+    def _norm_date(raw):
+        import re as _re
+        if not raw: return ""
+        raw = raw.strip()
+        if _re.match(r"\d{4}-\d{2}-\d{2}", raw): return raw
+        m = _re.match(r"(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})", raw)
+        if m:
+            mo = _SUG_MONTHS.get(m.group(2).lower())
+            if mo: return f"{m.group(3)}-{mo:02d}-{int(m.group(1)):02d}"
+        m = _re.match(r"([A-Za-z]+)\s+(\d{1,2}),?\s+(\d{4})", raw)
+        if m:
+            mo = _SUG_MONTHS.get(m.group(1).lower())
+            if mo: return f"{m.group(3)}-{mo:02d}-{int(m.group(2)):02d}"
+        m = _re.match(r"([A-Za-z]+)\s+(\d{4})$", raw)
+        if m:
+            mo = _SUG_MONTHS.get(m.group(1).lower())
+            if mo: return f"{m.group(2)}-{mo:02d}-01"
+        return raw
     added = 0
     with sqlite3.connect(DB_PATH) as cx:
         existing_urls = set(normalise_url(r[0]) for r in cx.execute("SELECT url FROM suggested_articles").fetchall())
@@ -2389,7 +2409,7 @@ def save_suggested_snapshot(articles):
             cx.execute(
                 "INSERT INTO suggested_articles (title,url,source,snapshot_date,score,reason,added_at,status,pub_date) VALUES (?,?,?,?,?,?,?,'new',?)",
                 (a.get("title",""), url, a.get("source",""),
-                 snapshot_date, a.get("score",0), a.get("reason",""), now_ts(), a.get("pub_date",""))
+                 snapshot_date, a.get("score",0), a.get("reason",""), now_ts(), _norm_date(a.get("pub_date","")))
             )
             existing_urls.add(url)
             added += 1
