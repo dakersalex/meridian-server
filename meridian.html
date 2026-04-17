@@ -1359,6 +1359,7 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
   <button class="folder-tab folder-tab-briefing" id="tab-briefing" onclick="switchMode('briefing')"><span class="nav-dot"></span>Briefing Generator</button>
   <div style="margin-left:auto;display:flex;align-items:center;gap:8px">
     <span class="last-sync" id="last-sync-label" style="display:none"></span>
+    <button class="btn btn-outline" onclick="enrichViaBrowser()" id="enrich-btn" style="font-size:10px;padding:4px 10px;">Enrich All</button>
     <button class="btn btn-dark" onclick="syncAll()" id="sync-all-btn" style="font-size:10px;padding:4px 10px;background:#d4976a;border:none;color:white;">🔄 Sync all</button>
     <button class="btn btn-dark" onclick="openAIPanel()" style="background:var(--accent);font-size:11px;padding:5px 14px">✦ AI Analysis</button>
   </div>
@@ -1953,6 +1954,31 @@ async function suggestFoldersForArticles(arts){
     for(const[id,folder]of Object.entries(suggestions)){if(folder&&!pendingSuggestions[id]){pendingSuggestions[id]=folder;changed=true;}}
     if(changed){saveAll();renderAll();}
   }catch(e){}
+}
+async function enrichViaBrowser(){
+  const btn=document.getElementById('enrich-btn');
+  btn.disabled=true; btn.textContent='Loading...';
+  try{
+    const r=await fetch(SERVER+'/api/enrich-via-browser').then(r=>r.json());
+    const total=r.total||0;
+    if(total===0){btn.textContent='All enriched';setTimeout(()=>{btn.textContent='Enrich All';btn.disabled=false;},3000);return;}
+    const srcOrder=['Financial Times','The Economist','Foreign Affairs','Bloomberg'];
+    const allArts=[];
+    for(const src of srcOrder){if(r.by_source[src])allArts.push(...r.by_source[src]);}
+    for(const[src,arts]of Object.entries(r.by_source)){if(!srcOrder.includes(src))allArts.push(...arts);}
+    let done=0,failed=0;
+    for(const art of allArts){
+      const s=art.source.replace('Financial Times','FT').replace('The Economist','Eco').replace('Foreign Affairs','FA');
+      btn.textContent=done+'/'+total+' '+s;
+      try{
+        const res=await fetch(SERVER+'/api/enrich-via-browser/relay',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:art.id,url:art.url,title:art.title,source:art.source})}).then(r=>r.json());
+        if(res.ok)done++;else failed++;
+      }catch(e){failed++;}
+    }
+    btn.textContent=done+'/'+total+' done'+(failed?' ('+failed+' failed)':'');
+    setTimeout(()=>{btn.textContent='Enrich All';btn.disabled=false;},5000);
+    if(done>0)setTimeout(loadFromServer,1500);
+  }catch(e){btn.textContent='Error';btn.disabled=false;}
 }
 async function syncAll(){
   const btn=document.getElementById('sync-all-btn');
