@@ -1415,7 +1415,7 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
     <option value="365">Last year</option>
     <option value="9999">All time</option>
   </select>
-  </span><div style="margin-left:auto;display:flex;align-items:center;gap:6px">
+  </span><div id="feed-actions-bar" style="margin-left:auto;display:flex;align-items:center;gap:6px">
     <button id="stats-toggle-btn" onclick="toggleStatsStrip()" style="font-size:11px;padding:4px 10px;background:transparent;border:1px solid rgba(0,0,0,0.2);color:var(--ink-2);border-radius:4px;cursor:pointer;font-family:inherit;display:flex;align-items:center;gap:5px;">📊 Stats</button>
     <button class="btn btn-outline" onclick="clipBloomberg()" id="clip-bbg-btn" style="font-size:10px;padding:3px 7px;display:none">📎 Clip Bloomberg</button>
   </div>
@@ -2079,8 +2079,8 @@ function setView(view,el){currentView=view;currentFolder=null;document.querySele
   if(addIvBtn)addIvBtn.style.display=(view==='interviews'?'':'none');
   if(view==='newsletters'){const fho=document.getElementById('feed-header-outer');if(fho)fho.style.display='none';renderNewsletters();}
   else if(view==='interviews'){const controls=document.querySelector('.feed-controls');const counter=document.getElementById('feed-counter');const fho=document.getElementById('feed-header-outer');if(controls)controls.style.display='none';if(counter)counter.style.display='none';if(fho)fho.style.display='none';renderInterviews();}
-  else if(view==='suggested'){const controls=document.querySelector('.feed-controls');const counter=document.getElementById('feed-counter');const fho=document.getElementById('feed-header-outer');if(controls)controls.style.display='none';if(counter)counter.style.display='none';if(fho){fho.style.display='flex';fho.dataset.mode='suggested';}renderSuggested(true);}
-  else{const controls=document.querySelector('.feed-controls');const counter=document.getElementById('feed-counter');const fho=document.getElementById('feed-header-outer');if(controls)controls.style.display='';if(counter)counter.style.display='';if(fho){fho.style.display='flex';fho.dataset.mode='feed';const sd=document.getElementById('suggested-filter-bar');if(sd)sd.remove();const fc=fho.querySelector('.feed-controls-inner');if(fc)fc.style.display='';}renderFeed();}}
+  else if(view==='suggested'){const controls=document.querySelector('.feed-controls');const counter=document.getElementById('feed-counter');const fho=document.getElementById('feed-header-outer');if(controls)controls.style.display='none';if(counter)counter.style.display='none';if(fho){fho.style.display='flex';fho.dataset.mode='suggested';const fab=document.getElementById('feed-actions-bar');if(fab)fab.style.display='none';}renderSuggested(true);}
+  else{const controls=document.querySelector('.feed-controls');const counter=document.getElementById('feed-counter');const fho=document.getElementById('feed-header-outer');if(controls)controls.style.display='';if(counter)counter.style.display='';if(fho){fho.style.display='flex';fho.dataset.mode='feed';const sd=document.getElementById('suggested-filter-bar');if(sd)sd.remove();const fc=fho.querySelector('.feed-controls-inner');if(fc)fc.style.display='';const fab=document.getElementById('feed-actions-bar');if(fab)fab.style.display='';}renderFeed();}}
 function setFolderView(folderId,el){currentView='folder';currentFolder=folderId;document.querySelectorAll('.nav-tab').forEach(t=>t.classList.remove('active'));if(el)el.classList.add('active');closeDetail();renderFeed();}
 
 function topicClass(t){return'pill-'+(t||'other').replace(/[^a-zA-Z]/g,'')||'pill-other';}
