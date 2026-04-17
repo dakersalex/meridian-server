@@ -3178,6 +3178,7 @@ async function renderSuggested(autoRefreshCheck) {
     if (suggestedSince) params += '&since=' + suggestedSince;
     if (suggestedStatus !== 'all') params += '&status=' + suggestedStatus;
     if (suggestedSource) params += '&source=' + encodeURIComponent(suggestedSource);
+    if (suggestedSort) params += '&sort=' + suggestedSort;
     const r = await fetch(SERVER + '/api/suggested?' + params);
     const d = await r.json();
     suggestedArticles = d.articles || [];
