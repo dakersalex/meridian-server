@@ -4190,17 +4190,19 @@ async function updateActivityBar() {
       // Last Scraped: fetch from /api/sync/last-run (persisted in kt_meta)
       const scEl=se('sp-last-scraped');
       (async()=>{
-        let lastRunBySource = {};
+        let lastRunBySource = {}, ecoCdpLive = true;
         try {
           const lr = await fetch(SERVER+'/api/sync/last-run').then(r=>r.json());
           const keyMap = {'ft':'Financial Times','economist':'The Economist','fa':'Foreign Affairs'};
           Object.entries(lr).forEach(([k,v])=>{ if(keyMap[k]) lastRunBySource[keyMap[k]]=new Date(v).getTime(); });
+          ecoCdpLive = lr.eco_cdp_live !== false; // undefined = assume OK
         } catch(e) {}
         const scrapedSrc = ['Financial Times','The Economist','Foreign Affairs'];
         if(scEl) scEl.innerHTML = scrapedSrc.map(s=>{
           const d=lastRunBySource[s]?Math.round((Date.now()-lastRunBySource[s])/864e5):99;
+          const cdpWarn = (s==='The Economist' && !ecoCdpLive) ? ' <span title="Chrome CDP port 9223 unreachable — Economist scraper will fail" style="color:#c0392b;font-size:10px;cursor:help">⚠ CDP down</span>' : '';
           return '<div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;padding:2.5px 0">'
-            +'<span style="color:#4a4a4a;font-weight:500">'+srcShort[s]+'</span>'
+            +'<span style="color:#4a4a4a;font-weight:500">'+srcShort[s]+cdpWarn+'</span>'
             +'<span style="font-weight:600;color:'+gC(d)+'">'+gL(d)+'</span></div>';
         }).join('');
       })();

@@ -794,9 +794,36 @@ class EconomistScraper:
     def __init__(self, email="", password=""):
         pass
 
+    def _check_cdp(self):
+        """Returns True if Chrome CDP port is reachable, False otherwise."""
+        import socket as _sock
+        try:
+            s = _sock.create_connection(("localhost", self.CDP_PORT), timeout=2)
+            s.close()
+            return True
+        except OSError:
+            return False
+
     def scrape(self):
         import subprocess as _sp, json as _json, tempfile as _tmp, sys as _sys, os as _os
         self.CDP_PROFILE.mkdir(exist_ok=True)
+
+        # Pre-check: is Chrome CDP port reachable?
+        if not self._check_cdp():
+            msg = f"Economist CDP port {self.CDP_PORT} unreachable — Chrome not running with --remote-debugging-port. Scrape skipped."
+            log.error(msg)
+            with sqlite3.connect(DB_PATH) as _cx:
+                _cx.execute(
+                    "INSERT OR REPLACE INTO kt_meta (key, value) VALUES (?,?)",
+                    ("eco_cdp_status", f"DOWN:{datetime.now().strftime('%Y-%m-%d %H:%M')}")
+                )
+            return []
+        else:
+            with sqlite3.connect(DB_PATH) as _cx:
+                _cx.execute(
+                    "INSERT OR REPLACE INTO kt_meta (key, value) VALUES (?,?)",
+                    ("eco_cdp_status", f"OK:{datetime.now().strftime('%Y-%m-%d %H:%M')}")
+                )
 
         # Pass known IDs to subprocess so it can stop when all new batch is already in DB
         with sqlite3.connect(DB_PATH) as _cx:
@@ -1215,12 +1242,23 @@ def sync_last_run():
     """Return last successful scrape time per source from kt_meta."""
     with sqlite3.connect(DB_PATH) as cx:
         rows = cx.execute(
-            "SELECT key, value FROM kt_meta WHERE key LIKE 'last_sync_%'"
+            "SELECT key, value FROM kt_meta WHERE key LIKE 'last_sync_%' OR key='eco_cdp_status'"
         ).fetchall()
     result = {}
     for key, value in rows:
-        source = key.replace("last_sync_", "")
-        result[source] = value
+        if key == 'eco_cdp_status':
+            result['eco_cdp_status'] = value
+        else:
+            source = key.replace("last_sync_", "")
+            result[source] = value
+    # Also do a live port check
+    import socket as _sock
+    try:
+        s = _sock.create_connection(("localhost", 9223), timeout=1)
+        s.close()
+        result['eco_cdp_live'] = True
+    except OSError:
+        result['eco_cdp_live'] = False
     return jsonify(result)
 
 @app.route("/api/ai-pick/economist-weekly", methods=["POST"])
