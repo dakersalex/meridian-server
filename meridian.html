@@ -2077,10 +2077,10 @@ async function renderNewsletters(){
 function setView(view,el){currentView=view;currentFolder=null;document.querySelectorAll('.nav-tab').forEach(t=>t.classList.remove('active'));if(el)el.classList.add('active');closeDetail();
   const addIvBtn=document.getElementById('add-interview-btn');
   if(addIvBtn)addIvBtn.style.display=(view==='interviews'?'':'none');
-  if(view==='newsletters'){renderNewsletters();}
-  else if(view==='interviews'){const controls=document.querySelector('.feed-controls');const counter=document.getElementById('feed-counter');if(controls)controls.style.display='none';if(counter)counter.style.display='none';renderInterviews();}
-  else if(view==='suggested'){const controls=document.querySelector('.feed-controls');const counter=document.getElementById('feed-counter');if(controls)controls.style.display='none';if(counter)counter.style.display='none';renderSuggested(true);}
-  else{const controls=document.querySelector('.feed-controls');const counter=document.getElementById('feed-counter');if(controls)controls.style.display='';if(counter)counter.style.display='';renderFeed();}}
+  if(view==='newsletters'){const fho=document.getElementById('feed-header-outer');if(fho)fho.style.display='none';renderNewsletters();}
+  else if(view==='interviews'){const controls=document.querySelector('.feed-controls');const counter=document.getElementById('feed-counter');const fho=document.getElementById('feed-header-outer');if(controls)controls.style.display='none';if(counter)counter.style.display='none';if(fho)fho.style.display='none';renderInterviews();}
+  else if(view==='suggested'){const controls=document.querySelector('.feed-controls');const counter=document.getElementById('feed-counter');const fho=document.getElementById('feed-header-outer');if(controls)controls.style.display='none';if(counter)counter.style.display='none';if(fho)fho.style.display='none';renderSuggested(true);}
+  else{const controls=document.querySelector('.feed-controls');const counter=document.getElementById('feed-counter');const fho=document.getElementById('feed-header-outer');if(controls)controls.style.display='';if(counter)counter.style.display='';if(fho)fho.style.display='';renderFeed();}}
 function setFolderView(folderId,el){currentView='folder';currentFolder=folderId;document.querySelectorAll('.nav-tab').forEach(t=>t.classList.remove('active'));if(el)el.classList.add('active');closeDetail();renderFeed();}
 
 function topicClass(t){return'pill-'+(t||'other').replace(/[^a-zA-Z]/g,'')||'pill-other';}
