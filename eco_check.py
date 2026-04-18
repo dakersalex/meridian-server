@@ -1,24 +1,28 @@
-with open('/Users/alexdakers/meridian-server/meridian.html', 'r', encoding='utf-8') as f:
+import ast
+
+with open('/Users/alexdakers/meridian-server/server.py', 'r') as f:
     content = f.read()
 
-# 1. Remove Enrich All button
-old_btn = '<button class="btn btn-outline" onclick="enrichViaBrowser()" id="enrich-btn" style="font-size:10px;padding:4px 10px;">Enrich All</button>\n    '
-assert old_btn in content, "Button not found"
-content = content.replace(old_btn, '', 1)
-print("Button removed")
+old = ("        cx.execute('CREATE TABLE IF NOT EXISTS kt_meta '\n"
+       "                   '(key TEXT PRIMARY KEY, value TEXT NOT NULL)')\n")
+new = ("        cx.execute('CREATE TABLE IF NOT EXISTS kt_meta '\n"
+       "                   '(key TEXT PRIMARY KEY, value TEXT NOT NULL)')\n"
+       "        # Performance indexes — safe to run every startup (IF NOT EXISTS)\n"
+       "        for _idx in [\n"
+       "            'CREATE INDEX IF NOT EXISTS idx_art_pub_date ON articles(pub_date DESC)',\n"
+       "            'CREATE INDEX IF NOT EXISTS idx_art_saved_at ON articles(saved_at DESC)',\n"
+       "            'CREATE INDEX IF NOT EXISTS idx_art_source ON articles(source)',\n"
+       "            'CREATE INDEX IF NOT EXISTS idx_art_status ON articles(status)',\n"
+       "            'CREATE INDEX IF NOT EXISTS idx_art_auto_saved ON articles(auto_saved)',\n"
+       "        ]:\n"
+       "            cx.execute(_idx)\n")
 
-# 2. Remove enrichViaBrowser JS function
-# It starts at 'async function enrichViaBrowser(){' and ends just before 'async function syncAll(){'
-JS_START = 'async function enrichViaBrowser(){'
-JS_END   = 'async function syncAll(){'
-idx_s = content.find(JS_START)
-idx_e = content.find(JS_END)
-assert idx_s > 0 and idx_e > idx_s, f"JS not found: {idx_s} {idx_e}"
-removed_js = content[idx_s:idx_e]
-content = content[:idx_s] + content[idx_e:]
-print(f"JS function removed ({len(removed_js.splitlines())} lines)")
+assert old in content, "kt_meta not found"
+content = content.replace(old, new, 1)
+print("Indexes added to init_db")
 
-assert content.count('<html lang') == 1
-with open('/Users/alexdakers/meridian-server/meridian.html', 'w', encoding='utf-8') as f:
+ast.parse(content)
+print("Syntax OK")
+with open('/Users/alexdakers/meridian-server/server.py', 'w') as f:
     f.write(content)
-print("meridian.html done")
+print("Done")

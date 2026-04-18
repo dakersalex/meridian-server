@@ -154,6 +154,15 @@ def init_db():
                    ' article_count INTEGER DEFAULT 0, last_updated INTEGER NOT NULL)')
         cx.execute('CREATE TABLE IF NOT EXISTS kt_meta '
                    '(key TEXT PRIMARY KEY, value TEXT NOT NULL)')
+        # Performance indexes — safe to run every startup (IF NOT EXISTS)
+        for _idx in [
+            'CREATE INDEX IF NOT EXISTS idx_art_pub_date ON articles(pub_date DESC)',
+            'CREATE INDEX IF NOT EXISTS idx_art_saved_at ON articles(saved_at DESC)',
+            'CREATE INDEX IF NOT EXISTS idx_art_source ON articles(source)',
+            'CREATE INDEX IF NOT EXISTS idx_art_status ON articles(status)',
+            'CREATE INDEX IF NOT EXISTS idx_art_auto_saved ON articles(auto_saved)',
+        ]:
+            cx.execute(_idx)
         # -- Economist chart/map capture --
         cx.execute("""CREATE TABLE IF NOT EXISTS article_images (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
