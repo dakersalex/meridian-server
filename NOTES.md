@@ -1,5 +1,5 @@
 # Meridian — Technical Notes
-Last updated: 18 April 2026 (Session 60 — Zero unenriched backlog, fallback enrichment, health monitoring)
+Last updated: 18 April 2026 (Session 60 — RSS AI picks, fallback enrichment, health monitoring)
 
 ## Overview
 Personal news aggregator. Flask API + SQLite backend on Hetzner VPS (always-on).
@@ -15,8 +15,8 @@ Frontend at https://meridianreader.com/meridian.html
 - ~/meridian-server/server.py
 - ~/meridian-server/meridian.html
 - ~/meridian-server/meridian.db
+- ~/meridian-server/rss_ai_pick.py — RSS-based AI pick pipeline (Session 60)
 - ~/meridian-server/batch_enrichment_final.py — Batch API enrichment script
-- ~/meridian-server/reprocess_batch_results_fixed.py — Fix successful batch results
 - ~/meridian-server/wake_and_sync.sh
 - ~/meridian-server/vps_push.py
 - ~/meridian-server/logs/
@@ -24,110 +24,126 @@ Frontend at https://meridianreader.com/meridian.html
 ## Database (18 April 2026 — Session 60)
 | Source | Mac | VPS |
 |---|---|---|
-| FT | ~318 | ~319 |
+| FT | ~323 | ~319+ |
 | Economist | ~366 | ~366 |
-| FA | ~160 | ~169 |
+| FA | ~163 | ~169+ |
 | Bloomberg | ~43 | ~45 |
 | Other | ~19 | ~46 |
-| **Total** | **~906** | **~945** |
+| **Total** | **~914** | **~945+** |
 
 **Unenriched: 0 on both Mac and VPS** ✅
+
+## RSS-Based AI Pick Pipeline (Session 60)
+
+### Architecture
+- **Script:** `rss_ai_pick.py` — standalone, no Playwright, no auth, no Cloudflare
+- **Endpoint:** `POST /api/rss-pick`
+- **Feeds:** 6 FT sections + 6 Economist sections + 1 FA feed = 13 RSS feeds
+- **Scoring:** Haiku (cost-efficient) scores all candidates in one API call
+- **Speed:** ~6 seconds total (fetch all feeds + score 76 candidates)
+- **Gate:** Twice daily (morning/midday) via kt_meta keys
+
+### Feed URLs
+FT: rss/home, world, markets, global-economy, companies, technology (all `?format=rss`)
+Economist: leaders, briefing, finance-and-economics, international, business, the-world-this-week (all `/rss.xml`)
+FA: /rss.xml
+
+### Scoring & routing
+- Score 8+ (FT/Eco) or 7+ (FA) → auto-saved to Feed (auto_saved=1, status=title_only)
+- Score 6-7 → added to Suggested inbox
+- Score 0-5 → discarded
+- After auto-save, triggers `/api/enrich-remaining` for title-only fallback enrichment
+
+### Why RSS > Playwright for AI picks
+- No authentication needed (RSS feeds are public)
+- No Cloudflare blocking
+- No Playwright profile locks or headless Chrome issues
+- 6 seconds vs 90+ seconds
+- No dependency on profile session renewal
+- RSS gives title + URL + description + pub_date — everything the scorer needs
+
+### Legacy Playwright pick still runs after RSS pick (for personalised FT feed)
 
 ## Enrichment Architecture (Session 60)
 
 ### Three-layer enrichment pipeline
 1. **Body-based enrichment** (`enrich_article_with_ai`) — Full AI analysis from article text. Requires body ≥200 chars. Uses Haiku.
 2. **Title-only fallback** (`enrich_from_title_only`) — Generates summary from title + source alone when body unavailable. Uses Haiku.
-3. **Cascade logic** — `enrich-remaining` endpoint tries body enrichment first, falls back to title-only if JSON parse fails or body too short.
+3. **Cascade logic** — `enrich-remaining` tries body enrichment first, falls back to title-only if JSON parse fails or body too short.
 
 ### Automated enrichment flow (wake_and_sync.sh)
 1. Sync triggers scraping for FT, Economist, FA
 2. `/api/enrich-title-only` runs body fetching + AI enrichment + final fallback sweep
-3. `/api/enrich-remaining` runs as safety net at end of wake_and_sync
-4. `/api/health/enrichment` logged for monitoring
+3. RSS pick runs (`/api/rss-pick`) — finds new articles, auto-saves, enriches
+4. Legacy Playwright AI pick runs (fallback for personalised feed)
+5. `/api/enrich-remaining` runs as safety net
+6. `/api/health/enrichment` logged for monitoring
 
 ### Key endpoints
-- `GET /api/health/enrichment` — Returns `ok: true/false`, unenriched count by source, status breakdown, last sync times
-- `POST /api/enrich-remaining` — Trigger fallback enrichment for any remaining unenriched articles
-- `POST /api/enrich-title-only` — Full enrichment pipeline with fallback sweep
+- `GET /api/health/enrichment` — ok/unenriched count/status breakdown
+- `POST /api/enrich-remaining` — fallback enrichment with cascade
+- `POST /api/rss-pick` — RSS-based AI pick (no auth needed)
+- `POST /api/enrich-title-only` — full enrichment pipeline
 
 ## Batch API Enrichment (Session 59)
-
-### Architecture
-- **Script:** `batch_enrichment_final.py` — 50% cost savings vs real-time API calls
-- **Model:** `claude-sonnet-4-6` (alias auto-updates to latest Sonnet 4.6)
-- **Processing:** <2 minutes for 42 articles (vs 24h SLA)
+- **Script:** `batch_enrichment_final.py` — 50% cost savings vs real-time
+- **Model:** `claude-sonnet-4-6`
 - **Status:** All 42 results applied to DB in Session 60
-
-### Results parsing
-- **Success format:** `result.type === "succeeded"`
-- **Content path:** `result.message.content[0].text` 
-- **Markdown wrapper:** Remove ```json fences before JSON.parse()
-- **Database:** Combine into existing `summary` field
 
 ## Outstanding Issues / Next Sessions
 
-### 🟡 Session 61 — monitoring & reliability
-1. **End-to-end integration test** — Simulate full wake_and_sync cycle, verify zero unenriched after
-2. **Economist scraper stabilization** — Chrome profile session renewal automation
-3. **FA URL validation** — Haiku-guessed URLs (38 fixed in Session 60) may not all be valid; verify with HTTP HEAD checks
-4. **VPS 502 during deploy** — wake_and_sync 06:00 run hit 502 errors pushing to VPS (VPS was restarting); consider deploy timing or retry logic
+### 🟡 Session 61
+1. **Monitor tomorrow's automated sync** — verify RSS pick + enrichment fallback produce zero unenriched
+2. **Economist scraper** — RSS feeds now handle Economist AI picks; consider whether Playwright scraper is still needed
+3. **End-to-end test** — simulate full wake_and_sync cycle
+4. **FA URL validation** — verify 38 Haiku-guessed URLs with HTTP HEAD checks
 
 ### 🟢 Nice to have
-- FA scraper: fix `_extract_articles` to prefer article links over author links from saved-articles page (root cause of /authors/ URL bug)
-- Daily email alert if unenriched > 0 after sync
+- Daily email alert if unenriched > 0
 - Economist chart backfill (173 articles)
 - KT theme evolution improvements
+- Consider dropping Playwright AI pick entirely if RSS proves reliable
 
 ## Build History
 
 ### 18 April 2026 (Session 60)
 
+**RSS-based AI pick pipeline — no Playwright, no auth, no Cloudflare**
+- Built `rss_ai_pick.py`: fetches 13 RSS feeds (6 FT, 6 Economist, 1 FA)
+- Scores candidates with Haiku in single API call (~6 seconds total)
+- First run: 76 candidates found, 5 auto-saved to feed, 16 to suggested
+- Added `/api/rss-pick` endpoint and wired into wake_and_sync.sh
+- Eliminates Playwright/Cloudflare dependency for article discovery
+
 **Unenriched backlog eliminated: 39 → 0 (Mac), 37 → 0 (VPS)**
-- Applied 42 batch enrichment results from Session 59 (`reprocess_batch_results_fixed.py`)
-- Built and ran title-only fallback enrichment for 10 FA articles with insufficient body text
-- Triggered VPS fallback enrichment for 37 remaining unenriched articles
-- Fixed cascade logic: body enrichment failure now falls back to title-only (fixed "Europe's Next War" JSON parse failure)
+- Applied 42 batch enrichment results from Session 59
+- Built title-only fallback enrichment for articles without body text
+- Fixed cascade logic: body enrichment failure falls back to title-only
+- VPS enrichment triggered via `/api/enrich-remaining`
 
 **FA author-URL bug fixed: 38 articles**
-- Root cause: FA scraper `_extract_articles` stored `/authors/` URLs from saved-articles page instead of article URLs
-- Fix: Used Haiku to construct correct article URLs from titles (38/38 fixed)
-- Prevention: `SKIP_PREFIXES` already includes `/authors/` for future scrapes
+- Root cause: `_extract_articles` stored `/authors/` URLs from saved-articles page
+- Used Haiku to construct correct article URLs (38/38 fixed)
+- `SKIP_PREFIXES` already prevents future ingestion
 
 **New infrastructure**
-- `enrich_from_title_only()` — fallback enrichment function in server.py
-- `/api/health/enrichment` — monitoring endpoint (returns ok/unenriched count/status breakdown)
-- `/api/enrich-remaining` — manual trigger for fallback enrichment with cascade logic
-- `wake_and_sync.sh` updated: calls `enrich-remaining` + health check at end of every sync
+- `enrich_from_title_only()` — fallback enrichment function
+- `/api/health/enrichment` — monitoring endpoint
+- `/api/enrich-remaining` — manual trigger with cascade logic
+- `wake_and_sync.sh` — RSS pick + enrichment fallback + health check
 
 **Key learnings**
-- FA saved-articles page has `h3 a` links to author pages, not articles — `SKIP_PREFIXES` prevents future ingestion
-- Body ≥200 chars doesn't guarantee successful enrichment — Haiku can return malformed JSON on very short text
-- Cascade fallback (try body → fall back to title-only) catches all edge cases
-- VPS has 39 more articles than Mac (945 vs 906) — likely from early development or direct VPS saves
+- RSS feeds bypass all auth/bot-detection issues and are much faster than Playwright
+- Haiku is good enough for article scoring (vs Sonnet) at fraction of cost
+- Cascade fallback (body → title-only) catches all enrichment edge cases
+- Title-only enrichment from Haiku produces usable summaries
 
 ---
 
 ### 18 April 2026 (Session 59)
-
 **Batch API enrichment proof of concept**
-- **Model:** Already using latest `claude-sonnet-4-6` (auto-updates to Sonnet 4.6)
-- **Success:** 42 articles processed in <2 minutes at 50% cost savings
-- **Format:** `POST /v1/messages/batches` with JSON payload (not file upload)
-- **Parsing:** Fixed result format: `result.message.content[0].text`
-- **Production ready:** Complete batch enrichment system for background processing
-
-**Performance fix: 4x speed improvement**
-- **Root cause:** SERVER variable hardcoded to `https://meridianreader.com` instead of `http://localhost:4242`
-- **Symptoms:** Page load degraded from ~0.5s to ~2s (API calls to wrong server)
-- **Fix:** Updated SERVER to point to local Flask API, updated status text
-- **Result:** Page load back to ~51ms API response time ✅
-
-**Key learnings**
-- Batch API processing: Much faster than 24h SLA (typically <1 hour)
-- Model aliases: `claude-sonnet-4-6` automatically uses latest version
-- Local development: Always ensure frontend points to localhost Flask API
-- Performance monitoring: API response times are key indicator
+- 42 articles processed in <2 minutes at 50% cost savings
+- Performance fix: 4x speed from fixing SERVER variable
 
 ---
 
