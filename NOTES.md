@@ -94,15 +94,15 @@ FA: /rss.xml
 
 ### 🟡 Session 61
 1. **Monitor tomorrow's automated sync** — verify RSS pick + enrichment fallback produce zero unenriched
-2. **Economist scraper** — RSS feeds now handle Economist AI picks; consider whether Playwright scraper is still needed
-3. **End-to-end test** — simulate full wake_and_sync cycle
-4. **FA URL validation** — verify 38 Haiku-guessed URLs with HTTP HEAD checks
+2. **Evaluate legacy Playwright AI pick** — compare RSS pick coverage vs personalised FT feed picks over 3-5 days. If RSS catches the same articles, remove the Playwright AI pick entirely (eliminates profile lock risk, 5-min sleep, Sonnet cost). If personalised feed adds unique high-value articles, keep it.
+3. **Economist scraper** — RSS feeds now handle Economist AI picks; consider whether Playwright scraper is still needed for saved-article sync
+4. **End-to-end test** — simulate full wake_and_sync cycle
+5. **FA URL validation** — verify 38 Haiku-guessed URLs with HTTP HEAD checks
 
 ### 🟢 Nice to have
 - Daily email alert if unenriched > 0
 - Economist chart backfill (173 articles)
 - KT theme evolution improvements
-- Consider dropping Playwright AI pick entirely if RSS proves reliable
 
 ## Build History
 
