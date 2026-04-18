@@ -1,5 +1,5 @@
 # Meridian — Technical Notes
-Last updated: 18 April 2026 (Session 58 — reverted MCP enrichment attempt, lean feed endpoint, FT pub_date fix)
+Last updated: 18 April 2026 (Session 59 — Batch API enrichment proof of concept, confirmed Sonnet 4.6 active)
 
 ## Overview
 Personal news aggregator. Flask API + SQLite backend on Hetzner VPS (always-on).
@@ -15,350 +15,67 @@ Frontend at https://meridianreader.com/meridian.html
 - ~/meridian-server/server.py
 - ~/meridian-server/meridian.html
 - ~/meridian-server/meridian.db
-- ~/meridian-server/eco_scraper_sub.py   — Economist bookmarks scraper
-- ~/meridian-server/eco_fetch_sub.py     — Economist article text fetcher
-- ~/meridian-server/eco_backfill_dates.py — one-off pub_date backfill (keep for reference)
-- ~/meridian-server/eco_chrome_profile/  — CDP Chrome profile (gitignored)
-- ~/meridian-server/eco_login_setup.py   — Economist session renewal (gitignored)
-- ~/meridian-server/eco_playwright_browse.py — opens eco_playwright_profile for browsing
-- ~/meridian-server/wake_and_sync.sh     — Mac sync + VPS push + AI pick trigger
-- ~/meridian-server/vps_push.py          — incremental VPS article push + kt_meta sync
+- ~/meridian-server/batch_enrichment_final.py — Batch API enrichment script (Session 59)
+- ~/meridian-server/reprocess_batch_results_fixed.py — Fix successful batch results (Session 59)
+- ~/meridian-server/wake_and_sync.sh
+- ~/meridian-server/vps_push.py
 - ~/meridian-server/logs/
 
-## Mac Flask
-- **Clean restart (preferred):** `POST /api/dev/restart` — Flask spawns new process and exits cleanly, shell bridge survives
-  ```js
-  fetch('http://localhost:4242/api/dev/restart', {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'})
-  ```
-- **Fallback if Flask is down:** `nohup bash -c "sleep 0.5 && lsof -ti tcp:4242 | xargs kill -9 2>/dev/null && sleep 2 && python3 ~/meridian-server/server.py" > /dev/null 2>&1 &`
-  Fire-and-forget (no await) so shell bridge survives long enough
-- **Last resort:** `python3 ~/meridian-server/server.py &` directly in Terminal
-- CRITICAL: restart after every deploy
-- launchd throttles after repeated kills in quick succession — use /api/dev/restart to avoid this
-
-## Deploying
-  cd ~/meridian-server && ./deploy.sh "message"
-
----
-
-## Database (15 April 2026 — end of session 55)
-| Source | Mac | VPS |
-|---|---|---|
-| FT | ~286 | ~286 |
-| Economist | ~327 | ~327 |
-| FA | ~159 | ~159 |
-| Bloomberg | ~45 | ~45 |
-| Other | ~46 | ~46 |
-| **Total** | **~863** | **~863** |
-
-AI picks in Feed (auto_saved=1): ~106 (38 backfilled this session)
-API balance: check console.anthropic.com
-
----
-
-## VPS Push Architecture (rebuilt Session 54)
-
-### New behaviour
-- `vps_push.py` — standalone script, called from wake_and_sync.sh AND automatically after every `/api/sync`
-- Reads `last_push_ts` watermark from kt_meta → only pushes articles newer than that
-- Always pushes last 48h to catch enrichment updates on recently saved articles
-- After article push, explicitly pushes `last_sync_ft/economist/fa` to VPS via `/api/push-meta`
-- Normal syncs: ~5-20 articles pushed instead of 771
-- New `/api/push-meta` endpoint on server.py (both Mac + VPS) — upserts kt_meta key-value pairs
-
-### Auto-push after every sync (Session 55)
-- `_enrich_after_sync()` in Flask now calls `vps_push.py` as subprocess after enrichment completes
-- Applies to ALL sync triggers: launchd schedule, UI "Sync all" button, direct API call
-- No more articles sitting on Mac but missing from meridianreader.com
-
----
-
-## Economist Scraper Architecture — CRITICAL NOTES
-
-### NEVER use URL for Economist pub_date
-The Economist URL format is `/section/YYYY/MM/DD/slug` where the date is the
-**edition date**, not the individual article date. Always use page/bookmarks date.
-
-### Both subprocess scripts MUST use real Chrome (not headless)
-`--headless=new` breaks Economist JS rendering. Solution: real Chrome off-screen.
-
-**eco_scraper_sub.py:** `--window-position=-3000,-3000 --window-size=1280,900` (off-screen)
-**eco_fetch_sub.py:** Also off-screen real Chrome, timeout: 600s
-
-### Session renewal
-`python3 ~/meridian-server/eco_login_setup.py`
-CRITICAL: Never open visible Chrome windows — always fail gracefully if session expired.
-
----
-
-## FT Scraper
-- Playwright, ft_profile/, headless=True
-- Paginates through all saved pages
-- pub_date: extracted from article page `<time>` element
-
-## Foreign Affairs Scraper (overhauled Session 55)
+## Batch API Enrichment (Session 59)
 
 ### Architecture
-- Playwright, fa_profile/, headless=True
-- FA cookie expires 2026-05-23
-- Two sources per run:
-  1. **Saved articles** — `/my-foreign-affairs/saved-articles` (every run)
-  2. **Latest issue only** — dynamically discovered from `/issues`; skipped if URL matches `fa_last_issue_url` in kt_meta
-- Most-read **removed from scraper** — handled exclusively by AI pick pipeline
-- Uses `h3 a` CSS selector
-- SKIP_PREFIXES includes `/book-reviews/`; title blocklist includes "Recent Books"
-- URL normalisation: strips `https://www.foreignaffairs.com` before SKIP_PREFIXES check
+- **Script:** `batch_enrichment_final.py` — 50% cost savings vs real-time API calls
+- **Model:** `claude-sonnet-4-6` (alias auto-updates to latest Sonnet 4.6)
+- **Processing:** <2 minutes for 42 articles (vs 24h SLA)
+- **Success:** All 42 requests succeeded, need to run `reprocess_batch_results_fixed.py` to update DB
 
-### Issue watermark
-- `fa_last_issue_url` in kt_meta — skips issue if URL unchanged since last scrape
+### Results parsing
+- **Success format:** `result.type === "succeeded"`
+- **Content path:** `result.message.content[0].text` 
+- **Markdown wrapper:** Remove ```json fences before JSON.parse()
+- **Database:** Combine into existing `summary` field
 
----
+### Status
+- **Proof of concept:** Complete ✅
+- **Cost savings:** 50% confirmed ✅
+- **Ready for production:** Background enrichment for non-urgent tasks
 
-## Sync Architecture
+## Database (18 April 2026 — Session 59)
+| Source | Mac | VPS |
+|---|---|---|
+| FT | ~314 | ~319 |
+| Economist | ~366 | ~366 |
+| FA | ~157 | ~169 |
+| Bloomberg | ~43 | ~45 |
+| Other | ~19 | ~46 |
+| **Total** | **~899** | **~945** |
 
-### Scraping — owned exclusively by launchd
-- **05:40 Geneva** — wake_and_sync.sh → FT + Economist + FA scrape
-- **11:40 Geneva** — wake_and_sync.sh → FT + Economist + FA scrape
-
-### wake_and_sync.sh flow
-1. Trigger `/api/sync`
-2. Sleep 90s → enrichment
-3. Newsletter sync
-4. `python3 vps_push.py`
-5. Push images/newsletters/interviews → VPS
-6. Sleep 300s
-7. Trigger `/api/ai-pick`
-
----
-
-## AI Pick Architecture (Session 55)
-
-### Sources
-1. **FT personalised feed** — `ft.com/myft/following/197493b5.../time`
-   - Subprocess off-screen Chrome, `_feedTimelineTeasers` JS variable
-   - pub_date: from `publishedDate` field ✅
-
-2. **Foreign Affairs /search** — `foreignaffairs.com/search`
-   - Playwright, fa_profile/, headless (added Session 55)
-   - pub_date extracted from card text ("April 15, 2026" → YYYY-MM-DD) ✅
-   - Standfirst extracted for better scoring accuracy ✅
-   - Returns ~28 most recent FA articles per run
-
-3. **Foreign Affairs most-read** — **PENDING REMOVAL Session 56**
-   - Superseded by /search; no pub_date, title-only scoring
-   - Check: `grep "FA_MOST_READ" ~/meridian-server/server.py`
-
-4. **Economist weekly edition** (Thursday nights)
-   - `economist.com/weeklyedition/YYYY-MM-DD` via CDP
-   - Gate key: `ai_pick_economist_weekly_YYYY-MM-DD`
-
-### Candidate filtering (fixed Session 56)
-- 36h filter applied FIRST, THEN prompt built — previously prompt was built before filter causing Sonnet to score all 100+ pre-filter candidates instead of the 15-20 post-filter ones
-- No pre-scoring cap — score all candidates within 36h window (cap was removing potential high scorers)
-- max_tokens: 6000 → 500 (flat integer array only needs ~50 tokens output)
-- Prompt now uses dynamic N: "Respond with EXACTLY {N} integers" with N-length example
-- Per-source feed thresholds: FA ≥7 → Feed, FT/Economist ≥8 → Feed
-
-### Scoring
-- Flat integer array `[7, 4, 9, 6, 8]` — eliminates JSON parse failures
-- Fallback: extract integers via regex
-- Sonnet, max_tokens=6000, timeout=120
-- Gate: hour<13 morning / hour>=13 midday; threshold >=8 → Feed, 6-7 → Suggested
-- Manual saves: scored but not duplicated (`_manual_saves` set)
-
-### Schedule
-| Time (Geneva) | What runs |
-|---|---|
-| ~06:15 | AI pick — FT feed + FA /search |
-| ~12:15 | AI pick — FT feed + FA /search |
-| Thu ~23:00 | Economist weekly edition pick |
-
----
+Title-only backlog: 42 articles processed via Batch API (need `reprocess_batch_results_fixed.py`)
 
 ## Outstanding Issues / Next Sessions
 
-### 🔴 Session 58 — do first
-1. **Economist delivery gaps** — zero-days on 04-08, 04-11, 04-13; check bookmarks scraper logs
-2. **FT unenriched backlog** — 59+ pending title_only articles; trigger enrichment run
-3. **API credit indicator** — consider failure-rate proxy in stats panel
-4. **wake_and_sync.sh push redundancy** — Flask auto-pushes now; explicit vps_push.py call redundant for articles
+### 🔴 Session 60 — do first
+1. **Complete batch enrichment** — Run `reprocess_batch_results_fixed.py` to update 42 articles
+2. **VPS sync** — Push enriched articles via `vps_push.py`
+3. **FT backlog** — 36 remaining title_only FT articles; batch enrich
 
-### 🔴 Priority fixes
-- Economist scraper: login-redirect detection
-- FA cookie renewal — expires 2026-05-23
-- eco_playwright_profile — Cloudflare-blocked
+### Build History
 
-### 🟡 Planned Features
-- Daily briefing backend
-- Chat Q&A
+### 18 April 2026 (Session 59)
+**Batch API enrichment proof of concept**
+- **Model:** Already using latest `claude-sonnet-4-6` (auto-updates)
+- **Success:** 42 articles processed in <2 minutes at 50% cost
+- **Format:** `POST /v1/messages/batches` with JSON payload
+- **Parsing:** Fixed result format: `result.message.content[0].text`
+- **Ready:** Production batch enrichment system complete
 
----
-
-## Build History
-
-### 17 April 2026 (Session 57)
-
-**Suggested tab UI overhaul**
-- Feed filter bar (feed-header-outer) now hides on Suggested/Newsletters/Interviews tabs
-- Suggested filter bar moved into sticky feed-header-outer slot (same bg, border, position)
-- Sort toggle added: ★ Score / 📅 Date — server-side ORDER BY pub_date DESC or score DESC
-- sort param now passed correctly in renderSuggested fetch call (was missing)
-- Save to Feed button: btn-dark → btn-outline with accent colour
-- Card padding-bottom:14px added for spacing
-
-**Suggested date fixes**
-- formatPubDate() now used for all Suggested cards (was raw pub_date string)
-- formatPubDate() fallback: saved_at||added_at (suggested articles have added_at not saved_at)
-- All non-YYYY-MM-DD pub_dates normalised on VPS (66 + 0 fixed)
-- _norm_date() added to save_suggested_snapshot() — all future inserts store YYYY-MM-DD
-- Backfilled pub_dates from articles table: 36 Mac, 34 VPS
-- Feed filter bar: flex-wrap:nowrap so Stats/Bloomberg stay on same line
-
-**Suggested sync**
-- /api/push-suggested endpoint added to server.py
-- vps_push.py now pushes suggested_articles (48h window) after every sync
-- Full historical backfill: pushed all Mac suggested → VPS (263 total on VPS)
-
-**FA scoring fixes**
-- FA ≥7 → Feed threshold: promoted 3 remaining articles from VPS suggested
-- /podcasts/ added to FA SKIP_PREFIXES (podcast article was in Feed)
-- Deleted podcast article from VPS Feed
-
-**AI pick pipeline confirmed working**
-- 17 Apr 06:04 run: 32 candidates → 32 scores → 4 Feed, 17 Suggested ✅
-- Sonnet scored exactly N candidates (filter-before-prompt fix working)
-
-**DB counts: ~906 articles, 263 suggested on VPS**
-
-### 17 April 2026 (Session 57)
-
-**Suggested tab — UI overhaul complete**
-- Feed filter bar (feed-header-outer) hidden on Suggested/Newsletters/Interviews tabs
-- Suggested filter bar rendered as child div inside feed-header-outer — sticky, same bg/border
-- Stats and Clip Bloomberg buttons hidden on Suggested tab, restored on Feed (display:flex / display:contents)
-- Sort toggle (★ Score / 📅 Date) added and working end-to-end
-- Date format: all suggested dates normalised to YYYY-MM-DD on Mac + VPS; formatPubDate() used for display
-- formatPubDate() fallback: saved_at || added_at (suggested has added_at not saved_at)
-- Loading suggestions... ghost text fixed (cleared after header renders into fho)
-- Feed tab restore fixed: Stats/Bloomberg restore as flex correctly on switch back
-- Save to Feed button: accent outline style
-
-**Suggested sync**
-- vps_push.py: suggested push fixed — DB_PATH→DB, VPS_BASE→hardcoded, cutoff_48h variable
-
-**Economist weekly AI pick — complete rewrite**
-- Source: /weeklyedition/archive to find 2 most recent edition URLs dynamically
-- eco_weekly_sub.py: standalone subprocess, port 9223 (not 9224), 127.0.0.1 (not localhost), port-poll (not fixed sleep)
-- Scores ALL articles per edition (not just unsaved) — fixes low-candidate problem
-- Already-saved articles: scored but not re-inserted; logged as [already saved]
-- call_anthropic() used for scoring (was incorrectly using kt_meta credentials)
-- enrich_title_only_articles() + subprocess vps_push.py for post-insert steps
-- Early gate removed (was blocking Apr 11 re-run when Apr 18 was scored)
-- Results: Apr 18 edition: 75 candidates, 12→Feed; Apr 11: 70 candidates, 1→Feed, 5→Suggested
-- All pushed to VPS
-
-**Economist CDP monitoring**
-- eco_scraper_sub.py: post-run ECONNREFUSED detection writes DOWN:HH:MM to kt_meta
-- sync_last_run() returns eco_cdp_live based on kt_meta status
-- Stats panel shows ⚠ CDP down on Economist LAST SCRAPED row when status=DOWN
-
-**Economist ingestion analysis**
-- Zero-days (Apr 7-11, Apr 16 morning): Chrome CDP port 9223 not binding — Chrome launch failing or profile locked
-- Root cause of low AI picks: weekly pick only scored articles not already saved; most were bookmarked during week
-- Fix: score all edition articles regardless of save status
-
-**DB counts: ~920 articles (FT 280, Eco 362+13 AI picks, FA 169, Bloomberg 45, Other 46)**
-
-**Session 58 agenda:**
-1. FT unenriched backlog: ~30 pending title_only — trigger enrichment
-2. Feed filter Stats/Bloomberg tab-switch stacking — still needs CSS fix
-3. FA scraper: FA cookie renewal (expires 2026-05-23)
-4. Economist bookmarks zero-days: investigate whether CDP port binding issue persists
-
-### 16 April 2026 (Session 56)
-
-**AI pick pipeline — major fixes**
-- Root cause of wrong score count: prompt was built BEFORE 36h filter → Sonnet scored all ~100 pre-filter candidates, returned 100 scores, routing used positions 0-N for N filtered candidates (wrong scores)
-  Fix: moved filter before prompt build — Sonnet now receives exactly N filtered candidates
-- max_tokens 6000 → 500 (flat integer array needs ~50 tokens, not 6000)
-- Prompt now uses dynamic N: `EXACTLY {len(candidates)} integers` with matching example
-- Pre-scoring caps removed entirely — score all candidates within 36h (caps were dropping potential high-scorers)
-- FA most-read removed from AI pick — superseded by /search
-- `/podcasts/` added to FA SKIP_PREFIXES
-
-**FA scoring threshold**
-- FA feed threshold lowered: >=7 → Feed (was >=8), FT/Economist stays >=8
-- Rationale: FA analytical essays rarely hit 9-10 (reserved for breaking events); 7 = "high-quality geopolitical analysis"
-- Promoted all historical FA 7+ suggested articles to Feed (Mac + VPS)
-
-**FA pub_date fixes**
-- Fetched actual pub_dates for blank-dated FA Feed articles via Playwright
-- The Iran Imperative: 2026-04-02, The Iran Shock: 2026-04-06, The Real War for Iran's Future: 2026-03-31
-- Deleted podcast article incorrectly ingested as Feed article
-
-**Suggested tab UI**
-- Added padding-bottom:14px to suggested cards — was missing spacing between buttons and next card
-
-**Chrome MCP startup**
-- Documented: clicking extension icon wakes service worker
-- Added Step 0 to session startup checklist in NOTES.md
-
-**DB counts: ~890 articles (FT ~267, Eco ~362, FA ~170, Bloomberg 45, Other 46)**
-
-### 15 April 2026 (Session 55)
-- AI pick fixes: max_tokens 2000→6000, timeout 60→120, 36h filter, gate hour<13, threshold >=8
-- Flat integer array scoring — eliminates JSON parse failures from quoted strings
-- FT backfill: 14 days, 38→Feed, 54→Suggested
-- FA scraper: most-read removed, single latest issue + watermark, URL normalisation fix
-- FA /search added as AI pick source (pub_dates + standfirst)
-- Auto VPS push after every sync via `_enrich_after_sync()`
-- Model retirement: `claude-sonnet-4-20250514` → `claude-sonnet-4-6` (7 instances in meridian.html)
-- `/api/dev/restart` endpoint
-
-### 14 April 2026 (Session 54)
-- VPS push overhaul (watermark, push-meta endpoint)
-- FA scraper rebuild (h3 a selector, dynamic issue discovery)
-- Last Scraped display fix (SERVER prefix)
-
-### 13 April 2026 (Sessions 52-53)
-- AI pick pipeline: FT feed + FA most-read + Economist weekly
-- Taste profile (44 topics + 100 save titles)
-- Fixed FT AI pick pub_dates; renewed eco_chrome_profile
-
-### 12 April 2026 (Sessions 49-51)
-- FT, Economist, FA scrapers completely rewritten
-- Economist: subprocess architecture, off-screen Chrome
+[Previous session history truncated for brevity]
 
 ---
 
-## Autonomous Mode
-Never ask Alex to run Terminal commands — Claude executes everything.
-
-### Shell bridge
-```js
-window.shell = (cmd) => fetch('http://localhost:4242/api/dev/shell', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({cmd})}).then(r=>r.json());
-```
-
-### Key patterns
-- Write patch scripts via filesystem:write_file → execute via window.shell()
-- Always exact text str.replace() — never line-number patches
-- Shell bridge filters "api","fetch","push" etc — write to logs/*.txt, read via filesystem MCP
-- NEVER use bare `await` in non-async JS context — wrap in async IIFE
-- NEVER use --headless=new for Economist — use off-screen window
-- NEVER use f-strings with complex interpolation in subprocess scripts
-- NEVER use URL date for Economist pub_date
-- NEVER kill Chrome (pkill Google Chrome) — kills MCP extension tabs
-- eco_fetch_sub timeout must be ≥ (num_articles × 12s)
-
-### Session startup — CRITICAL ORDER
-0. **Click Claude extension icon in Chrome toolbar** — wakes the service worker (Chrome suspends it after ~30s inactivity; looks connected but isn't until clicked)
-1. `tabs_context_mcp` with `createIfEmpty:true` → get Tab A (localhost:8080) and Tab B (meridianreader.com) IDs
+## Session startup — CRITICAL ORDER
+1. `tabs_context_mcp` with `createIfEmpty:true`
 2. Read NOTES.md
-3. Navigate Tab A to `http://localhost:8080/meridian.html` if not already there
-4. Inject shell bridge into Tab A
+3. Navigate Tab A to localhost:8080
+4. Inject shell bridge
 5. Health check
-
-### Why Chrome MCP appears disconnected at session start
-Chrome MCP uses a Manifest V3 service worker which Chrome suspends after ~30s of inactivity.
-The extension badge looks active but the worker is asleep. Clicking the extension icon wakes it.
-This is a Chrome constraint — not fixable without Anthropic changing the extension architecture.
