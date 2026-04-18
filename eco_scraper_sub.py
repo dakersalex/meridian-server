@@ -17,6 +17,7 @@ CDP_PROFILE    = Path(sys.argv[1])
 CDP_PORT       = int(sys.argv[2])
 OUT_PATH       = sys.argv[3]
 KNOWN_IDS_PATH = sys.argv[4]
+CUTOFF_DATE    = sys.argv[5] if len(sys.argv) > 5 else ""  # YYYY-MM-DD — stop loading more once articles older than this appear
 CHROME_BIN     = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 BOOKMARKS_URL  = "https://www.economist.com/for-you/bookmarks"
 
@@ -170,7 +171,7 @@ try:
             print("Initial load: " + str(len(all_visible)) + " articles visible", file=sys.stderr)
 
             load_more_clicks = 0
-            max_clicks = 60
+            max_clicks = 10  # Safety limit — cutoff_date provides early stop
 
             while True:
                 prev_count = len(all_visible)
@@ -200,6 +201,13 @@ try:
                 if new_count <= prev_count:
                     print("Load More added nothing — end of bookmarks", file=sys.stderr)
                     break
+
+                # Early stop: if cutoff_date set, stop once we see articles older than it
+                if CUTOFF_DATE:
+                    oldest_visible = min((a["pub_date"] for a in all_visible if a.get("pub_date")), default="")
+                    if oldest_visible and oldest_visible < CUTOFF_DATE:
+                        print("Reached cutoff date " + CUTOFF_DATE + " (oldest=" + oldest_visible + ") — stopping", file=sys.stderr)
+                        break
 
                 if load_more_clicks >= max_clicks:
                     print("Reached max " + str(max_clicks) + " clicks — stopping", file=sys.stderr)

@@ -815,7 +815,8 @@ class EconomistScraper:
             [_sys.executable,
              str(BASE_DIR / "eco_scraper_sub.py"),
              str(self.CDP_PROFILE), str(self.CDP_PORT),
-             out_file.name, ids_file.name],
+             out_file.name, ids_file.name,
+             self.last_sync.strftime("%Y-%m-%d") if self.last_sync else ""],
             timeout=300, capture_output=True, text=True
         )
         _os.unlink(ids_file.name)

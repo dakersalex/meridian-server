@@ -3,33 +3,23 @@ import ast
 with open('/Users/alexdakers/meridian-server/server.py', 'r') as f:
     content = f.read()
 
-# The duplicate block — first occurrence was inserted before /api/health
-# Second occurrence was inserted again in the same place on a subsequent patch
-# Strategy: find the FIRST complete enrich-via-browser block and remove it,
-# keeping only the second (more complete) one
+old = ('   [_sys.executable,\n'
+       '             str(BASE_DIR / "eco_scraper_sub.py"),\n'
+       '             str(self.CDP_PROFILE), str(self.CDP_PORT),\n'
+       '             out_file.name, ids_file.name],\n')
 
-MARKER_START = '\n@app.route("/api/enrich-via-browser", methods=["GET"])\ndef enrich_via_browser_list():'
-MARKER_END = '\n@app.route("/api/health")'
+new = ('   [_sys.executable,\n'
+       '             str(BASE_DIR / "eco_scraper_sub.py"),\n'
+       '             str(self.CDP_PROFILE), str(self.CDP_PORT),\n'
+       '             out_file.name, ids_file.name,\n'
+       '             self.last_sync.strftime("%Y-%m-%d") if self.last_sync else ""],\n')
 
-first = content.find(MARKER_START)
-second = content.find(MARKER_START, first + 1)
-
-print(f"First occurrence at char: {first}")
-print(f"Second occurrence at char: {second}")
-
-if second > 0:
-    # Remove the first block (from first to just before second)
-    content = content[:first] + content[second:]
-    print("Removed first duplicate block")
-else:
-    print("No duplicate found — nothing to remove")
-
-# Verify
-remaining = content.count(MARKER_START)
-print(f"Remaining enrich_via_browser_list routes: {remaining}")
+assert old in content, "subprocess call not found"
+content = content.replace(old, new, 1)
+print("Cutoff date arg added to subprocess call")
 
 ast.parse(content)
 print("Syntax OK")
 with open('/Users/alexdakers/meridian-server/server.py', 'w') as f:
     f.write(content)
-print("Saved")
+print("Done")
