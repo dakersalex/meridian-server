@@ -308,57 +308,6 @@ Article text:
     return art
 
 
-def enrich_from_title_only(art):
-    """Fallback enrichment: generate summary from title + source alone via AI.
-    Used when body text couldn't be fetched (paywall, wrong URL, etc).
-    Updates art dict in place and returns it."""
-    api_key = load_creds().get("anthropic_api_key", "")
-    if not api_key or api_key == "TEST_VALUE_123":
-        log.warning("No API key — skipping title-only fallback enrichment")
-        return art
-
-    title = art.get("title", "")
-    source = art.get("source", "")
-    if not title:
-        return art
-
-    prompt = f"""You are a research assistant for a news aggregation platform.
-I have an article from {source} with the title below but no article text available.
-Based on the title, the source, and your knowledge, provide an informed analysis.
-
-Article title: "{title}"
-Source: {source}
-
-Respond ONLY with a JSON object (no markdown fences):
-{{
-  "summary": "2-3 sentence summary of the article's likely main argument",
-  "fullSummary": "4-6 paragraph detailed analysis of the topic",
-  "keyPoints": ["point 1", "point 2", "point 3", "point 4"],
-  "tags": ["tag1", "tag2", "tag3"],
-  "topic": "pick from: Markets, Economics, Geopolitics, Technology, Politics, Business, Energy, Finance, Society, Science",
-  "pub_date": "best guess in YYYY-MM-DD format, or empty string"
-}}"""
-
-    try:
-        data = call_anthropic({
-            "model": "claude-haiku-4-5-20251001",
-            "max_tokens": 1500,
-            "messages": [{"role": "user", "content": prompt}]
-        }, timeout=60)
-        text = data["content"][0]["text"]
-        parsed = json.loads(text.replace("```json","").replace("```","").strip())
-        art["summary"] = parsed.get("summary", "")
-        if not art.get("body") or len(art.get("body","")) < 200:
-            art["body"] = parsed.get("fullSummary", art.get("body", ""))
-        art["tags"] = json.dumps(parsed.get("tags", []))
-        art["topic"] = parsed.get("topic", art.get("topic", ""))
-        if not art.get("pub_date"):
-            art["pub_date"] = parsed.get("pub_date", "")
-        art["status"] = "enriched"
-        log.info(f"Title-only fallback enriched: '{art.get('title','')[:50]}'")
-    except Exception as e:
-        log.warning(f"Title-only fallback failed for '{art.get('title','')[:50]}': {e}")
-    return art
 
 def fetch_ft_article_text(page, url):
     """Fetch full text and pub_date of an FT article using logged-in browser page."""
@@ -1547,22 +1496,6 @@ def enrich_title_only_articles():
         except Exception as e:
             log.warning(f"Enrich title-only: generic fetch failed for {a['url']}: {e}")
 
-    # ── FINAL SWEEP: fallback enrich any still-unenriched articles from title alone ──
-    with sqlite3.connect(DB_PATH) as cx:
-        cx.row_factory = sqlite3.Row
-        remaining = cx.execute(
-            "SELECT * FROM articles WHERE (summary IS NULL OR summary='') AND title != '' AND title IS NOT NULL"
-        ).fetchall()
-    if remaining:
-        log.info(f"Enrich title-only: {len(remaining)} articles still unenriched — running title-only fallback")
-        for r in remaining:
-            a = dict(r)
-            enrich_from_title_only(a)
-            if a.get("summary"):
-                _save_enriched_article(a)
-                enriched += 1
-                log.info(f"Enrich title-only: fallback enriched '{a['title'][:50]}'")
-            time.sleep(1)  # Rate limit courtesy
     log.info(f"Enrich title-only: done — {enriched}/{len(arts)} enriched")
     return enriched
 def enrich_fetched_articles():
@@ -1653,17 +1586,13 @@ def enrich_remaining_route():
         enriched = 0
         for r in remaining:
             a = dict(r)
-            # Try body-based enrichment first if body is long enough
             if a.get("body") and len(a.get("body","")) >= 200:
                 enrich_article_with_ai(a)
-            # If body enrichment failed or body too short, fallback to title-only
-            if not a.get("summary"):
-                enrich_from_title_only(a)
-            if a.get("summary"):
-                _save_enriched_article(a)
-                enriched += 1
+                if a.get("summary"):
+                    _save_enriched_article(a)
+                    enriched += 1
             time.sleep(1)
-        log.info(f"Enrich-remaining: done — {enriched}/{len(remaining)} enriched")
+        log.info(f"Enrich-remaining: done — {enriched}/{len(remaining)} enriched (body-based only)")
     threading.Thread(target=_run, daemon=True).start()
     return jsonify({"ok": True, "started": True, "count": len(remaining)})
 

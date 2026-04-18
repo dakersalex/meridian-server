@@ -282,14 +282,15 @@ def rss_ai_pick():
     
     log.info(f"RSS pick: done — {feed_count} to feed, {suggested_count} to suggested")
     
-    # Trigger enrichment for the auto-saved title_only articles
+    # Trigger body fetching + enrichment for the auto-saved title_only articles
     if feed_count > 0:
         try:
             urllib.request.urlopen(
-                urllib.request.Request("http://localhost:4242/api/enrich-remaining", method="POST",
+                urllib.request.Request("http://localhost:4242/api/enrich-title-only", method="POST",
                     headers={"Content-Type": "application/json"}, data=b"{}"),
                 timeout=5
             )
+            log.info("RSS pick: triggered body fetch + enrichment for new articles")
         except:
             pass  # Fire and forget
 
