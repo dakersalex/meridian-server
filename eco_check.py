@@ -1,25 +1,24 @@
-import ast
-from datetime import datetime
-
-with open('/Users/alexdakers/meridian-server/server.py', 'r') as f:
+with open('/Users/alexdakers/meridian-server/meridian.html', 'r', encoding='utf-8') as f:
     content = f.read()
 
-# Fix 1: feed scrape — use today as fallback when publishedDate absent
-old1 = "pub_date: a.publishedDate ? a.publishedDate.substring(0, 10) : '',"
-new1 = "pub_date: a.publishedDate ? a.publishedDate.substring(0, 10) : new Date().toISOString().substring(0, 10),"
-assert old1 in content, "Fix 1 not found"
-content = content.replace(old1, new1, 1)
-print("Fix 1: feed pub_date fallback to today")
+# 1. Remove Enrich All button
+old_btn = '<button class="btn btn-outline" onclick="enrichViaBrowser()" id="enrich-btn" style="font-size:10px;padding:4px 10px;">Enrich All</button>\n    '
+assert old_btn in content, "Button not found"
+content = content.replace(old_btn, '', 1)
+print("Button removed")
 
-# Fix 2: DOM fallback scrape — use today as fallback
-old2 = "results.push({{title, url, source: 'Financial Times', pub_date: '', standfirst: '', is_opinion: false, is_podcast: false, already_saved: false}});"
-new2 = "results.push({{title, url, source: 'Financial Times', pub_date: new Date().toISOString().substring(0, 10), standfirst: '', is_opinion: false, is_podcast: false, already_saved: false}});"
-assert old2 in content, "Fix 2 not found"
-content = content.replace(old2, new2, 1)
-print("Fix 2: DOM fallback pub_date to today")
+# 2. Remove enrichViaBrowser JS function
+# It starts at 'async function enrichViaBrowser(){' and ends just before 'async function syncAll(){'
+JS_START = 'async function enrichViaBrowser(){'
+JS_END   = 'async function syncAll(){'
+idx_s = content.find(JS_START)
+idx_e = content.find(JS_END)
+assert idx_s > 0 and idx_e > idx_s, f"JS not found: {idx_s} {idx_e}"
+removed_js = content[idx_s:idx_e]
+content = content[:idx_s] + content[idx_e:]
+print(f"JS function removed ({len(removed_js.splitlines())} lines)")
 
-ast.parse(content)
-print("Syntax OK")
-with open('/Users/alexdakers/meridian-server/server.py', 'w') as f:
+assert content.count('<html lang') == 1
+with open('/Users/alexdakers/meridian-server/meridian.html', 'w', encoding='utf-8') as f:
     f.write(content)
-print("Done")
+print("meridian.html done")
