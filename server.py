@@ -1798,7 +1798,7 @@ with sync_playwright() as pw:
                     title: a.title,
                     url: a.url.split('?')[0],
                     source: 'Financial Times',
-                    pub_date: a.publishedDate ? a.publishedDate.substring(0, 10) : '',
+                    pub_date: a.publishedDate ? a.publishedDate.substring(0, 10) : new Date().toISOString().substring(0, 10),
                     standfirst: a.standfirst || '',
                     is_opinion: a.indicators ? a.indicators.isOpinion : false,
                     is_podcast: a.indicators ? a.indicators.isPodcast : false,
@@ -1813,7 +1813,7 @@ with sync_playwright() as pw:
             const title = a.innerText.trim();
             if (title.length > 15 && url.includes('ft.com/content/') && !seen.has(url)) {{
                 seen.add(url);
-                results.push({{title, url, source: 'Financial Times', pub_date: '', standfirst: '', is_opinion: false, is_podcast: false, already_saved: false}});
+                results.push({{title, url, source: 'Financial Times', pub_date: new Date().toISOString().substring(0, 10), standfirst: '', is_opinion: false, is_podcast: false, already_saved: false}});
             }}
         }});
         return results;
