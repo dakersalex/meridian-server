@@ -1925,7 +1925,7 @@ async function checkServer(){
 async function loadFromServer(){
   if(!serverOnline){renderAll();return;}
   try{
-    const r=await fetch(SERVER+'/api/articles?limit=2000');const data=await r.json();
+    const r=await fetch(SERVER+'/api/articles/feed?limit=2000');const data=await r.json();
     const sa=(data.articles||[]).map(a=>({id:a.id,ts:(()=>{if(!a.pub_date)return a.saved_at;try{const d=new Date(a.pub_date);if(!isNaN(d.getTime()))return d.getTime();return a.saved_at;}catch(e){return a.saved_at;}})(),pub_date:a.pub_date||'',source:a.source||'Unknown',url:a.url||'',title:a.title||'Untitled',summary:a.summary||a.body?.slice(0,200)||'',fullSummary:a.body||'',keyPoints:[],tags:a.tags||[],topic:a.topic||'',folder:a.folder||'',status:a.status||'title_only',auto_saved:a.auto_saved||0,fromServer:true}));
     const sids=new Set(sa.map(a=>a.id));
     articles=[...sa,...articles.filter(a=>!sids.has(a.id))].sort((a,b)=>b.ts-a.ts);
@@ -2447,7 +2447,7 @@ async function savePDFArticles(){
   // Reload articles from server so the new ones appear immediately
   if(serverOnline){
     try{
-      const r=await fetch(SERVER+'/api/articles?limit=500');
+      const r=await fetch(SERVER+'/api/articles/feed?limit=500');
       const data=await r.json();
       if(data.articles){articles=data.articles;}
     }catch(e){}
@@ -2570,7 +2570,7 @@ async function autoClipAll(){
       await new Promise(r => setTimeout(r, 3000));
       waited += 3000;
       try {
-        const resp = await fetch(SERVER + '/api/articles?limit=2000');
+        const resp = await fetch(SERVER + '/api/articles/feed?limit=2000');
         const data = await resp.json();
         const serverArts = data.articles || [];
         const done = batchIds.filter(id => {
@@ -3252,7 +3252,7 @@ async function runAgent() {
     if (d.ok) {
       toast('Agent saved ' + d.saved + ' article' + (d.saved !== 1 ? 's' : ''), 4000);
       if (d.saved > 0) {
-        fetch(SERVER + '/api/articles?limit=2000').then(r=>r.json()).then(d=>{ articles = d.articles || []; }).catch(()=>{});
+        fetch(SERVER + '/api/articles/feed?limit=2000').then(r=>r.json()).then(d=>{ articles = d.articles || []; }).catch(()=>{});
         fetch(SERVER + '/api/suggested?sort=' + suggestedSort).then(r=>r.json()).then(d=>{ suggestedArticles = d.articles || []; renderSuggested(); }).catch(()=>{});
       }
     }
@@ -3527,7 +3527,7 @@ async function saveFromSuggested(id, url, title, source) {
       });
       toast('"' + title.slice(0,40) + '…" saved to Feed');
       // Reload articles in background without switching view
-      fetch(SERVER + '/api/articles?limit=2000').then(r=>r.json()).then(d=>{ articles = d.articles || []; }).catch(()=>{});
+      fetch(SERVER + '/api/articles/feed?limit=2000').then(r=>r.json()).then(d=>{ articles = d.articles || []; }).catch(()=>{});
     }
   } catch(e) {
     if (btn) { btn.disabled = false; btn.textContent = '+ Save to Feed'; }
@@ -3599,7 +3599,7 @@ async function loadSuggestedCount() {
 async function updateActivityBar() {
   try {
     const [artR, syncR] = await Promise.all([
-      fetch(SERVER + '/api/articles?limit=2000'),
+      fetch(SERVER + '/api/articles/feed?limit=2000'),
       fetch(SERVER + '/api/sync/status')
     ]);
     const artD = await artR.json();
