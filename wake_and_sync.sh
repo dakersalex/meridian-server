@@ -140,4 +140,14 @@ curl -s -X POST "$API/api/ai-pick" \
   -H "Content-Type: application/json" \
   -d '{}' >> "$LOG" 2>&1
 
+# Final safety net: enrich any remaining unenriched articles via title-only fallback
+echo "$(date): Running enrichment fallback sweep" >> "$LOG"
+curl -s -X POST "$API/api/enrich-remaining" >> "$LOG" 2>&1
+sleep 30
+
+# Log enrichment health check
+echo "$(date): Enrichment health check:" >> "$LOG"
+curl -s "$API/api/health/enrichment" >> "$LOG" 2>&1
+echo "" >> "$LOG"
+
 echo "$(date): Wake sync complete" >> "$LOG"
