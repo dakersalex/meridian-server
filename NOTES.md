@@ -1,5 +1,5 @@
 # Meridian — Technical Notes
-Last updated: 17 April 2026 (Session 57 — Economist weekly AI pick rewrite, Suggested UI polish, CDP monitoring)
+Last updated: 18 April 2026 (Session 58 — reverted MCP enrichment attempt, lean feed endpoint, FT pub_date fix)
 
 ## Overview
 Personal news aggregator. Flask API + SQLite backend on Hetzner VPS (always-on).
