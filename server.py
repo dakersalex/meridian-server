@@ -154,7 +154,6 @@ def init_db():
                    ' article_count INTEGER DEFAULT 0, last_updated INTEGER NOT NULL)')
         cx.execute('CREATE TABLE IF NOT EXISTS kt_meta '
                    '(key TEXT PRIMARY KEY, value TEXT NOT NULL)')
-        # Performance indexes — safe to run every startup (IF NOT EXISTS)
         for _idx in [
             'CREATE INDEX IF NOT EXISTS idx_art_pub_date ON articles(pub_date DESC)',
             'CREATE INDEX IF NOT EXISTS idx_art_saved_at ON articles(saved_at DESC)',
@@ -824,8 +823,7 @@ class EconomistScraper:
             [_sys.executable,
              str(BASE_DIR / "eco_scraper_sub.py"),
              str(self.CDP_PROFILE), str(self.CDP_PORT),
-             out_file.name, ids_file.name,
-             self.last_sync.strftime("%Y-%m-%d") if self.last_sync else ""],
+             out_file.name, ids_file.name],
             timeout=300, capture_output=True, text=True
         )
         _os.unlink(ids_file.name)
@@ -1123,43 +1121,6 @@ def run_sync(source_key):
 
 
 # ── Flask routes ──────────────────────────────────────────────────────────────
-
-
-@app.route("/api/articles/feed", methods=["GET"])
-def get_articles_feed():
-    """Lightweight feed endpoint — returns only fields needed for list display, no body text."""
-    limit  = min(int(request.args.get("limit", 2000)), 5000)
-    source = request.args.get("source", "")
-    with sqlite3.connect(DB_PATH) as cx:
-        cx.row_factory = sqlite3.Row
-        if source:
-            rows = cx.execute(
-                "SELECT id,source,url,title,topic,tags,status,pub_date,saved_at,auto_saved "
-                "FROM articles WHERE source=? "
-                "ORDER BY COALESCE(NULLIF(pub_date,''),datetime(saved_at/1000,'unixepoch')) DESC LIMIT ?",
-                (source, limit)
-            ).fetchall()
-        else:
-            rows = cx.execute(
-                "SELECT id,source,url,title,topic,tags,status,pub_date,saved_at,auto_saved "
-                "FROM articles "
-                "ORDER BY COALESCE(NULLIF(pub_date,''),datetime(saved_at/1000,'unixepoch')) DESC LIMIT ?",
-                (limit,)
-            ).fetchall()
-    arts = []
-    for r in rows:
-        try: tags = json.loads(r["tags"] or "[]")
-        except: tags = []
-        arts.append({
-            "id": r["id"], "source": r["source"], "url": r["url"],
-            "title": r["title"], "topic": r["topic"] or "",
-            "tags": tags, "status": r["status"],
-            "pub_date": r["pub_date"] or "", "saved_at": r["saved_at"],
-            "auto_saved": r["auto_saved"] or 0,
-            "body": "", "summary": "",  # empty — not needed for list view
-        })
-    return jsonify({"articles": arts, "total": len(arts)})
-
 @app.route("/api/health")
 def health():
     return jsonify({"ok": True, "version": "3.0.0"})
