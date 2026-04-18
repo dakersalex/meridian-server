@@ -133,6 +133,12 @@ IVEOF
 
 # Trigger AI pick — scrapes FT/Economist/FA recommendation feeds, Sonnet scores
 # Waits for Playwright profiles to be free after the main scrape above
+# RSS-based AI pick — fast, no auth needed, no Playwright
+echo "$(date): Running RSS-based AI pick" >> "$LOG"
+curl -s -X POST "$API/api/rss-pick" >> "$LOG" 2>&1
+sleep 15
+
+# Legacy Playwright-based AI pick (fallback for personalised FT feed)
 echo "$(date): Waiting 5 min for scrape profiles to clear before AI pick..." >> "$LOG"
 sleep 300
 echo "$(date): Triggering AI pick feed scrape" >> "$LOG"

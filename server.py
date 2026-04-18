@@ -1319,6 +1319,27 @@ def sync_last_run():
     result["eco_cdp_live"] = not cdp_status.startswith("DOWN")
     return jsonify(result)
 
+
+@app.route("/api/rss-pick", methods=["POST"])
+def rss_pick_route():
+    """RSS-based AI pick — no Playwright, no auth, no Cloudflare.
+    Fetches FT/Economist/FA RSS feeds, scores with Haiku, routes to Feed/Suggested."""
+    import subprocess as _rsp
+    def _run():
+        try:
+            result = _rsp.run(
+                [sys.executable, str(BASE_DIR / "rss_ai_pick.py")],
+                timeout=120, capture_output=True, text=True, cwd=str(BASE_DIR)
+            )
+            if result.returncode != 0:
+                log.warning(f"RSS pick subprocess failed: {result.stderr[:200]}")
+            else:
+                log.info(f"RSS pick completed: {result.stdout[-200:]}")
+        except Exception as e:
+            log.warning(f"RSS pick error: {e}")
+    threading.Thread(target=_run, daemon=True).start()
+    return jsonify({"ok": True, "message": "RSS pick started"})
+
 @app.route("/api/ai-pick/economist-weekly", methods=["POST"])
 def api_ai_pick_economist_weekly():
     """Trigger Economist weekly edition AI pick. Can be called manually or by scheduler."""
