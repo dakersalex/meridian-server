@@ -1635,7 +1635,8 @@ def enrich_remaining_route():
             # Try body-based enrichment first if body is long enough
             if a.get("body") and len(a.get("body","")) >= 200:
                 enrich_article_with_ai(a)
-            else:
+            # If body enrichment failed or body too short, fallback to title-only
+            if not a.get("summary"):
                 enrich_from_title_only(a)
             if a.get("summary"):
                 _save_enriched_article(a)
