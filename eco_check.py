@@ -1,28 +1,26 @@
-import ast
-
-with open('/Users/alexdakers/meridian-server/server.py', 'r') as f:
+with open('/Users/alexdakers/meridian-server/meridian.html', 'r', encoding='utf-8') as f:
     content = f.read()
 
-old = ("        cx.execute('CREATE TABLE IF NOT EXISTS kt_meta '\n"
-       "                   '(key TEXT PRIMARY KEY, value TEXT NOT NULL)')\n")
-new = ("        cx.execute('CREATE TABLE IF NOT EXISTS kt_meta '\n"
-       "                   '(key TEXT PRIMARY KEY, value TEXT NOT NULL)')\n"
-       "        # Performance indexes — safe to run every startup (IF NOT EXISTS)\n"
-       "        for _idx in [\n"
-       "            'CREATE INDEX IF NOT EXISTS idx_art_pub_date ON articles(pub_date DESC)',\n"
-       "            'CREATE INDEX IF NOT EXISTS idx_art_saved_at ON articles(saved_at DESC)',\n"
-       "            'CREATE INDEX IF NOT EXISTS idx_art_source ON articles(source)',\n"
-       "            'CREATE INDEX IF NOT EXISTS idx_art_status ON articles(status)',\n"
-       "            'CREATE INDEX IF NOT EXISTS idx_art_auto_saved ON articles(auto_saved)',\n"
-       "        ]:\n"
-       "            cx.execute(_idx)\n")
+# Switch main load calls from /api/articles to /api/articles/feed
+# The full /api/articles is still needed for article detail view (body/summary)
+replacements = [
+    # Main loadFromServer call
+    ("fetch(SERVER+'/api/articles?limit=2000')", "fetch(SERVER+'/api/articles/feed?limit=2000')"),
+    # Briefing generator fetch
+    ("fetch(SERVER+'/api/articles?limit=500')", "fetch(SERVER+'/api/articles/feed?limit=500')"),
+    # Key themes fetch
+    ("fetch(SERVER + '/api/articles?limit=2000').then(r=>r.json()).then(d=>{ articles = d.articles || []; }).catch(()=>{})", 
+     "fetch(SERVER + '/api/articles/feed?limit=2000').then(r=>r.json()).then(d=>{ articles = d.articles || []; }).catch(()=>{})"),
+]
 
-assert old in content, "kt_meta not found"
-content = content.replace(old, new, 1)
-print("Indexes added to init_db")
+count = 0
+for old, new in replacements:
+    n = content.count(old)
+    content = content.replace(old, new)
+    count += n
+    print(f"Replaced {n}x: {old[:60]}...")
 
-ast.parse(content)
-print("Syntax OK")
-with open('/Users/alexdakers/meridian-server/server.py', 'w') as f:
+assert content.count('<html lang') == 1
+with open('/Users/alexdakers/meridian-server/meridian.html', 'w', encoding='utf-8') as f:
     f.write(content)
-print("Done")
+print(f"Done — {count} replacements")
