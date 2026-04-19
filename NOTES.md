@@ -1,5 +1,5 @@
 # Meridian — Technical Notes
-Last updated: 18 April 2026 (Session 60 — RSS AI picks, fallback enrichment, health monitoring)
+Last updated: 19 April 2026 (Session 61 — swim lane fix, extension body-fetcher live)
 
 ## Overview
 Personal news aggregator. Flask API + SQLite backend on Hetzner VPS (always-on).
@@ -15,13 +15,14 @@ Frontend at https://meridianreader.com/meridian.html
 - ~/meridian-server/server.py
 - ~/meridian-server/meridian.html
 - ~/meridian-server/meridian.db
-- ~/meridian-server/rss_ai_pick.py — RSS-based AI pick pipeline (Session 60)
+- ~/meridian-server/rss_ai_pick.py — RSS-based AI pick pipeline
+- ~/meridian-server/extension/ — Chrome extension v1.3 with background body-fetcher
 - ~/meridian-server/batch_enrichment_final.py — Batch API enrichment script
 - ~/meridian-server/wake_and_sync.sh
 - ~/meridian-server/vps_push.py
 - ~/meridian-server/logs/
 
-## Database (18 April 2026 — Session 60)
+## Database (19 April 2026 — Session 61)
 | Source | Mac | VPS |
 |---|---|---|
 | FT | ~323 | ~319+ |
@@ -29,117 +30,113 @@ Frontend at https://meridianreader.com/meridian.html
 | FA | ~163 | ~169+ |
 | Bloomberg | ~43 | ~45 |
 | Other | ~19 | ~46 |
-| **Total** | **~914** | **~945+** |
+| **Total** | **~918** | **~957** |
 
-**Unenriched: 0 on both Mac and VPS** ✅
+**Title-only (pending body fetch): 34 on Mac, being processed by extension**
 
-## RSS-Based AI Pick Pipeline (Session 60)
+## How Articles Get Into Meridian
 
-### Architecture
-- **Script:** `rss_ai_pick.py` — standalone, no Playwright, no auth, no Cloudflare
-- **Endpoint:** `POST /api/rss-pick`
-- **Feeds:** 6 FT sections + 6 Economist sections + 1 FA feed = 13 RSS feeds
-- **Scoring:** Haiku (cost-efficient) scores all candidates in one API call
-- **Speed:** ~6 seconds total (fetch all feeds + score 76 candidates)
-- **Gate:** Twice daily (morning/midday) via kt_meta keys
+### 1. Manual saves (Chrome extension clip button)
+- You read an article → click clip → extension extracts full body text → saves to DB
+- Most reliable path, always produces full_text with real summaries
+- Works for all sources including Bloomberg
 
-### Feed URLs
-FT: rss/home, world, markets, global-economy, companies, technology (all `?format=rss`)
-Economist: leaders, briefing, finance-and-economics, international, business, the-world-this-week (all `/rss.xml`)
-FA: /rss.xml
+### 2. RSS AI picks (rss_ai_pick.py)
+- Runs twice daily via wake_and_sync.sh
+- Fetches 13 RSS feeds (6 FT, 6 Economist, 1 FA) — public, no auth
+- Haiku scores candidates; score ≥8 (FT/Eco) or ≥7 (FA) → auto-saved as title_only
+- Score 6-7 → Suggested inbox
+- ~6 seconds total, no Playwright/Cloudflare issues
 
-### Scoring & routing
-- Score 8+ (FT/Eco) or 7+ (FA) → auto-saved to Feed (auto_saved=1, status=title_only)
-- Score 6-7 → added to Suggested inbox
-- Score 0-5 → discarded
-- After auto-save, triggers `/api/enrich-remaining` for title-only fallback enrichment
+### 3. Extension background body-fetcher (NEW — Session 60/61)
+- Every 15 minutes, checks `/api/articles/pending-body` for title_only articles
+- Opens each URL in a background Chrome tab (uses YOUR logged-in session)
+- Extracts body text, PATCHes article, triggers AI enrichment
+- Bypasses paywalls because it uses real browser with real auth
+- 5 articles per cycle
 
-### Why RSS > Playwright for AI picks
-- No authentication needed (RSS feeds are public)
-- No Cloudflare blocking
-- No Playwright profile locks or headless Chrome issues
-- 6 seconds vs 90+ seconds
-- No dependency on profile session renewal
-- RSS gives title + URL + description + pub_date — everything the scorer needs
+### 4. Playwright scrapers (legacy, partially broken)
+- FT: headless blocked by paywall (body fetch fails, gets titles only)
+- Economist: Cloudflare blocks, unreliable
+- FA: works intermittently
+- Still runs in wake_and_sync.sh but RSS picks + extension fetcher are the primary path now
 
-### Legacy Playwright pick still runs after RSS pick (for personalised FT feed)
+### 5. Legacy Playwright AI pick (under evaluation)
+- Scrapes personalised FT feed via _feedTimelineTeasers JS variable
+- Uses Sonnet for scoring (more expensive than Haiku)
+- Requires ft_profile Playwright session + 5-min wait
+- Still runs after RSS pick as fallback — evaluate whether to remove
 
-## Enrichment Architecture (Session 60)
+## Enrichment Pipeline
 
-### Three-layer enrichment pipeline
-1. **Body-based enrichment** (`enrich_article_with_ai`) — Full AI analysis from article text. Requires body ≥200 chars. Uses Haiku.
-2. **Title-only fallback** (`enrich_from_title_only`) — Generates summary from title + source alone when body unavailable. Uses Haiku.
-3. **Cascade logic** — `enrich-remaining` tries body enrichment first, falls back to title-only if JSON parse fails or body too short.
+### How articles get enriched (body → summary)
+- `enrich_article_with_ai()` — sends body text (≥200 chars) to Haiku for summary, tags, topic
+- Only works with REAL article body text — no fake/imagined summaries
+- `enrich_from_title_only()` was removed (Session 60) — never generate summaries without real text
 
-### Automated enrichment flow (wake_and_sync.sh)
-1. Sync triggers scraping for FT, Economist, FA
-2. `/api/enrich-title-only` runs body fetching + AI enrichment + final fallback sweep
-3. RSS pick runs (`/api/rss-pick`) — finds new articles, auto-saves, enriches
-4. Legacy Playwright AI pick runs (fallback for personalised feed)
-5. `/api/enrich-remaining` runs as safety net
-6. `/api/health/enrichment` logged for monitoring
+### Automated flow (wake_and_sync.sh)
+1. Playwright sync (FT/Economist/FA) → fetches body where possible → enriches
+2. RSS pick → discovers new articles → saves as title_only
+3. Legacy Playwright AI pick (fallback)
+4. Extension body-fetcher runs independently every 15 min
 
 ### Key endpoints
 - `GET /api/health/enrichment` — ok/unenriched count/status breakdown
-- `POST /api/enrich-remaining` — fallback enrichment with cascade
-- `POST /api/rss-pick` — RSS-based AI pick (no auth needed)
-- `POST /api/enrich-title-only` — full enrichment pipeline
-
-## Batch API Enrichment (Session 59)
-- **Script:** `batch_enrichment_final.py` — 50% cost savings vs real-time
-- **Model:** `claude-sonnet-4-6`
-- **Status:** All 42 results applied to DB in Session 60
+- `GET /api/articles/pending-body` — returns title_only articles for extension body-fetcher
+- `POST /api/rss-pick` — RSS-based AI pick
+- `POST /api/enrich-title-only` — body fetching + enrichment pipeline
 
 ## Outstanding Issues / Next Sessions
 
-### 🔴 Immediate
-1. **Reload Chrome extension** — background.js was updated (Session 60) with body-fetch code but Chrome needs manual reload at chrome://extensions to pick it up. After reload, it will start fetching real body text for the 46 title_only articles every 15 min.
-
-### 🟡 Session 61
-1. **Verify extension body fetcher** — confirm articles transition from title_only → full_text after extension reload. Check service worker console for body-fetch logs.
-2. **Evaluate legacy Playwright AI pick** — compare RSS pick coverage vs personalised FT feed picks over 3-5 days. If RSS catches the same articles, remove the Playwright AI pick entirely (eliminates profile lock risk, 5-min sleep, Sonnet cost). If personalised feed adds unique high-value articles, keep it.
-3. **Economist scraper** — RSS feeds now handle Economist AI picks; consider whether Playwright scraper is still needed for saved-article sync
-4. **End-to-end test** — simulate full wake_and_sync cycle
-5. **FA URL validation** — verify 38 Haiku-guessed URLs with HTTP HEAD checks
+### 🟡 Session 62
+1. **Evaluate legacy Playwright AI pick** — compare RSS pick coverage vs personalised FT feed picks over 3-5 days. If RSS catches the same articles, remove the Playwright AI pick entirely (eliminates profile lock risk, 5-min sleep, Sonnet cost).
+2. **Economist scraper** — RSS feeds now handle Economist AI picks; decide whether Playwright scraper is still needed for saved-article sync
+3. **Extension body-fetcher monitoring** — verify it continues to clear title_only backlog reliably. Currently 34 pending.
+4. **FA URL validation** — verify 38 Haiku-guessed URLs with HTTP HEAD checks
+5. **pub_date normalization** — legacy Playwright AI pick stores ISO timestamps; either normalize in that code path or remove it
 
 ### 🟢 Nice to have
-- Daily email alert if unenriched > 0
+- Daily email alert if title_only count stays >0 for 24h
 - Economist chart backfill (173 articles)
 - KT theme evolution improvements
 
 ## Build History
 
+### 19 April 2026 (Session 61)
+
+**Swim lane date matching fix**
+- Root cause: swim lane used strict equality (`===`) to match pub_date against `YYYY-MM-DD`, but AI pick articles had ISO timestamps like `2026-04-18T04:00:04.363Z`
+- Fix: changed to `.substring(0,10)` comparison
+- Normalized 19 existing pub_dates from ISO to YYYY-MM-DD in Mac DB
+- 6 AI pick articles were invisible on April 18 bar — now visible
+
+**Extension body-fetcher verified working**
+- First batch: 5 articles fetched with real body text (3,800–28,000 chars)
+- All 5 got real AI summaries from actual article content
+- Title_only count dropped from 46 → 34, continuing to process
+
+**Fake enrichment cleanup (late Session 60)**
+- Removed `enrich_from_title_only()` function — no more AI-imagined summaries
+- Reverted 42 articles on Mac and 32 on VPS that had fake summaries
+- Policy: articles without real body text stay as title_only until extension fetches them
+
+---
+
 ### 18 April 2026 (Session 60)
 
-**RSS-based AI pick pipeline — no Playwright, no auth, no Cloudflare**
-- Built `rss_ai_pick.py`: fetches 13 RSS feeds (6 FT, 6 Economist, 1 FA)
-- Scores candidates with Haiku in single API call (~6 seconds total)
-- First run: 76 candidates found, 5 auto-saved to feed, 16 to suggested
-- Added `/api/rss-pick` endpoint and wired into wake_and_sync.sh
-- Eliminates Playwright/Cloudflare dependency for article discovery
+**RSS-based AI pick pipeline**
+- Built `rss_ai_pick.py`: 13 RSS feeds, Haiku scoring, ~6 seconds total
+- First run: 76 candidates, 5 auto-saved, 16 to suggested
+- Wired into wake_and_sync.sh
 
-**Unenriched backlog eliminated: 39 → 0 (Mac), 37 → 0 (VPS)**
-- Applied 42 batch enrichment results from Session 59
-- Built title-only fallback enrichment for articles without body text
-- Fixed cascade logic: body enrichment failure falls back to title-only
-- VPS enrichment triggered via `/api/enrich-remaining`
+**Extension background body-fetcher**
+- Added to background.js: 15-min alarm, opens background tabs, extracts body
+- Server endpoint `/api/articles/pending-body` returns title_only articles
+- Uses real Chrome session — bypasses all paywalls
 
-**FA author-URL bug fixed: 38 articles**
-- Root cause: `_extract_articles` stored `/authors/` URLs from saved-articles page
-- Used Haiku to construct correct article URLs (38/38 fixed)
-- `SKIP_PREFIXES` already prevents future ingestion
-
-**New infrastructure**
-- `enrich_from_title_only()` — fallback enrichment function
-- `/api/health/enrichment` — monitoring endpoint
-- `/api/enrich-remaining` — manual trigger with cascade logic
-- `wake_and_sync.sh` — RSS pick + enrichment fallback + health check
-
-**Key learnings**
-- RSS feeds bypass all auth/bot-detection issues and are much faster than Playwright
-- Haiku is good enough for article scoring (vs Sonnet) at fraction of cost
-- Cascade fallback (body → title-only) catches all enrichment edge cases
-- Title-only enrichment from Haiku produces usable summaries
+**Enrichment health monitoring**
+- `/api/health/enrichment` endpoint
+- Logged at end of every wake_and_sync run
 
 ---
 
@@ -152,7 +149,7 @@ FA: /rss.xml
 
 ## Session startup — CRITICAL ORDER
 1. `tabs_context_mcp` with `createIfEmpty:true`
-2. Read NOTES.md  
+2. Read NOTES.md
 3. Navigate Tab A to localhost:8080
 4. Inject shell bridge
 5. Health check
