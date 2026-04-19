@@ -1926,7 +1926,7 @@ async function loadFromServer(){
   if(!serverOnline){renderAll();return;}
   try{
     const r=await fetch(SERVER+'/api/articles/feed?limit=2000');const data=await r.json();
-    const sa=(data.articles||[]).map(a=>({id:a.id,ts:(()=>{if(!a.pub_date)return a.saved_at;try{const d=new Date(a.pub_date);if(!isNaN(d.getTime()))return d.getTime();return a.saved_at;}catch(e){return a.saved_at;}})(),pub_date:a.pub_date||'',source:a.source||'Unknown',url:a.url||'',title:a.title||'Untitled',summary:a.summary||a.body?.slice(0,200)||'',fullSummary:a.body||'',keyPoints:[],tags:a.tags||[],topic:a.topic||'',folder:a.folder||'',status:a.status||'title_only',auto_saved:a.auto_saved||0,fromServer:true}));
+    const sa=(data.articles||[]).map(a=>({id:a.id,ts:(()=>{if(!a.pub_date)return a.saved_at;try{const d=new Date(a.pub_date);if(!isNaN(d.getTime()))return d.getTime();return a.saved_at;}catch(e){return a.saved_at;}})(),pub_date:a.pub_date||'',source:a.source||'Unknown',url:a.url||'',title:a.title||'Untitled',summary:a.summary||a.body?.slice(0,200)||'',fullSummary:a.body||'',keyPoints:a.keyPoints||[],key_points:(()=>{try{return JSON.parse(a.key_points||'[]')}catch(e){return []}})(),highlights:(()=>{try{return JSON.parse(a.highlights||'[]')}catch(e){return []}})(),tags:a.tags||[],topic:a.topic||'',folder:a.folder||'',status:a.status||'title_only',auto_saved:a.auto_saved||0,fromServer:true}));
     const sids=new Set(sa.map(a=>a.id));
     articles=[...sa,...articles.filter(a=>!sids.has(a.id))].sort((a,b)=>b.ts-a.ts);
     const needs=articles.filter(a=>!a.folder&&!pendingSuggestions[a.id]&&a.title);
@@ -2196,6 +2196,70 @@ function openDetail(id){
   const a=articles.find(x=>x.id===id);if(!a)return;
   const related=articles.filter(x=>x.id!==id&&(x.folder===a.folder||x.source===a.source)).slice(0,3);
   const authorLine=a.author?`<div style="font-size:13px;color:var(--ink-3);margin-bottom:14px;font-style:italic">By ${a.author}</div>`:'';
+  const kp=a.key_points||a.keyPoints||[];
+  const hl=a.highlights||[];
+  const hasBody=a.fullSummary&&a.fullSummary.length>200;
+  const hasKP=kp.length>0;
+
+  function highlightText(body,highlights){
+    if(!highlights||!highlights.length)return body;
+    let result=body;
+    highlights.forEach(h=>{
+      if(h&&h.length>10){
+        const escaped=h.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+        const re=new RegExp('('+escaped.substring(0,60)+')','gi');
+        result=result.replace(re,'<mark style="background:#FAEEDA;padding:1px 3px;border-radius:2px">$1</mark>');
+      }
+    });
+    return result;
+  }
+
+  function renderMode(mode){
+    let content='';
+    if(mode==='brief'){
+      content=`<div style="font-size:15px;line-height:1.7;color:var(--ink-1)">${a.summary||'No summary available.'}</div>`;
+    } else if(mode==='analysis'){
+      content=`<div style="font-size:15px;line-height:1.7;color:var(--ink-1);margin-bottom:16px">${a.summary||''}</div>`;
+      if(hasKP){
+        content+=`<div style="border-top:1px solid var(--rule);padding-top:14px;margin-bottom:14px">
+          <div style="font-size:11px;font-weight:600;color:var(--ink-3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px">Key points</div>`;
+        kp.forEach((p,i)=>{
+          content+=`<div style="display:flex;gap:8px;margin-bottom:8px;font-size:14px;line-height:1.6;color:var(--ink-1)">
+            <span style="color:var(--accent);font-weight:600;flex-shrink:0">${i+1}</span>
+            <span>${p}</span></div>`;
+        });
+        content+=`</div>`;
+      }
+      const tags=a.tags||[];
+      if(tags.length){
+        content+=`<div style="border-top:1px solid var(--rule);padding-top:10px;display:flex;gap:6px;flex-wrap:wrap">
+          ${tags.map(t=>`<span style="font-size:11px;padding:2px 8px;background:var(--bg-2);border-radius:4px;color:var(--ink-3)">${t}</span>`).join('')}</div>`;
+      }
+    } else if(mode==='full'){
+      if(hasBody){
+        const bodyHtml=highlightText(a.fullSummary,hl);
+        const paras=bodyHtml.split('\n').filter(p=>p.trim().length>0);
+        content=`<div style="font-family:Georgia,serif;font-size:15px;line-height:1.85;color:var(--ink-1)">
+          ${paras.map(p=>`<p style="margin:0 0 1rem">${p}</p>`).join('')}
+          <div style="color:var(--ink-3);font-style:italic;font-family:var(--font-sans,system-ui);font-size:12px;border-top:1px solid var(--rule);padding-top:10px;margin-top:16px">
+            ${paras.length} paragraphs · ${a.fullSummary.length.toLocaleString()} characters</div></div>`;
+      } else {
+        content=`<div style="font-size:14px;color:var(--ink-3);font-style:italic">Full text not available — article has not been fetched yet.</div>`;
+      }
+    }
+    document.getElementById('detail-reading-content').innerHTML=content;
+    document.querySelectorAll('.reading-mode-btn').forEach(b=>{
+      if(b.dataset.mode===mode){
+        b.style.background='var(--ink-1)';b.style.color='var(--bg-1)';b.style.border='none';
+      } else {
+        b.style.background='transparent';b.style.color='var(--ink-3)';b.style.border='1px solid var(--rule)';
+      }
+    });
+  }
+
+  window._currentDetailMode='brief';
+  window._renderDetailMode=renderMode;
+
   document.getElementById('detail-content').innerHTML=`
     <div class="article-meta" style="margin-bottom:10px">
       ${a.topic?`<span class="topic-pill ${topicClass(a.topic)}" style="${topicStyle(a.topic)}">${a.topic}</span>`:''}
@@ -2207,11 +2271,16 @@ function openDetail(id){
     <div class="detail-title">${a.title}</div>
     ${authorLine}
     ${a.url?`<div style="font-size:12px;color:var(--blue);margin-bottom:14px;word-break:break-all"><a href="${a.url}" target="_blank" style="color:inherit">${a.url}</a></div>`:''}
-    ${a.keyPoints?.length?`<div class="key-points"><div class="key-points-title">Key points</div>${a.keyPoints.map(p=>`<div class="key-point"><div class="key-point-dot"></div><span>${p}</span></div>`).join('')}</div>`:''}
-    <div class="detail-body">${(a.fullSummary||a.summary).split('\n').filter(Boolean).map(p=>`<p>${p}</p>`).join('')}</div>
-    ${folders.length?`<div class="folder-assign-panel"><div class="folder-assign-title">Assign to folder</div><div class="folder-chips">${folders.map(f=>`<span class="folder-chip${a.folder===f.name?' active':''}" onclick="assignFolder('${a.id}','${f.name}')">${f.name}</span>`).join('')}</div></div>`:''}
+    <div style="display:flex;gap:6px;margin-bottom:16px">
+      <button class="reading-mode-btn" data-mode="brief" onclick="window._renderDetailMode('brief')" style="font-size:12px;padding:4px 12px;border-radius:4px;cursor:pointer;font-weight:500;background:var(--ink-1);color:var(--bg-1);border:none">Brief</button>
+      <button class="reading-mode-btn" data-mode="analysis" onclick="window._renderDetailMode('analysis')" style="font-size:12px;padding:4px 12px;border-radius:4px;cursor:pointer;font-weight:500;background:transparent;color:var(--ink-3);border:1px solid var(--rule)"${hasKP?'':' title="No key points yet"'}>Analysis</button>
+      <button class="reading-mode-btn" data-mode="full" onclick="window._renderDetailMode('full')" style="font-size:12px;padding:4px 12px;border-radius:4px;cursor:pointer;font-weight:500;background:transparent;color:var(--ink-3);border:1px solid var(--rule)"${hasBody?'':' title="Full text not fetched yet"'}>Full text</button>
+    </div>
+    <div id="detail-reading-content"></div>
+    ${folders.length?`<div class="folder-assign-panel" style="margin-top:20px"><div class="folder-assign-title">Assign to folder</div><div class="folder-chips">${folders.map(f=>`<span class="folder-chip${a.folder===f.name?' active':''}" onclick="assignFolder('${a.id}','${f.name}')">${f.name}</span>`).join('')}</div></div>`:''}
     ${related.length?`<div style="margin-top:20px;border-top:1px solid var(--rule);padding-top:14px"><div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--ink-3);margin-bottom:10px">Related</div>${related.map(r=>`<div class="related-item" onclick="openDetail('${r.id}')">${r.title}</div>`).join('')}</div>`:''}
   `;
+  renderMode('brief');
   document.getElementById('feed-area').classList.add('hidden');document.getElementById('detail-view').classList.add('open');window.scrollTo(0,0);
 }
 function closeDetail(){document.getElementById('feed-area').classList.remove('hidden');document.getElementById('detail-view').classList.remove('open');}

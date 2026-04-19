@@ -94,6 +94,10 @@ def init_db():
             saved_at INTEGER, fetched_at INTEGER, status TEXT DEFAULT 'pending', pub_date TEXT DEFAULT '',
             auto_saved INTEGER DEFAULT 0)""")
         art_cols = [r[1] for r in cx.execute("PRAGMA table_info(articles)").fetchall()]
+        if 'key_points' not in art_cols:
+            cx.execute("ALTER TABLE articles ADD COLUMN key_points TEXT DEFAULT '[]'")
+        if 'highlights' not in art_cols:
+            cx.execute("ALTER TABLE articles ADD COLUMN highlights TEXT DEFAULT '[]'")
         if 'auto_saved' not in art_cols:
             cx.execute("ALTER TABLE articles ADD COLUMN auto_saved INTEGER DEFAULT 0")
         cx.execute("""CREATE TABLE IF NOT EXISTS sync_log (
@@ -181,9 +185,9 @@ def upsert_article(art):
         art['pub_date'] = normalize_pub_date(art['pub_date'])
     with sqlite3.connect(DB_PATH) as cx:
         cx.execute("""INSERT OR REPLACE INTO articles
-          (id,source,url,title,body,summary,topic,tags,saved_at,fetched_at,status,pub_date,auto_saved)
-          VALUES (:id,:source,:url,:title,:body,:summary,:topic,:tags,:saved_at,:fetched_at,:status,:pub_date,:auto_saved)""",
-          {**art, "auto_saved": art.get("auto_saved", 0)})
+          (id,source,url,title,body,summary,topic,tags,saved_at,fetched_at,status,pub_date,auto_saved,key_points,highlights)
+          VALUES (:id,:source,:url,:title,:body,:summary,:topic,:tags,:saved_at,:fetched_at,:status,:pub_date,:auto_saved,:key_points,:highlights)""",
+          {**art, "auto_saved": art.get("auto_saved", 0), "key_points": art.get("key_points", "[]"), "highlights": art.get("highlights", "[]")})
         cx.commit()
 
 def all_articles(source=None, limit=500):
@@ -271,7 +275,8 @@ def enrich_article_with_ai(art):
 {{
   "summary": "2-3 sentence summary of the main argument",
   "fullSummary": "4-6 paragraph detailed analysis",
-  "keyPoints": ["point 1", "point 2", "point 3", "point 4"],
+  "keyPoints": ["1-2 sentence point capturing a key argument or finding — write 4-6 points", "each should be substantive enough to stand alone"],
+  "highlights": ["exact quote from the article (15-40 words) that captures a crucial insight or turning point — pick 3-5 passages"],
   "tags": ["tag1", "tag2", "tag3"],
   "topic": "pick from: Markets, Economics, Geopolitics, Technology, Politics, Business, Energy, Finance, Society, Science — or invent a new max 2-word topic if none fit",
   "pub_date": "publication date in YYYY-MM-DD format e.g. 2026-03-27, or empty string if unknown"
@@ -298,6 +303,8 @@ Article text:
             art["body"] = parsed.get("fullSummary", art.get("body",""))
         art["tags"]     = json.dumps(parsed.get("tags", []))
         art["topic"]    = parsed.get("topic", art.get("topic",""))
+        art["key_points"] = json.dumps(parsed.get("keyPoints", []))
+        art["highlights"] = json.dumps(parsed.get("highlights", []))
         # Only use Claude's pub_date if we don't already have one from URL extraction
         if not art.get("pub_date"):
             art["pub_date"] = parsed.get("pub_date", "")
@@ -1534,9 +1541,10 @@ def _save_enriched_article(art):
     """Save enriched article fields back to DB after enrich_article_with_ai."""
     with sqlite3.connect(DB_PATH) as cx:
         cx.execute(
-            "UPDATE articles SET summary=?, body=?, tags=?, topic=?, pub_date=?, status=? WHERE id=?",
+            "UPDATE articles SET summary=?, body=?, tags=?, topic=?, pub_date=?, status=?, key_points=?, highlights=? WHERE id=?",
             (art.get("summary",""), art.get("body",""), art.get("tags","[]"),
-             art.get("topic",""), art.get("pub_date",""), art.get("status","fetched"), art["id"])
+             art.get("topic",""), art.get("pub_date",""), art.get("status","fetched"),
+             art.get("key_points","[]"), art.get("highlights","[]"), art["id"])
         )
 
 
@@ -2178,7 +2186,7 @@ with open(out_path, "w") as f:
                 if not article_exists(_fp["id"]):
                     _cx.execute(
                         'INSERT OR IGNORE INTO articles '
-                        '(id,source,url,title,body,summary,topic,tags,saved_at,fetched_at,status,pub_date,auto_saved) '
+                        '(id,source,url,title,body,summary,topic,tags,saved_at,fetched_at,status,pub_date,auto_saved,key_points,highlights) '
                         'VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
                         (_fp["id"], _fp["source"], _fp["url"], _fp["title"], _fp["body"],
                          _fp["summary"], _fp["topic"], _fp["tags"], _fp["saved_at"],
@@ -2360,7 +2368,7 @@ Respond with EXACTLY {len(_edition_candidates)} integers, one per line, nothing 
                     with sqlite3.connect(DB_PATH) as _fx:
                         _fx.execute(
                             "INSERT OR IGNORE INTO articles "
-                            "(id,source,url,title,body,summary,topic,tags,saved_at,fetched_at,status,pub_date,auto_saved) "
+                            "(id,source,url,title,body,summary,topic,tags,saved_at,fetched_at,status,pub_date,auto_saved,key_points,highlights) "
                             "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
                             (_aid, "The Economist", _url, _title, "", "", "", "[]",
                              now_ts(), now_ts(), "title_only", _pub, 1)
