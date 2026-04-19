@@ -1294,21 +1294,22 @@ def sync_source(source):
 
 @app.route("/api/sync/last-run")
 def sync_last_run():
-    """Return last successful scrape time per source from kt_meta."""
+    """Return latest article ingestion time per source (based on actual saved_at timestamps)."""
     with sqlite3.connect(DB_PATH) as cx:
-        rows = cx.execute(
-            "SELECT key, value FROM kt_meta WHERE key LIKE 'last_sync_%' OR key='eco_cdp_status'"
-        ).fetchall()
+        rows = cx.execute("""
+            SELECT source, MAX(saved_at) as latest
+            FROM articles
+            WHERE source IN ('Financial Times','The Economist','Foreign Affairs','Bloomberg')
+            GROUP BY source
+        """).fetchall()
+    source_map = {'Financial Times':'ft','The Economist':'economist','Foreign Affairs':'fa','Bloomberg':'bloomberg'}
     result = {}
-    for key, value in rows:
-        if key == 'eco_cdp_status':
-            result['eco_cdp_status'] = value
-        else:
-            source = key.replace("last_sync_", "")
-            result[source] = value
-    # eco_cdp_live: True if last recorded status was OK
-    cdp_status = result.get("eco_cdp_status", "")
-    result["eco_cdp_live"] = not cdp_status.startswith("DOWN")
+    for source, latest in rows:
+        key = source_map.get(source, source.lower())
+        if latest:
+            from datetime import timezone
+            dt = datetime.fromtimestamp(latest/1000, tz=timezone.utc)
+            result[key] = dt.isoformat()
     return jsonify(result)
 
 
@@ -1604,6 +1605,46 @@ def pending_body():
                 (limit,)
             ).fetchall()
     return jsonify({"articles": [dict(r) for r in rows], "count": len(rows)})
+
+@app.route("/api/health/daily")
+def health_daily():
+    """Daily health summary — used by frontend notification banner."""
+    from datetime import timezone
+    now = datetime.now(timezone.utc)
+    cutoff_24h = int((now - timedelta(hours=24)).timestamp() * 1000)
+    cutoff_48h = int((now - timedelta(hours=48)).timestamp() * 1000)
+    with sqlite3.connect(DB_PATH) as cx:
+        # Articles ingested in last 24h by source
+        rows_24h = cx.execute("""
+            SELECT source, COUNT(*) FROM articles 
+            WHERE saved_at > ? GROUP BY source
+        """, (cutoff_24h,)).fetchall()
+        ingested_24h = dict(rows_24h)
+        total_24h = sum(ingested_24h.values())
+        # Unenriched count
+        unenriched = cx.execute("SELECT COUNT(*) FROM articles WHERE summary IS NULL OR summary=''").fetchone()[0]
+        # Title-only count (pending body fetch)
+        title_only = cx.execute("SELECT COUNT(*) FROM articles WHERE status='title_only'").fetchone()[0]
+        # Last RSS pick time
+        rss_morning = cx.execute("SELECT value FROM kt_meta WHERE key='rss_pick_morning'").fetchone()
+        rss_midday = cx.execute("SELECT value FROM kt_meta WHERE key='rss_pick_midday'").fetchone()
+        last_rss = max(rss_morning[0] if rss_morning else '', rss_midday[0] if rss_midday else '')
+    alerts = []
+    if total_24h == 0:
+        alerts.append({"level": "warning", "message": "No articles ingested in the last 24 hours"})
+    if title_only > 5:
+        alerts.append({"level": "info", "message": f"{title_only} articles pending body text fetch"})
+    if unenriched > 5:
+        alerts.append({"level": "warning", "message": f"{unenriched} articles missing summaries"})
+    return jsonify({
+        "ok": len(alerts) == 0,
+        "ingested_24h": total_24h,
+        "ingested_24h_by_source": ingested_24h,
+        "title_only_pending": title_only,
+        "unenriched": unenriched,
+        "last_rss_pick": last_rss,
+        "alerts": alerts
+    })
 
 @app.route("/api/health/enrichment")
 def health_enrichment():

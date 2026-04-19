@@ -1523,7 +1523,26 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
 <div id="info-strip" style="display:none;flex-direction:column;background:#fff;border-bottom:2px solid #e0dbd0;font-size:11px;position:relative;z-index:51;isolation:isolate;">
 <div style="padding:16px 28px 18px;font-family:'IBM Plex Sans',sans-serif;font-size:11px">
 
-  <!-- HEALTH CHECK ROW: Option C layout -->
+  <!-- NOTIFICATION BANNER: alerts from /api/health/daily -->
+    <div id="health-banner" style="display:none;margin-bottom:12px;padding:10px 16px;border-radius:6px;font-size:13px;line-height:1.5"></div>
+    <script>
+    (async function(){
+      try{
+        const r=await fetch((window.SERVER||'http://localhost:4242')+'/api/health/daily');
+        const d=await r.json();
+        const el=document.getElementById('health-banner');
+        if(d.alerts&&d.alerts.length>0){
+          const warn=d.alerts.some(a=>a.level==='warning');
+          el.style.display='block';
+          el.style.background=warn?'#FFF3E0':'#E8F5E9';
+          el.style.border='1px solid '+(warn?'#FFB74D':'#81C784');
+          el.style.color=warn?'#E65100':'#2E7D32';
+          el.innerHTML=d.alerts.map(a=>a.message).join(' · ');
+        }
+      }catch(e){}
+    })();
+    </script>
+    <!-- HEALTH CHECK ROW: Option C layout -->
   <div id="sp-health-row" style="border:1px solid rgba(0,0,0,.1);border-radius:6px;overflow:hidden;margin-bottom:14px">
     <!-- Header bar -->
     <div style="background:rgba(0,0,0,.03);border-bottom:1px solid rgba(0,0,0,.07);padding:7px 14px;display:flex;align-items:center;justify-content:space-between">
@@ -1621,7 +1640,7 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
     <div>
       <div style="font-size:9px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:#8a8a8a;border-bottom:1px solid rgba(0,0,0,.1);padding-bottom:5px;margin-bottom:9px">Last scraped</div>
       <div id="sp-last-scraped"></div>
-      <div style="font-size:10px;color:#bbb;margin-top:6px;line-height:1.4">Bloomberg manual-only via extension</div>
+      <div style="font-size:10px;color:#bbb;margin-top:6px;line-height:1.4">Bloomberg manual via extension</div>
     </div>
     <div>
       <div style="font-size:9px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:#8a8a8a;border-bottom:1px solid rgba(0,0,0,.1);padding-bottom:5px;margin-bottom:9px">Unenriched backlog</div>
@@ -4269,7 +4288,7 @@ async function updateActivityBar() {
         const scrapedSrc = ['Financial Times','The Economist','Foreign Affairs'];
         if(scEl) scEl.innerHTML = scrapedSrc.map(s=>{
           const d=lastRunBySource[s]?Math.round((Date.now()-lastRunBySource[s])/864e5):99;
-          const cdpWarn = (s==='The Economist' && !ecoCdpLive) ? ' <span title="Chrome CDP port 9223 unreachable — Economist scraper will fail" style="color:#c0392b;font-size:10px;cursor:help">⚠ CDP down</span>' : '';
+          const cdpWarn = '';
           return '<div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;padding:2.5px 0">'
             +'<span style="color:#4a4a4a;font-weight:500">'+srcShort[s]+cdpWarn+'</span>'
             +'<span style="font-weight:600;color:'+gC(d)+'">'+gL(d)+'</span></div>';
