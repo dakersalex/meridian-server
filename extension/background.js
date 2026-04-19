@@ -281,14 +281,156 @@ async function fetchBodyForArticle(art) {
   }
 }
 
-// Set up periodic alarm
+// ── Auto-sync saved/bookmarked articles ──────────────────────────────────────
+// Periodically navigates to FT saved-articles and FA saved-articles in
+// background tabs, extracts links, saves new ones as title_only.
+// The body-fetcher then picks them up.
+
+const SYNC_PAGES = [
+  {
+    url: 'https://www.ft.com/myft/saved-articles',
+    source: 'Financial Times',
+    extract: () => {
+      const links = [];
+      const seen = new Set();
+      document.querySelectorAll('[data-content-id]').forEach(el => {
+        const id = el.getAttribute('data-content-id');
+        if (seen.has(id)) return;
+        seen.add(id);
+        const a = document.querySelector(`a[href*="${id}"]`);
+        if (a && a.textContent.trim().length > 10) {
+          links.push({ url: a.href.split('?')[0], title: a.textContent.trim() });
+        }
+      });
+      return links;
+    }
+  },
+  {
+    url: 'https://www.foreignaffairs.com/my-foreign-affairs/saved-articles',
+    source: 'Foreign Affairs',
+    extract: () => {
+      const links = [];
+      const seen = new Set();
+      const SKIP = ['/authors/', '/issues/', '/topics/', '/tags/', '/podcast', '/browse/'];
+      document.querySelectorAll('h3').forEach(h3 => {
+        const a = h3.querySelector('a[href]') || h3.closest('a[href]');
+        if (!a) return;
+        let href = a.getAttribute('href') || '';
+        if (href.startsWith('/')) href = 'https://www.foreignaffairs.com' + href;
+        const title = h3.textContent.trim();
+        if (title.length > 8 && !seen.has(href) && !SKIP.some(s => href.includes(s))) {
+          seen.add(href);
+          links.push({ url: href.split('?')[0], title });
+        }
+      });
+      return links;
+    }
+  }
+];
+
+async function autoSyncSaves() {
+  console.log('Meridian auto-sync: starting bookmarks sync');
+  
+  // Get existing article URLs for dedup
+  let existingUrls = new Set();
+  try {
+    const resp = await fetch(SERVER + '/api/articles?limit=5000');
+    const data = await resp.json();
+    (data.articles || []).forEach(a => { if (a.url) existingUrls.add(a.url.split('?')[0]); });
+  } catch(e) {
+    console.error('Meridian auto-sync: failed to get existing articles:', e);
+    return;
+  }
+
+  let totalNew = 0;
+
+  for (const page of SYNC_PAGES) {
+    try {
+      console.log(`Meridian auto-sync: opening ${page.source} saves...`);
+      const tab = await chrome.tabs.create({ url: page.url, active: false });
+
+      // Wait for load
+      await new Promise(resolve => {
+        const listener = (tabId, changeInfo) => {
+          if (tabId === tab.id && changeInfo.status === 'complete') {
+            chrome.tabs.onUpdated.removeListener(listener);
+            resolve();
+          }
+        };
+        chrome.tabs.onUpdated.addListener(listener);
+        setTimeout(() => { chrome.tabs.onUpdated.removeListener(listener); resolve(); }, 25000);
+      });
+
+      // Extra wait for JS rendering
+      await new Promise(r => setTimeout(r, 4000));
+
+      // Scroll to load more content
+      await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        func: () => {
+          window.scrollTo(0, document.body.scrollHeight);
+        }
+      });
+      await new Promise(r => setTimeout(r, 2000));
+
+      // Extract links
+      const results = await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        func: page.extract
+      });
+
+      await chrome.tabs.remove(tab.id);
+
+      const links = results[0].result || [];
+      const newLinks = links.filter(l => !existingUrls.has(l.url));
+
+      if (newLinks.length > 0) {
+        console.log(`Meridian auto-sync: ${page.source} — ${newLinks.length} new of ${links.length} total`);
+        
+        for (const art of newLinks) {
+          const id = 'sync_' + Math.abs(art.url.split('').reduce((a, c) => (a << 5) - a + c.charCodeAt(0), 0)).toString(16).slice(0, 12);
+          try {
+            await fetch(SERVER + '/api/articles', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                id, url: art.url, title: art.title,
+                body: '', source: page.source, status: 'title_only',
+                saved_at: Date.now(), fetched_at: Date.now(), pub_date: '',
+              })
+            });
+            existingUrls.add(art.url); // prevent dupes across pages
+            totalNew++;
+          } catch(e) {
+            console.error(`Meridian auto-sync: save failed for ${art.title}:`, e);
+          }
+        }
+      } else {
+        console.log(`Meridian auto-sync: ${page.source} — no new articles (${links.length} total)`);
+      }
+
+    } catch(e) {
+      console.error(`Meridian auto-sync: ${page.source} failed:`, e);
+    }
+  }
+
+  console.log(`Meridian auto-sync: done — ${totalNew} new articles saved`);
+}
+
+// Set up periodic alarms
 chrome.alarms.create('fetchBodies', { periodInMinutes: BODY_FETCH_INTERVAL_MINUTES });
+chrome.alarms.create('syncSaves', { periodInMinutes: 120 }); // every 2 hours
+
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === 'fetchBodies') {
     fetchPendingBodies();
   }
+  if (alarm.name === 'syncSaves') {
+    autoSyncSaves();
+  }
 });
 
-// Also run once on extension startup
+// Run both on extension startup
 setTimeout(fetchPendingBodies, 10000);
+setTimeout(autoSyncSaves, 30000);
 
