@@ -1170,23 +1170,6 @@ def get_article_detail(aid):
     except: art["highlights"] = []
     return jsonify(art)
 
-@app.route("/api/articles/<aid>/detail")
-def get_article_detail(aid):
-    """Full article detail — body, key_points, highlights. Loaded on demand."""
-    with sqlite3.connect(DB_PATH) as cx:
-        cx.row_factory = sqlite3.Row
-        row = cx.execute("SELECT * FROM articles WHERE id=?", (aid,)).fetchone()
-    if not row:
-        return jsonify({"error": "not found"}), 404
-    art = dict(row)
-    try: art["tags"] = json.loads(art.get("tags") or "[]")
-    except: art["tags"] = []
-    try: art["key_points"] = json.loads(art.get("key_points") or "[]")
-    except: art["key_points"] = []
-    try: art["highlights"] = json.loads(art.get("highlights") or "[]")
-    except: art["highlights"] = []
-    return jsonify(art)
-
 @app.route("/api/health")
 def health():
     return jsonify({"ok": True, "version": "3.0.0"})
