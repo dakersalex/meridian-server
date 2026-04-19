@@ -1,5 +1,5 @@
 # Meridian — Technical Notes
-Last updated: 19 April 2026 (Session 61 — swim lane fix, extension body-fetcher live)
+Last updated: 19 April 2026 (Session 61 — Extension-based architecture, reading modes, Flask auto-restart)
 
 ## Overview
 Personal news aggregator. Flask API + SQLite backend on Hetzner VPS (always-on).
@@ -8,7 +8,8 @@ Frontend at https://meridianreader.com/meridian.html
 ## Infrastructure
 - VPS: Hetzner CPX22, 204.168.179.158, Ubuntu 24.04
 - SSH: ssh root@204.168.179.158
-- Flask: systemd service `meridian`, port 4242
+- Flask: launchd service `com.alexdakers.meridian.flask` (auto-restarts), port 4242
+- Sync scheduler: launchd `com.alexdakers.meridian.wakesync` (05:40 + 11:40 Geneva)
 - GitHub: https://github.com/dakersalex/meridian-server
 
 ## File Locations (Mac)
@@ -16,133 +17,137 @@ Frontend at https://meridianreader.com/meridian.html
 - ~/meridian-server/meridian.html
 - ~/meridian-server/meridian.db
 - ~/meridian-server/rss_ai_pick.py — RSS-based AI pick pipeline
-- ~/meridian-server/extension/ — Chrome extension v1.3 with background body-fetcher
-- ~/meridian-server/batch_enrichment_final.py — Batch API enrichment script
-- ~/meridian-server/wake_and_sync.sh
+- ~/meridian-server/backfill_keypoints.py — Key points backfill script
+- ~/meridian-server/extension/ — Chrome extension v1.4 (auto-sync + body-fetch)
+- ~/meridian-server/wake_and_sync.sh — Scheduled sync (RSS picks, newsletters, VPS push)
 - ~/meridian-server/vps_push.py
-- ~/meridian-server/logs/
+- ~/meridian-server/com.alexdakers.meridian.flask.plist — Flask auto-restart
+- ~/meridian-server/com.alexdakers.meridian.wakesync.plist — Sync scheduler
 
-## Database (19 April 2026 — Session 61)
-| Source | Mac | VPS |
-|---|---|---|
-| FT | ~323 | ~319+ |
-| Economist | ~366 | ~366 |
-| FA | ~163 | ~169+ |
-| Bloomberg | ~43 | ~45 |
-| Other | ~19 | ~46 |
-| **Total** | **~918** | **~957** |
+## Architecture (Session 61 — Extension-based)
 
-**Title-only (pending body fetch): 34 on Mac, being processed by extension**
+### How articles flow into Meridian
+1. **Your manual clips** — read article → click extension clip button → full text saved immediately
+2. **Extension auto-sync** (every 2h) — opens FT saved-articles + FA saved-articles in background tabs, extracts new article links, saves as title_only
+3. **RSS AI picks** (twice daily via wake_and_sync.sh) — fetches 13 RSS feeds (FT/Economist/FA), Haiku scores candidates, auto-saves score ≥7-8
+4. **Extension body-fetcher** (every 15min) — opens title_only articles in background tabs using your real Chrome session, extracts body text, triggers AI enrichment
 
-## How Articles Get Into Meridian
+### What was removed (Session 61)
+- Playwright scrapers for FT/Economist/FA (unreliable, paywall/Cloudflare blocked)
+- Legacy Playwright AI pick (replaced by RSS picks)
+- 90-second Playwright wait + 5-minute AI pick wait from wake_and_sync.sh
+- `enrich_from_title_only()` — no more fabricated summaries from titles alone
 
-### 1. Manual saves (Chrome extension clip button)
-- You read an article → click clip → extension extracts full body text → saves to DB
-- Most reliable path, always produces full_text with real summaries
-- Works for all sources including Bloomberg
+### wake_and_sync.sh now does
+- RSS pick (article discovery)
+- Newsletter sync (iCloud IMAP)
+- VPS push (articles, images, newsletters, interviews)
+- Health check logging
 
-### 2. RSS AI picks (rss_ai_pick.py)
-- Runs twice daily via wake_and_sync.sh
-- Fetches 13 RSS feeds (6 FT, 6 Economist, 1 FA) — public, no auth
-- Haiku scores candidates; score ≥8 (FT/Eco) or ≥7 (FA) → auto-saved as title_only
-- Score 6-7 → Suggested inbox
-- ~6 seconds total, no Playwright/Cloudflare issues
+### Chrome extension (v1.4) does
+- Manual clip button (on-demand)
+- Auto-sync FT + FA bookmarks (every 2h alarm)
+- Background body-fetcher (every 15min alarm, 5 articles per batch)
+- Unfetchable detection (FT Professional pages marked, stops retry)
+- Cookie harvesting for FT/Economist sessions
+- **Note:** Extension file edits require manual reload at chrome://extensions
 
-### 3. Extension background body-fetcher (NEW — Session 60/61)
-- Every 15 minutes, checks `/api/articles/pending-body` for title_only articles
-- Opens each URL in a background Chrome tab (uses YOUR logged-in session)
-- Extracts body text, PATCHes article, triggers AI enrichment
-- Bypasses paywalls because it uses real browser with real auth
-- 5 articles per cycle
+## Three-Level Reading Mode (Session 61)
 
-### 4. Playwright scrapers (legacy, partially broken)
-- FT: headless blocked by paywall (body fetch fails, gets titles only)
-- Economist: Cloudflare blocks, unreliable
-- FA: works intermittently
-- Still runs in wake_and_sync.sh but RSS picks + extension fetcher are the primary path now
+### Brief / Analysis / Full text toggle on every article
+- **Brief** — 2-3 sentence summary (always available)
+- **Analysis** — summary + numbered key points + tags (requires key_points data)
+- **Full text** — complete article in serif reader layout with highlighted passages (lazy-loaded from /api/articles/<id>/detail)
 
-### 5. Legacy Playwright AI pick (under evaluation)
-- Scrapes personalised FT feed via _feedTimelineTeasers JS variable
-- Uses Sonnet for scoring (more expensive than Haiku)
-- Requires ft_profile Playwright session + 5-min wait
-- Still runs after RSS pick as fallback — evaluate whether to remove
+### Data fields
+- `key_points` — JSON array of 4-6 substantive points extracted from article body
+- `highlights` — JSON array of 3-5 exact quotes marking crucial passages
+- Generated by Haiku during enrichment, stored in articles table
+- Backfill: `backfill_keypoints.py` re-enriches existing articles (ran Session 61)
 
 ## Enrichment Pipeline
 
-### How articles get enriched (body → summary)
-- `enrich_article_with_ai()` — sends body text (≥200 chars) to Haiku for summary, tags, topic
-- Only works with REAL article body text — no fake/imagined summaries
-- `enrich_from_title_only()` was removed (Session 60) — never generate summaries without real text
-
-### Automated flow (wake_and_sync.sh)
-1. Playwright sync (FT/Economist/FA) → fetches body where possible → enriches
-2. RSS pick → discovers new articles → saves as title_only
-3. Legacy Playwright AI pick (fallback)
-4. Extension body-fetcher runs independently every 15 min
+### How articles get enriched (body → summary + key points)
+- `enrich_article_with_ai()` — sends body text (≥200 chars) to Haiku
+- Returns: summary, key_points, highlights, tags, topic, pub_date
+- Only works with REAL article body text — never generates from titles alone
+- Extension body-fetcher triggers `/api/enrich/<id>` after fetching body
 
 ### Key endpoints
 - `GET /api/health/enrichment` — ok/unenriched count/status breakdown
-- `GET /api/articles/pending-body` — returns title_only articles for extension body-fetcher
+- `GET /api/health/daily` — daily health summary with alerts for notification banner
+- `GET /api/articles/<id>/detail` — full body + key_points + highlights (lazy-loaded)
+- `GET /api/articles/pending-body` — title_only articles for extension body-fetcher
 - `POST /api/rss-pick` — RSS-based AI pick
-- `POST /api/enrich-title-only` — body fetching + enrichment pipeline
+- `GET /api/sync/last-run` — latest article ingestion time per source
+
+## Flask Auto-Restart (Session 61)
+- Plist: `com.alexdakers.meridian.flask.plist` installed in ~/Library/LaunchAgents/
+- `KeepAlive: true` — launchd automatically restarts Flask if it crashes
+- `RunAtLoad: true` — starts on login
+- Verified: killing Flask process → respawns within seconds
 
 ## Outstanding Issues / Next Sessions
 
 ### 🟡 Session 62
-1. **Evaluate legacy Playwright AI pick** — compare RSS pick coverage vs personalised FT feed picks over 3-5 days. If RSS catches the same articles, remove the Playwright AI pick entirely (eliminates profile lock risk, 5-min sleep, Sonnet cost).
-2. **Economist scraper** — RSS feeds now handle Economist AI picks; decide whether Playwright scraper is still needed for saved-article sync
-3. **Extension body-fetcher monitoring** — verify it continues to clear title_only backlog reliably. Currently 34 pending.
-4. **FA URL validation** — verify 38 Haiku-guessed URLs with HTTP HEAD checks
-5. **pub_date normalization** — legacy Playwright AI pick stores ISO timestamps; either normalize in that code path or remove it
+1. **Evaluate legacy Playwright AI pick code** — still in server.py but no longer called from wake_and_sync.sh. Consider removing the scraper classes entirely to reduce code complexity.
+2. **Economist domain blocked by Chrome MCP** — can't navigate to economist.com during sessions. Extension handles it independently but can't debug. Investigate Chrome MCP safety restrictions.
+3. **Key points backfill completion** — verify all 909 articles have key_points populated
+4. **VPS DB sync** — push backfilled key_points/highlights to VPS
+5. **Test Mac restart** — verify Flask auto-restart + extension resume after full reboot
 
 ### 🟢 Nice to have
-- Daily email alert if title_only count stays >0 for 24h
+- Daily email alert via iCloud SMTP when health check fails
 - Economist chart backfill (173 articles)
 - KT theme evolution improvements
+- Remove old Playwright scraper code from server.py (dead code)
 
 ## Build History
 
 ### 19 April 2026 (Session 61)
 
-**Swim lane date matching fix**
-- Root cause: swim lane used strict equality (`===`) to match pub_date against `YYYY-MM-DD`, but AI pick articles had ISO timestamps like `2026-04-18T04:00:04.363Z`
-- Fix: changed to `.substring(0,10)` comparison
-- Normalized 19 existing pub_dates from ISO to YYYY-MM-DD in Mac DB
-- 6 AI pick articles were invisible on April 18 bar — now visible
+**Extension-based architecture — replaced Playwright entirely**
+- Chrome extension auto-sync: FT + FA bookmarks every 2h via background tabs
+- Extension body-fetcher: processes title_only articles every 15min using real browser session
+- Unfetchable status: FT Professional articles detected and marked, stops retry loop
+- Removed Playwright scrapers + legacy AI pick from wake_and_sync.sh (8+ min → 30 sec)
 
-**Extension body-fetcher verified working**
-- First batch: 5 articles fetched with real body text (3,800–28,000 chars)
-- All 5 got real AI summaries from actual article content
-- Title_only count dropped from 46 → 34, continuing to process
+**Three-level reading mode**
+- Brief / Analysis / Full text toggle on article detail view
+- Key points and highlights extracted by Haiku during enrichment
+- Full text lazy-loaded from /api/articles/<id>/detail endpoint
+- Backfill script running for 909 existing articles
 
-**Fake enrichment cleanup (late Session 60)**
-- Removed `enrich_from_title_only()` function — no more AI-imagined summaries
-- Reverted 42 articles on Mac and 32 on VPS that had fake summaries
-- Policy: articles without real body text stay as title_only until extension fetches them
+**Infrastructure improvements**
+- Flask auto-restart via launchd KeepAlive plist — survives crashes
+- /api/health/daily endpoint with notification banner
+- Last-scraped timestamps now based on actual article saved_at, not Playwright sync
+- Swim lane date fix (ISO timestamps → YYYY-MM-DD matching)
+- Newsletter cards match Feed card style
+- Normalized 19 pub_dates from ISO timestamps
+
+**Bugs fixed**
+- Duplicate get_article_detail endpoint causing Flask crash
+- Extension SyntaxError (duplicate 'url' variable)
+- FT Professional host_permissions added to manifest
+- Fake title-only summaries reverted (42 Mac, 32 VPS)
+
+**Key learnings**
+- Extension file edits require Chrome reload — can't be automated, must batch changes
+- Flask without auto-restart is fragile — any crash takes system down
+- CORS issues when page origin (8080) differs from API (4242) after Flask restart
+- Playwright scrapers were the weak link — real browser via extension is the reliable path
 
 ---
 
 ### 18 April 2026 (Session 60)
-
-**RSS-based AI pick pipeline**
-- Built `rss_ai_pick.py`: 13 RSS feeds, Haiku scoring, ~6 seconds total
-- First run: 76 candidates, 5 auto-saved, 16 to suggested
-- Wired into wake_and_sync.sh
-
-**Extension background body-fetcher**
-- Added to background.js: 15-min alarm, opens background tabs, extracts body
-- Server endpoint `/api/articles/pending-body` returns title_only articles
-- Uses real Chrome session — bypasses all paywalls
-
-**Enrichment health monitoring**
-- `/api/health/enrichment` endpoint
-- Logged at end of every wake_and_sync run
-
----
+- RSS-based AI pick pipeline (rss_ai_pick.py)
+- Enrichment health monitoring (/api/health/enrichment)
+- FA author-URL bug fixed (38 articles)
+- Batch enrichment results applied (42 articles from Session 59)
 
 ### 18 April 2026 (Session 59)
-**Batch API enrichment proof of concept**
-- 42 articles processed in <2 minutes at 50% cost savings
+- Batch API enrichment proof of concept (50% cost savings)
 - Performance fix: 4x speed from fixing SERVER variable
 
 ---
@@ -153,3 +158,10 @@ Frontend at https://meridianreader.com/meridian.html
 3. Navigate Tab A to localhost:8080
 4. Inject shell bridge
 5. Health check
+
+## Rules
+- Never edit Chrome extension files without warning Alex it needs a reload — batch extension changes
+- Never use `enrich_from_title_only` or generate summaries without real article body text
+- Always verify `grep -c "<html lang" meridian.html` returns 1 before deploying
+- Always `ast.parse()` server.py before writing
+- Flask auto-restarts via launchd — no need for manual restart after code changes (just deploy)
