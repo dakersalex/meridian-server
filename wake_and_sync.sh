@@ -1,14 +1,16 @@
 #!/bin/bash
 # Meridian wake-and-sync script
-# Runs on Mac wake, triggers Playwright scrapers via the local Flask API
-# Logs to ~/meridian-server/logs/wake_sync.log
+# Runs on schedule via launchd (05:40 and 11:40 Geneva time)
+# Article discovery: RSS picks (automated) + Chrome extension auto-sync (every 2h)
+# Body fetching: Chrome extension background fetcher (every 15min)
+# This script handles: RSS picks, newsletter sync, VPS push, health check
 
 LOG="$HOME/meridian-server/logs/wake_sync.log"
 API="http://localhost:4242"
 
 echo "$(date): Wake sync triggered" >> "$LOG"
 
-# Wait for Flask to be ready (it should already be running via launchd)
+# Wait for Flask to be ready
 for i in {1..12}; do
     if curl -s "$API/api/health" > /dev/null 2>&1; then
         break
@@ -17,26 +19,17 @@ for i in {1..12}; do
     sleep 5
 done
 
-# Trigger sync for all sources
-echo "$(date): Triggering sync" >> "$LOG"
-curl -s -X POST "$API/api/sync" \
-  -H "Content-Type: application/json" \
-  -d '{"sources":["ft","economist","fa"]}' >> "$LOG" 2>&1
-
-echo "$(date): Sync triggered, waiting 90s for completion" >> "$LOG"
-sleep 90
-
-# Trigger enrichment of title-only articles
-echo "$(date): Triggering enrichment" >> "$LOG"
-curl -s -X POST "$API/api/enrich-title-only" >> "$LOG" 2>&1
+# RSS-based AI pick — discovers new articles from FT/Economist/FA RSS feeds
+echo "$(date): Running RSS-based AI pick" >> "$LOG"
+curl -s -X POST "$API/api/rss-pick" >> "$LOG" 2>&1
+sleep 15
 
 # Trigger newsletter sync from iCloud IMAP
 echo "$(date): Syncing newsletters from iCloud" >> "$LOG"
 curl -s -X POST "$API/api/newsletters/sync" >> "$LOG" 2>&1
 sleep 15
 
-# Push new/updated articles to VPS (incremental — only since last_push_ts watermark).
-# Also pushes kt_meta last_sync_* timestamps unconditionally so Last Scraped stays current.
+# Push new/updated articles to VPS
 echo "$(date): Pushing articles to VPS" >> "$LOG"
 python3 /Users/alexdakers/meridian-server/vps_push.py >> "$LOG" 2>&1
 
@@ -68,7 +61,6 @@ else:
             break
     print(f'push-images: {total_upserted} upserted of {len(images)} total')
 IMGEOF
-
 
 # Push newsletters from Mac DB to VPS
 echo "$(date): Pushing newsletters to VPS" >> "$LOG"
@@ -103,7 +95,6 @@ else:
     print(f'push-newsletters: {total_upserted} upserted, {total_skipped} skipped of {len(newsletters)} total')
 NLEOF
 
-
 # Push interviews from Mac DB to VPS
 echo "$(date): Pushing interviews to VPS" >> "$LOG"
 python3 - << 'IVEOF' >> "$LOG" 2>&1
@@ -129,27 +120,6 @@ else:
     except Exception as e:
         print(f'push-interviews error: {e}')
 IVEOF
-
-
-# Trigger AI pick — scrapes FT/Economist/FA recommendation feeds, Sonnet scores
-# Waits for Playwright profiles to be free after the main scrape above
-# RSS-based AI pick — fast, no auth needed, no Playwright
-echo "$(date): Running RSS-based AI pick" >> "$LOG"
-curl -s -X POST "$API/api/rss-pick" >> "$LOG" 2>&1
-sleep 15
-
-# Legacy Playwright-based AI pick (fallback for personalised FT feed)
-echo "$(date): Waiting 5 min for scrape profiles to clear before AI pick..." >> "$LOG"
-sleep 300
-echo "$(date): Triggering AI pick feed scrape" >> "$LOG"
-curl -s -X POST "$API/api/ai-pick" \
-  -H "Content-Type: application/json" \
-  -d '{}' >> "$LOG" 2>&1
-
-# Final safety net: enrich any remaining unenriched articles via title-only fallback
-echo "$(date): Running enrichment fallback sweep" >> "$LOG"
-curl -s -X POST "$API/api/enrich-remaining" >> "$LOG" 2>&1
-sleep 30
 
 # Log enrichment health check
 echo "$(date): Enrichment health check:" >> "$LOG"
