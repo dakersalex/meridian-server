@@ -183,6 +183,18 @@ async function fetchPendingBodies() {
 }
 
 async function fetchBodyForArticle(art) {
+  // Skip URLs that are known unfetchable patterns
+  const url = art.url || '';
+  if (url.includes('access-error') || url.includes('professional-')) {
+    console.log(`Meridian body-fetch: skipping unfetchable URL pattern: ${art.title.substring(0, 50)}`);
+    fetch(SERVER + '/api/articles/' + art.id, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'unfetchable' })
+    }).catch(() => {});
+    return;
+  }
+
   console.log(`Meridian body-fetch: opening ${art.title.substring(0, 50)}...`);
 
   // Open in background tab
@@ -220,6 +232,12 @@ async function fetchBodyForArticle(art) {
 
   if (!text || text.length < 200) {
     console.log(`Meridian body-fetch: insufficient text for ${art.title.substring(0, 40)} (${(text||'').length} chars)`);
+    // Mark as unfetchable so we don't retry
+    fetch(SERVER + '/api/articles/' + art.id, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'unfetchable' })
+    }).catch(() => {});
     return;
   }
 
@@ -229,10 +247,19 @@ async function fetchBodyForArticle(art) {
     'subscribe to read', 'become an ft subscriber',
     'subscribe for full access', 'already a subscriber',
     'to continue reading', 'complete digital access',
+    'you need access to', 'monetary policy radar',
+    'not available with an individual subscription',
+    'ft professional', 'access-error',
   ];
   const lowerText = text.toLowerCase();
   if (paywallPhrases.some(p => lowerText.includes(p))) {
     console.log(`Meridian body-fetch: paywall detected for ${art.title.substring(0, 40)}`);
+    // Mark as unfetchable so we don't retry
+    fetch(SERVER + '/api/articles/' + art.id, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'unfetchable' })
+    }).catch(() => {});
     return;
   }
 
