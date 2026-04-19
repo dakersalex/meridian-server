@@ -4038,7 +4038,7 @@ async function updateActivityBar() {
         var swData = {};
         swSrc.forEach(function(s){
           swData[s] = days14sw.map(function(d){
-            var arts = allArts.filter(function(a){return a.source===s && a.pub_date===d;});
+            var arts = allArts.filter(function(a){return a.source===s && (a.pub_date||'').substring(0,10)===d;});
             var ai = arts.filter(function(a){return a.auto_saved===1||a.auto_saved===true;}).length;
             return {total:arts.length, ai:ai};
           });
