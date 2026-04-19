@@ -92,8 +92,11 @@ FA: /rss.xml
 
 ## Outstanding Issues / Next Sessions
 
+### 🔴 Immediate
+1. **Reload Chrome extension** — background.js was updated (Session 60) with body-fetch code but Chrome needs manual reload at chrome://extensions to pick it up. After reload, it will start fetching real body text for the 46 title_only articles every 15 min.
+
 ### 🟡 Session 61
-1. **Monitor tomorrow's automated sync** — verify RSS pick + enrichment fallback produce zero unenriched
+1. **Verify extension body fetcher** — confirm articles transition from title_only → full_text after extension reload. Check service worker console for body-fetch logs.
 2. **Evaluate legacy Playwright AI pick** — compare RSS pick coverage vs personalised FT feed picks over 3-5 days. If RSS catches the same articles, remove the Playwright AI pick entirely (eliminates profile lock risk, 5-min sleep, Sonnet cost). If personalised feed adds unique high-value articles, keep it.
 3. **Economist scraper** — RSS feeds now handle Economist AI picks; consider whether Playwright scraper is still needed for saved-article sync
 4. **End-to-end test** — simulate full wake_and_sync cycle

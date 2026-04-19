@@ -1540,6 +1540,27 @@ def _save_enriched_article(art):
         )
 
 
+
+@app.route("/api/articles/pending-body")
+def pending_body():
+    """Return title_only articles that need body text fetched by Chrome extension.
+    Extension will open each URL, extract text, and PATCH it back."""
+    source = request.args.get("source", "")
+    limit = int(request.args.get("limit", 10))
+    with sqlite3.connect(DB_PATH) as cx:
+        cx.row_factory = sqlite3.Row
+        if source:
+            rows = cx.execute(
+                "SELECT id, url, title, source FROM articles WHERE status IN ('title_only','agent') AND url!='' AND source=? ORDER BY saved_at DESC LIMIT ?",
+                (source, limit)
+            ).fetchall()
+        else:
+            rows = cx.execute(
+                "SELECT id, url, title, source FROM articles WHERE status IN ('title_only','agent') AND url!='' ORDER BY saved_at DESC LIMIT ?",
+                (limit,)
+            ).fetchall()
+    return jsonify({"articles": [dict(r) for r in rows], "count": len(rows)})
+
 @app.route("/api/health/enrichment")
 def health_enrichment():
     """Monitoring endpoint: returns count of unenriched articles and last sync info."""

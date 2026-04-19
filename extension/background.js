@@ -1,4 +1,5 @@
 const SERVER = 'http://localhost:4242';
+const BODY_FETCH_INTERVAL_MINUTES = 15;
 
 function extractText() {
   const url = location.href;
@@ -150,3 +151,117 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
     console.error('Auto-clip error:', e);
   }
 });
+
+// ── Background body fetcher ──────────────────────────────────────────────────
+// Periodically checks for title_only articles and fetches their body text
+// using the user's logged-in browser session (bypasses paywalls naturally).
+
+async function fetchPendingBodies() {
+  try {
+    const resp = await fetch(SERVER + '/api/articles/pending-body?limit=5');
+    if (!resp.ok) return;
+    const data = await resp.json();
+    const articles = data.articles || [];
+    if (articles.length === 0) {
+      console.log('Meridian body-fetch: no pending articles');
+      return;
+    }
+    console.log(`Meridian body-fetch: ${articles.length} articles to process`);
+
+    for (const art of articles) {
+      try {
+        await fetchBodyForArticle(art);
+        // Wait between articles to avoid rate limiting
+        await new Promise(r => setTimeout(r, 5000));
+      } catch(e) {
+        console.error(`Meridian body-fetch error for ${art.title}:`, e);
+      }
+    }
+  } catch(e) {
+    console.error('Meridian body-fetch: failed to get pending list:', e);
+  }
+}
+
+async function fetchBodyForArticle(art) {
+  console.log(`Meridian body-fetch: opening ${art.title.substring(0, 50)}...`);
+
+  // Open in background tab
+  const tab = await chrome.tabs.create({ url: art.url, active: false });
+
+  // Wait for page to load
+  await new Promise(resolve => {
+    const listener = (tabId, changeInfo) => {
+      if (tabId === tab.id && changeInfo.status === 'complete') {
+        chrome.tabs.onUpdated.removeListener(listener);
+        resolve();
+      }
+    };
+    chrome.tabs.onUpdated.addListener(listener);
+    // Timeout after 20s
+    setTimeout(() => {
+      chrome.tabs.onUpdated.removeListener(listener);
+      resolve();
+    }, 20000);
+  });
+
+  // Extra wait for JS rendering
+  await new Promise(r => setTimeout(r, 3000));
+
+  // Extract text
+  const results = await chrome.scripting.executeScript({
+    target: { tabId: tab.id },
+    func: extractText
+  });
+
+  // Close the tab
+  try { await chrome.tabs.remove(tab.id); } catch(e) {}
+
+  const { title, text, url, pubDate } = results[0].result;
+
+  if (!text || text.length < 200) {
+    console.log(`Meridian body-fetch: insufficient text for ${art.title.substring(0, 40)} (${(text||'').length} chars)`);
+    return;
+  }
+
+  // Check for paywall content
+  const paywallPhrases = [
+    'save now on essential digital access',
+    'subscribe to read', 'become an ft subscriber',
+    'subscribe for full access', 'already a subscriber',
+    'to continue reading', 'complete digital access',
+  ];
+  const lowerText = text.toLowerCase();
+  if (paywallPhrases.some(p => lowerText.includes(p))) {
+    console.log(`Meridian body-fetch: paywall detected for ${art.title.substring(0, 40)}`);
+    return;
+  }
+
+  // PATCH the article with real body text
+  const patchResp = await fetch(SERVER + '/api/articles/' + art.id, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      body: text,
+      status: 'full_text',
+      pub_date: pubDate || undefined
+    })
+  });
+  const patchData = await patchResp.json();
+  if (patchData.ok) {
+    console.log(`Meridian body-fetch: ✅ got body for ${art.title.substring(0, 50)} (${text.length} chars)`);
+    // Trigger enrichment for this article
+    fetch(SERVER + '/api/enrich/' + art.id, { method: 'POST' }).catch(() => {});
+  }
+}
+
+// Set up periodic alarm
+chrome.alarms.create('fetchBodies', { periodInMinutes: BODY_FETCH_INTERVAL_MINUTES });
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === 'fetchBodies') {
+    fetchPendingBodies();
+  }
+});
+
+// Also run once on extension startup
+setTimeout(fetchPendingBodies, 10000);
+

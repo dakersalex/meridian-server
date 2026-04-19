@@ -1,20 +1,22 @@
 {
   "manifest_version": 3,
   "name": "Meridian Clipper",
-  "version": "1.3",
+  "version": "1.4",
   "description": "Save full article text to Meridian",
   "permissions": [
     "cookies",
     "tabs",
     "storage",
     "activeTab",
-    "scripting"
+    "scripting",
+    "alarms"
   ],
   "host_permissions": [
     "http://localhost/*",
     "https://www.bloomberg.com/*",
     "https://www.economist.com/*",
-    "https://www.ft.com/*"
+    "https://www.ft.com/*",
+    "https://www.foreignaffairs.com/*"
   ],
   "background": {
     "service_worker": "background.js"
@@ -24,7 +26,8 @@
       "matches": [
         "https://www.bloomberg.com/*",
         "https://www.economist.com/*",
-        "https://www.ft.com/*"
+        "https://www.ft.com/*",
+        "https://www.foreignaffairs.com/*"
       ],
       "js": [
         "content.js"
