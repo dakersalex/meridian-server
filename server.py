@@ -1130,7 +1130,7 @@ def get_articles_feed():
     source = request.args.get("source", "")
     with sqlite3.connect(DB_PATH) as cx:
         cx.row_factory = sqlite3.Row
-        q = ("SELECT id,source,url,title,summary,topic,tags,status,pub_date,saved_at,auto_saved "
+        q = ("SELECT id,source,url,title,summary,topic,tags,status,pub_date,saved_at,auto_saved,key_points,highlights "
              "FROM articles {} "
              "ORDER BY COALESCE(NULLIF(pub_date,''),datetime(saved_at/1000,'unixepoch')) DESC LIMIT ?")
         if source:
@@ -1148,8 +1148,44 @@ def get_articles_feed():
             "pub_date": r["pub_date"] or "", "saved_at": r["saved_at"],
             "auto_saved": r["auto_saved"] or 0,
             "body": "", "summary": r["summary"] or "",
+            "key_points": r["key_points"] or "[]", "highlights": r["highlights"] or "[]",
+            "key_points": r["key_points"] or "[]", "highlights": r["highlights"] or "[]",
         })
     return jsonify({"articles": arts, "total": len(arts)})
+
+@app.route("/api/articles/<aid>/detail")
+def get_article_detail(aid):
+    """Full article detail — body, key_points, highlights. Loaded on demand."""
+    with sqlite3.connect(DB_PATH) as cx:
+        cx.row_factory = sqlite3.Row
+        row = cx.execute("SELECT * FROM articles WHERE id=?", (aid,)).fetchone()
+    if not row:
+        return jsonify({"error": "not found"}), 404
+    art = dict(row)
+    try: art["tags"] = json.loads(art.get("tags") or "[]")
+    except: art["tags"] = []
+    try: art["key_points"] = json.loads(art.get("key_points") or "[]")
+    except: art["key_points"] = []
+    try: art["highlights"] = json.loads(art.get("highlights") or "[]")
+    except: art["highlights"] = []
+    return jsonify(art)
+
+@app.route("/api/articles/<aid>/detail")
+def get_article_detail(aid):
+    """Full article detail — body, key_points, highlights. Loaded on demand."""
+    with sqlite3.connect(DB_PATH) as cx:
+        cx.row_factory = sqlite3.Row
+        row = cx.execute("SELECT * FROM articles WHERE id=?", (aid,)).fetchone()
+    if not row:
+        return jsonify({"error": "not found"}), 404
+    art = dict(row)
+    try: art["tags"] = json.loads(art.get("tags") or "[]")
+    except: art["tags"] = []
+    try: art["key_points"] = json.loads(art.get("key_points") or "[]")
+    except: art["key_points"] = []
+    try: art["highlights"] = json.loads(art.get("highlights") or "[]")
+    except: art["highlights"] = []
+    return jsonify(art)
 
 @app.route("/api/health")
 def health():

@@ -2236,16 +2236,26 @@ function openDetail(id){
           ${tags.map(t=>`<span style="font-size:11px;padding:2px 8px;background:var(--bg-2);border-radius:4px;color:var(--ink-3)">${t}</span>`).join('')}</div>`;
       }
     } else if(mode==='full'){
-      if(hasBody){
-        const bodyHtml=highlightText(a.fullSummary,hl);
-        const paras=bodyHtml.split('\n').filter(p=>p.trim().length>0);
-        content=`<div style="font-family:Georgia,serif;font-size:15px;line-height:1.85;color:var(--ink-1)">
-          ${paras.map(p=>`<p style="margin:0 0 1rem">${p}</p>`).join('')}
-          <div style="color:var(--ink-3);font-style:italic;font-family:var(--font-sans,system-ui);font-size:12px;border-top:1px solid var(--rule);padding-top:10px;margin-top:16px">
-            ${paras.length} paragraphs · ${a.fullSummary.length.toLocaleString()} characters</div></div>`;
-      } else {
-        content=`<div style="font-size:14px;color:var(--ink-3);font-style:italic">Full text not available — article has not been fetched yet.</div>`;
-      }
+      content=`<div id="full-text-loading" style="font-size:14px;color:var(--ink-3);font-style:italic">Loading full text...</div>`;
+      setTimeout(()=>{
+        fetch('http://localhost:4242/api/articles/'+a.id+'/detail').then(r=>r.json()).then(detail=>{
+          const body=detail.body||'';
+          const dhl=detail.highlights||hl;
+          if(body.length<200){
+            document.getElementById('full-text-loading').innerHTML='<div style="font-size:14px;color:var(--ink-3);font-style:italic">Full text not available — article has not been fetched yet.</div>';
+            return;
+          }
+          const bodyHtml=highlightText(body,dhl);
+          const paras=bodyHtml.split('\n').filter(p=>p.trim().length>0);
+          document.getElementById('full-text-loading').innerHTML=`<div style="font-family:Georgia,serif;font-size:15px;line-height:1.85;color:var(--ink-1)">
+            ${paras.map(p=>'<p style="margin:0 0 1rem">'+p+'</p>').join('')}
+            <div style="color:var(--ink-3);font-style:italic;font-family:var(--font-sans,system-ui);font-size:12px;border-top:1px solid var(--rule);padding-top:10px;margin-top:16px">
+              ${paras.length} paragraphs · ${body.length.toLocaleString()} characters</div></div>`;
+          if(!a.key_points?.length&&detail.key_points?.length){a.key_points=detail.key_points;a.highlights=detail.highlights;}
+        }).catch(e=>{
+          document.getElementById('full-text-loading').innerHTML='<div style="font-size:14px;color:var(--ink-3);font-style:italic">Error loading full text.</div>';
+        });
+      },50);
     }
     document.getElementById('detail-reading-content').innerHTML=content;
     document.querySelectorAll('.reading-mode-btn').forEach(b=>{
