@@ -16,7 +16,8 @@
     "https://www.bloomberg.com/*",
     "https://www.economist.com/*",
     "https://www.ft.com/*",
-    "https://www.foreignaffairs.com/*"
+    "https://www.foreignaffairs.com/*",
+    "https://professional-monetary-policy-radar.ft.com/*"
   ],
   "background": {
     "service_worker": "background.js"

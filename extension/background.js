@@ -184,8 +184,8 @@ async function fetchPendingBodies() {
 
 async function fetchBodyForArticle(art) {
   // Skip URLs that are known unfetchable patterns
-  const url = art.url || '';
-  if (url.includes('access-error') || url.includes('professional-')) {
+  const artUrl = art.url || '';
+  if (artUrl.includes('access-error') || artUrl.includes('professional-')) {
     console.log(`Meridian body-fetch: skipping unfetchable URL pattern: ${art.title.substring(0, 50)}`);
     fetch(SERVER + '/api/articles/' + art.id, {
       method: 'PATCH',
