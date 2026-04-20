@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Meridian Clipper",
-  "version": "1.5",
+  "version": "1.6",
   "description": "Save full article text to Meridian",
   "permissions": [
     "cookies",

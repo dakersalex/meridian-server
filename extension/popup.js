@@ -36,16 +36,22 @@ function getLinks() {
 function clickLoadMore() {
   const btn = Array.from(document.querySelectorAll('button, a')).find(el => {
     const t = el.textContent.trim().toLowerCase();
-    return (t === 'load more' || t === 'show more' || t === 'more') && el.offsetParent !== null;
+    return (t === 'load more' || t === 'show more' || t === 'load older' || t === 'show older') && el.offsetParent !== null;
   });
   if (btn) { btn.click(); return true; }
   return false;
 }
 
-// Scroll to bottom, then click Load more until no new-to-Meridian articles appear
+// Scroll to bottom, then click Load more until stop condition met.
+// Two modes:
+//  - first-sync (Meridian has <50 articles): ceiling of 20 Load More clicks, no early-stop
+//  - incremental (>=50 articles): stop after 3 consecutive known articles, ceiling of 3 clicks
 function scrollAndExtract(existingUrls) {
   return new Promise(resolve => {
     const existing = new Set(existingUrls);
+    const firstSync = existingUrls.length < 50;
+    const maxClicks = firstSync ? 20 : 3;
+    const consecutiveThreshold = firstSync ? Infinity : 3;
 
     const scrollToBottom = () => new Promise(res => {
       let stable = 0;
@@ -58,30 +64,48 @@ function scrollAndExtract(existingUrls) {
       }, 700);
     });
 
+    // Walk the current DOM and return (links_in_order, consecutive_known_tail).
+    // consecutive_known_tail = how many known articles appear in a row at the END of the list.
+    // This counts from newest-saved (top) downward, resetting on any unknown article.
+    const analyzeDom = () => {
+      const links = getLinks();
+      let consecutiveKnown = 0;
+      for (const l of links) {
+        if (existing.has(l.url)) consecutiveKnown++;
+        else consecutiveKnown = 0;
+      }
+      return { links, consecutiveKnown };
+    };
+
     const run = async () => {
       await scrollToBottom();
-      let lastNewCount = -1;
+      let clicks = 0;
+      let stopReason = '';
 
       while (true) {
-        const allLinks = getLinks();
-        const newCount = allLinks.filter(l => !existing.has(l.url)).length;
+        const { consecutiveKnown } = analyzeDom();
 
-        if (lastNewCount !== -1 && newCount === lastNewCount) {
-          // Load more clicked but count didn't change — we're done
+        if (consecutiveKnown >= consecutiveThreshold) {
+          stopReason = `${consecutiveKnown} consecutive known articles`;
           break;
         }
-        lastNewCount = newCount;
+        if (clicks >= maxClicks) {
+          stopReason = `reached max clicks (${maxClicks}, mode=${firstSync ? 'first-sync' : 'incremental'})`;
+          break;
+        }
 
         const clicked = clickLoadMore();
-        if (!clicked) break; // no Load more button
+        if (!clicked) { stopReason = 'no Load More button'; break; }
+        clicks++;
 
-        // Wait for new content then scroll to reveal it
         await new Promise(r => setTimeout(r, 2500));
         await scrollToBottom();
       }
 
       window.scrollTo(0, 0);
-      return getLinks();
+      const final = getLinks();
+      console.log(`Meridian sync: stopped — ${stopReason}. ${clicks} Load More clicks, ${final.length} articles in DOM.`);
+      return final;
     };
 
     run().then(resolve);
