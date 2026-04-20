@@ -1,52 +1,46 @@
-# Sensitive files - never upload these
-credentials.json
-cookies.json
-meridian.db
-newsletter_sync.py
-
-# Playwright browser profiles (large, not needed on server)
-ft_profile/
-economist_profile/
-fa_profile/
 
 # Audio/video files
-*.wav
-*.mp4
-*.m4a
-
+# Bloomberg profile
+# CDP Chrome profile (large, session-specific — run eco_login_setup.py to re-auth)
+# Log files
+# Logs
+# Playwright browser profiles (large, not needed on server)
 # Python
-__pycache__/
+# Sensitive files - never upload these
+# Session working files
+# Setup and test scripts
+# macOS
+*.bak*
+*.log
+*.m4a
+*.mp4
 *.pyc
 *.pyo
-
-# Logs
-logs/
-
-# macOS
+*.wav
 .DS_Store
-
-# Bloomberg profile
+.env
+VPS_MIGRATION_PLAN.md
+__pycache__/
 bloomberg_profile/
-
-# Log files
-*.log
+cookies.json
+credentials.json
+eco_chrome_profile/
+eco_feed_profile/
+eco_login_setup.py
+eco_playwright_profile/
+economist_profile/
+fa_profile/
+ft_profile/
+logs/
+meridian.db
 meridian.log
 newsletter_poller.log
-vps_last_log.txt
-venv/
-
-# Session working files
-tmp_*.txt
+newsletter_sync.py
+push_stragglers.py
 tmp_*.py
-*.bak*
-
-# CDP Chrome profile (large, session-specific — run eco_login_setup.py to re-auth)
-eco_chrome_profile/
-
-# Setup and test scripts
-eco_login_setup.py
-tmp_run_verify.sh
+tmp_*.txt
 tmp_eco_*.png
 tmp_eco_*.py
-eco_playwright_profile/
-eco_feed_profile/
+tmp_run_verify.sh
+venv/
+vps_last_log.txt
