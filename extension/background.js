@@ -1,5 +1,5 @@
 const SERVER = 'http://localhost:4242';
-const BODY_FETCH_INTERVAL_MINUTES = 15;
+const BODY_FETCH_INTERVAL_MINUTES = 360; // 6 hours
 
 function extractText() {
   const url = location.href;
@@ -158,7 +158,7 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
 
 async function fetchPendingBodies() {
   try {
-    const resp = await fetch(SERVER + '/api/articles/pending-body?limit=5');
+    const resp = await fetch(SERVER + '/api/articles/pending-body?limit=10');
     if (!resp.ok) return;
     const data = await resp.json();
     const articles = data.articles || [];
@@ -419,7 +419,7 @@ async function autoSyncSaves() {
 
 // Set up periodic alarms
 chrome.alarms.create('fetchBodies', { periodInMinutes: BODY_FETCH_INTERVAL_MINUTES });
-chrome.alarms.create('syncSaves', { periodInMinutes: 120 }); // every 2 hours
+chrome.alarms.create('syncSaves', { periodInMinutes: 360 }); // every 6 hours
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === 'fetchBodies') {
