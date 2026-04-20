@@ -96,6 +96,42 @@ def fetch_rss(url):
         return []
 
 
+def fetch_unfetchable_blocklist():
+    """Return set of URLs to skip: FT Alphaville URLs + DB unfetchable_urls table."""
+    blocked = set()
+    # 1. Fetch Alphaville RSS and collect its URLs (Alphaville is FT Professional only)
+    try:
+        alpha_articles = fetch_rss("https://www.ft.com/alphaville?format=rss")
+        for a in alpha_articles:
+            if a.get("url"):
+                blocked.add(a["url"])
+        log.info(f"RSS pick: blocklisted {len(blocked)} Alphaville URLs")
+    except Exception as e:
+        log.warning(f"RSS pick: Alphaville blocklist fetch failed: {e}")
+    # 2. Pull from DB unfetchable_urls table
+    try:
+        with sqlite3.connect(str(DB_PATH)) as cx:
+            cx.execute("CREATE TABLE IF NOT EXISTS unfetchable_urls "
+                       "(url TEXT PRIMARY KEY, source TEXT, reason TEXT DEFAULT '', added_at INTEGER NOT NULL)")
+            db_blocked = set(r[0] for r in cx.execute("SELECT url FROM unfetchable_urls").fetchall())
+        blocked.update(db_blocked)
+        log.info(f"RSS pick: blocklisted {len(db_blocked)} URLs from unfetchable_urls table")
+    except Exception as e:
+        log.warning(f"RSS pick: DB blocklist fetch failed: {e}")
+    return blocked
+
+
+def is_pattern_unfetchable(url, source):
+    """Pattern-based rejection for known-unfetchable URL shapes."""
+    # Economist data pages are not articles
+    if "/economic-and-financial-indicators/" in url:
+        return True
+    # Bloomberg is manual-clip only (RSS pick must never auto-save Bloomberg)
+    if source == "Bloomberg" or "bloomberg.com" in url:
+        return True
+    return False
+
+
 def rss_ai_pick():
     """Main RSS-based AI pick function."""
     # Gate: twice daily
@@ -115,6 +151,9 @@ def rss_ai_pick():
         all_urls = set(r[0] for r in cx.execute("SELECT url FROM articles WHERE url!=''").fetchall())
         suggested_urls = set(r[0] for r in cx.execute("SELECT url FROM suggested_articles WHERE url!=''").fetchall())
     known = all_urls | suggested_urls
+    # Unfetchable blocklist: Alphaville URLs (live fetched) + DB unfetchable_urls + pattern matches
+    blocklist = fetch_unfetchable_blocklist()
+    known |= blocklist
     
     # Fetch all RSS feeds
     candidates = []
@@ -127,6 +166,9 @@ def rss_ai_pick():
             for art in articles:
                 url = art['url']
                 if url in known:
+                    continue
+                # Pattern-based unfetchable filter (Economist data pages, Bloomberg)
+                if is_pattern_unfetchable(url, source):
                     continue
                 # Only recent articles
                 if art['pub_date'] and art['pub_date'] < cutoff:

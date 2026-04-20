@@ -158,6 +158,10 @@ def init_db():
                    ' article_count INTEGER DEFAULT 0, last_updated INTEGER NOT NULL)')
         cx.execute('CREATE TABLE IF NOT EXISTS kt_meta '
                    '(key TEXT PRIMARY KEY, value TEXT NOT NULL)')
+        # Unfetchable URL blocklist — URLs that produced no body (FT Alphaville,
+        # FT Professional, Bloomberg, Eco indicators). Prevents RSS pick from re-suggesting them.
+        cx.execute('CREATE TABLE IF NOT EXISTS unfetchable_urls '
+                   '(url TEXT PRIMARY KEY, source TEXT, reason TEXT DEFAULT "", added_at INTEGER NOT NULL)')
         # -- Economist chart/map capture --
         cx.execute("""CREATE TABLE IF NOT EXISTS article_images (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1208,6 +1212,18 @@ def update_article(aid):
     for key in ["body", "summary", "topic", "tags", "status", "pub_date"]:
         if key in body:
             cx.execute(f"UPDATE articles SET {key}=? WHERE id=?", (body[key], aid))
+    # If status set to unfetchable: add URL to blocklist, demote from feed, remove from suggested
+    if body.get("status") == "unfetchable":
+        row = cx.execute("SELECT url, source FROM articles WHERE id=?", (aid,)).fetchone()
+        if row and row[0]:
+            url, source = row[0], row[1] or ""
+            cx.execute(
+                "INSERT OR IGNORE INTO unfetchable_urls (url, source, reason, added_at) VALUES (?,?,?,?)",
+                (url, source, "marked unfetchable by extension body-fetcher", now_ts())
+            )
+            cx.execute("UPDATE articles SET auto_saved=0 WHERE id=?", (aid,))
+            cx.execute("DELETE FROM suggested_articles WHERE url=?", (url,))
+            log.info(f"Unfetchable: blocklisted {url} and demoted from feed/suggested")
     cx.commit()
     cx.close()
     return jsonify({"ok": True})
@@ -1604,8 +1620,8 @@ def health_daily():
         """, (cutoff_24h,)).fetchall()
         ingested_24h = dict(rows_24h)
         total_24h = sum(ingested_24h.values())
-        # Unenriched count
-        unenriched = cx.execute("SELECT COUNT(*) FROM articles WHERE summary IS NULL OR summary=''").fetchone()[0]
+        # Unenriched count — exclude unfetchable (they structurally cannot be enriched)
+        unenriched = cx.execute("SELECT COUNT(*) FROM articles WHERE (summary IS NULL OR summary='') AND (status IS NULL OR status != 'unfetchable')").fetchone()[0]
         # Title-only count (pending body fetch)
         title_only = cx.execute("SELECT COUNT(*) FROM articles WHERE status='title_only'").fetchone()[0]
         # Last RSS pick time
@@ -1634,9 +1650,9 @@ def health_enrichment():
     """Monitoring endpoint: returns count of unenriched articles and last sync info."""
     with sqlite3.connect(DB_PATH) as cx:
         cx.row_factory = sqlite3.Row
-        # Count unenriched
+        # Count unenriched — exclude unfetchable (they structurally cannot be enriched)
         unenriched = cx.execute(
-            "SELECT source, COUNT(*) as cnt FROM articles WHERE (summary IS NULL OR summary='') GROUP BY source"
+            "SELECT source, COUNT(*) as cnt FROM articles WHERE (summary IS NULL OR summary='') AND (status IS NULL OR status != 'unfetchable') GROUP BY source"
         ).fetchall()
         total_unenriched = sum(r['cnt'] for r in unenriched)
         by_source = {r['source']: r['cnt'] for r in unenriched}
