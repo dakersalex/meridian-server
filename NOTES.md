@@ -1,6 +1,40 @@
 # Meridian — Technical Notes
 Last updated: 20 April 2026 (Session 63 — Phase 1 VPS migration, secrets migration, security incident)
 
+
+## Collaboration Protocol (added Session 63)
+
+Goal: less back-and-forth, more autonomous execution, same quality of outcome.
+
+**Claude's defaults going forward:**
+1. **Decide more, ask less** — when there's enough info to pick a reasonable option, pick and inform. Multi-option elicitation is reserved for genuinely load-bearing decisions (data loss risk, irreversible changes, credential operations, architecture direction).
+2. **Parallelize investigation** — when checking multiple things, batch them into single tool calls with consolidated output. Narrate only the conclusion, not each step.
+3. **Narrate less, execute more** — unless at a decision point or risk moment, just do the thing and report the result succinctly.
+4. **Honor time boxes** — flag at 75% of agreed session length what can be finished and what should defer. Don't let scope creep.
+5. **Push back on scope creep** — if user adds "also check X," suggest whether it fits this session or belongs in next.
+
+**User's role:**
+- Approve phase boundaries and irreversible actions (DB overwrites, force-pushes, credential changes)
+- Trust execution between those boundaries
+- Flag if Claude is drifting from the charter or taking unintended risks
+
+**Session structure that works best:**
+- **Design sessions** (1-2h): mostly discussion, produce a written plan
+- **Execution sessions** (2-3h): Claude executes against plan, user reviews at milestones
+- **Fix sessions** (ad-hoc): targeted repair work
+
+**What requires user involvement regardless:**
+- Credential operations (app passwords, API keys, OAuth flows)
+- Force-pushes to shared repos
+- DB schema changes that could lose data
+- Security incident response
+- Architecture decisions affecting product direction
+- Anything involving physical clicks on external services (appleid.apple.com, github.com settings, etc.)
+
+**Max session length:** ~3 hours. Beyond that, quality decays. Stop and hand off via NOTES.md update.
+
+---
+
 ## Overview
 Personal news aggregator. Flask API + SQLite backend on Hetzner VPS (always-on).
 Frontend at https://meridianreader.com/meridian.html
