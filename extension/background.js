@@ -306,6 +306,28 @@ const SYNC_PAGES = [
     }
   },
   {
+    url: 'https://www.economist.com/for-you/bookmarks',
+    source: 'The Economist',
+    extract: () => {
+      const links = [];
+      const seen = new Set();
+      const dateRE = /\/20\d{2}\/\d{2}\/\d{2}\//;
+      const SKIP = ['/for-you', '/topics/', '/tags/', '/podcasts', '/newsletters', '/sections/'];
+      document.querySelectorAll('h3 a, h2 a').forEach(a => {
+        const href = (a.getAttribute('href') || '').split('?')[0];
+        if (!href || !dateRE.test(href)) return;
+        const abs = href.startsWith('http') ? href : 'https://www.economist.com' + href;
+        if (SKIP.some(s => abs.includes(s))) return;
+        if (seen.has(abs)) return;
+        const title = a.textContent.trim();
+        if (title.length < 10) return;
+        seen.add(abs);
+        links.push({ url: abs, title });
+      });
+      return links;
+    }
+  },
+  {
     url: 'https://www.foreignaffairs.com/my-foreign-affairs/saved-articles',
     source: 'Foreign Affairs',
     extract: () => {
