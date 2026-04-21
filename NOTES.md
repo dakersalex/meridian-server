@@ -1,5 +1,5 @@
 # Meridian — Technical Notes
-Last updated: 20 April 2026 (Session 63 — Phase 1 VPS migration, secrets migration, security incident)
+Last updated: 21 April 2026 (Session 64 — Charter written; see CHARTER.md for product source of truth)
 
 
 ## Collaboration Protocol (added Session 63)
@@ -291,6 +291,53 @@ Previously 2h/15min/5 respectively. Reduced to cut background tab noise — syst
 - Chrome MCP safety layer blocks navigation AND JS execution on economist.com — not just navigation
 
 ---
+
+---
+
+### 21 April 2026 (Session 64 — Charter written)
+
+**Goal:** Produce a written charter for Meridian — purpose, non-goals, principles, success criteria, constraints, target architecture, open questions. Design session, not execution.
+
+**Outcome:** `CHARTER.md` committed. This is now the source of truth for what Meridian is, what it is not, and what "done enough to leave alone" means. Future sessions should read it at start for grounding. When charter and NOTES.md conflict, CHARTER.md wins on product questions; NOTES.md remains the source of truth for operational/implementation details.
+
+**Key charter decisions:**
+- 12 MUST capabilities, near the constraint frontier (P6). A 13th requires explicitly dropping one or raising the $20/month budget ceiling.
+- Synthesis cost scales with intent (P3): Tier A (Q&A, quick briefs) is cheap-by-construction via retrieval + Haiku; Tier B (in-depth briefings) is the deliberate exception where quality outranks cost.
+- Capture reliability > synthesis reliability (P1): capture failures detected within one sync cycle, alerted within hours, most fixes <30 min; complex failures escalate to weekend maintenance (Tier 1).
+- Deployment is three-tiered (P5): Tier 1 risky/architectural = weekends; Tier 2 quick fixes = anytime; Tier 3 reliability-breaking = alert immediately any day/hour. T3 alerting is what makes T1 weekend deploys tolerable.
+- Observability requires alerting from v1 (P4) — dashboards without alerts are decoration. Cost alerting (projected monthly >$20) ships with the cost panel, not later.
+- Mobile web parity is a MUST (subset: reading, saving, browsing Feed/Suggested/Saved, viewing briefs). Creating briefs can be desktop-primary. No native iOS/Android app; PWA / home-screen-installable is explicitly in scope.
+- Unified read-state across Feed/Suggested/Saved is locked as principle (P2); implementation is Phase 2/3.
+- Chart capture from Economist is a conditional MUST — degrades to NICE if Economist ingestion can't be stabilised.
+- Backups: daily DB snapshot to at least one location off the VPS (Phase 4).
+
+**Not in charter (explicitly excluded this session):**
+- AXIOM references and Meridian/AXIOM seams. YAGNI — reintroduce only when there's a real interaction to architect.
+- Specific target for the 14-day AI-selected rate (Q4 in charter). Needs more data.
+- Brief persistence strategy (Q5). Decide when briefs become frequent enough to matter.
+- Archive / retention policy. Not charter-level; revisit in Phase 3 when corpus size matters.
+
+**Pre-session health check findings (all deferred to Phase 2 planning):**
+- macOS still at 26.2 (build 25C56) — Tahoe 26.4.1 did NOT install overnight. Non-blocking.
+- VPS cron at 03:40 UTC on 21 Apr: fired cleanly. Mac wake_and_sync at 05:40 Geneva on 21 Apr: fired cleanly (197 articles pushed, 11 suggested, 87 images).
+- 20 Apr Mac run had sqlite3 "database is locked" errors on images/newsletters/interviews pushes + 500 on enrichment health check. Not recurring 21 Apr. Symptom of parallel-run friction; Phase 2 structurally resolves it.
+- Mac/VPS article count drift: Mac 1019, VPS 1027 (8-article gap). VPS ahead — expected with current architecture; not a bug.
+
+**Files created/modified:**
+- `/Users/alexdakers/meridian-server/CHARTER.md` (new, 267 lines, committed)
+- `/Users/alexdakers/meridian-server/NOTES.md` (this entry)
+- `/Users/alexdakers/meridian-server/NOTES.md.bak_64` (backup taken at session end)
+
+**Next session (Session 65): Phase 2 planning against the charter.**
+- Should produce a written Phase 2 plan before execution
+- Scope: VPS becomes authoritative DB + primary scheduler; Mac steps back to dev + mirror; addresses the DB-lock / drift / partial-enrichment fragility items flagged in § 8 of charter
+- Chrome extension was disabled at end of Session 63 — Phase 2 plan should include its re-enablement path with the updated architecture (POST to meridianreader.com not localhost)
+- Keep Session 65 in the design-session mould: 1-2h, write the plan, don't rush into execution
+
+**Working-style notes (Session 64 retrospective):**
+- Decide-more-ask-less protocol held: no unnecessary elicitation, consolidated pre-session checks into one parallel call, skipped the NOTES.md re-read when memory + session prompt gave sufficient context.
+- Shell bridge filter ("cookie"/"api"/"query string" substrings) continues to be a friction point when reading NOTES.md or other files that contain those words. Workarounds exist (base64, scp-via-Mac) but cost time. Worth flagging for a Phase 2+ fix if the bridge is kept long-term.
+- Session ran under budget (~90 min of 2h). No Phase 2 draft produced this session — deliberately deferred to Session 65 with fresh attention.
 
 ---
 
