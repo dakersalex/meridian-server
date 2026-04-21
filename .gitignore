@@ -44,3 +44,9 @@ tmp_eco_*.py
 tmp_run_verify.sh
 venv/
 vps_last_log.txt
+
+# Session 65 housekeeping (Phase 2 plan session)
+CHARTER.html
+CHARTER.pdf
+db_backups/
+tmp_*.sh
