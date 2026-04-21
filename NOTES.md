@@ -1,5 +1,5 @@
 # Meridian — Technical Notes
-Last updated: 21 April 2026 (Session 64 — Charter written; see CHARTER.md for product source of truth)
+Last updated: 21 April 2026 (Session 65 — Phase 2 plan committed; see PHASE_2_PLAN.md. CHARTER.md remains product source of truth)
 
 
 ## Collaboration Protocol (added Session 63)
@@ -291,6 +291,79 @@ Previously 2h/15min/5 respectively. Reduced to cut background tab noise — syst
 - Chrome MCP safety layer blocks navigation AND JS execution on economist.com — not just navigation
 
 ---
+
+---
+
+### 21 April 2026 (Session 65 — Phase 2 plan)
+
+**Goal:** Design session, not execution. Produce a written Phase 2 plan against CHARTER.md and COST_MODEL.md before any Phase 2 code lands.
+
+**Outcome:** `PHASE_2_PLAN.md` committed (`96f5516c`). 12 sections, 11 ordered steps in 6 tier-classified deploy blocks, 9 named risks. This is now the execution script for Phase 2.
+
+**Locked-in Phase 2 decisions:**
+
+- **Hard cutover of write authority end of Phase 2.** Mac Flask *stays running* for the session shell-bridge workflow and local dev — backed by a non-authoritative DB. What's dropped is Mac's production *write* role (scheduler unloaded, `wake_and_sync.sh` archived, `vps_push.py` orphaned). Not a process kill.
+- **Mac's DB = nightly read-only snapshot from VPS (option A).** `scp` + `chmod 444`. SQLite backup API for the snapshot, not `cp`. `refresh_mac_db.sh` remains as on-demand override. Rationale: parallel-run friction comes from two *writers*, not two copies — a read-only snapshot is a cache, not a second writer. Covers offline reading (plane mode) without reintroducing drift risk.
+- **Partial-enrichment: mitigation-first, not full fix.** Order locked as (1) ship VPS nightly retry job capped at 3 retries with `enrichment_retries` column + Tier-3 alert on cap hit, (2) add "articles needing retry" + "permanently failed" metrics to Health & Cost panel, (3) ONE 60-minute time-boxed diagnosis session later in Phase 2. Exit criteria bright: either testable root-cause hypothesis OR clean Phase-3 handoff with observability collecting data. No open-ended poking. Reframing: this bug is capture-adjacent (P1), not synthesis — articles silently stuck at `title_only` are invisible to search / Q&A / briefs / KT tagging, which is exactly the "silently stopped" failure mode P1 exists to prevent.
+- **Economist weekly scraper: δ first, γ as documented fallback.** δ = VPS-side weekly `ai_pick` run over articles already ingested via extension bookmark sync (MUST #14), no new VPS fetcher. Decision at 2 weeks: if candidate pool too thin or quality drops, fall back to γ (keep Mac Playwright job as a named charter § 9 exception). α rejected (still Mac-bound), β rejected (Cloudflare blocks headless on VPS).
+- **Alerting for Phase 2 = sendmail from VPS to iCloud, event-driven only.** Daily heartbeat digest is Phase 4. Absence of Tier-3 alerts is the positive signal in Phase 2. Pull-mode status = panel; push-mode failure = alert. Both needed because they serve different failure modes. `alert.py` is the crude-but-working skeleton P4 requires.
+- **Block 5 is atomic.** P2-9 (Economist δ) and P2-10 (Mac write authority dropped) land together or revert together. Re-enabling `ai_pick_economist_weekly()` on Mac while Mac's scheduler is unloaded changes nothing, so "rollback of P2-9 alone within Block 5" is not coherent. If δ proves unsound *after* Block 5 fully lands, the remedy is the δ→γ fallback in plan § 7, not a Block 5 rollback.
+
+**Housekeeping landed this session.**
+
+Four previously-untracked items resolved:
+- `CHARTER.html`, `CHARTER.pdf` (exported from Session 64, unknown origin) → gitignored. `.md` remains canonical.
+- `db_backups/` (Session 63 pre-migration DBs, ≈77 MB) → directory gitignored. Files retained locally.
+- `tmp_clean_history.sh` (Session 63 git-history cleanup prep) → gitignored via `tmp_*.sh` pattern. Not deleted.
+
+Committed to `.gitignore` in the same commit as `PHASE_2_PLAN.md`.
+
+**Open items handed to Session 66:**
+
+- **Charter P5 edit — NOT landed this session.** Flagged explicitly: Alex's wrap-up asked about a charter P5 clarification, but no seventh edit was issued in the batch of six changes. No charter edit was attempted. Session 66 should draft it. Intended content per Alex's note: P5's "weekends only" constraint for Tier 1 deploys is actually gated on *monitoring availability*, not literal day-of-week. During periods when Alex has ≥4h of monitoring time available any day, Tier 1 deploys can land any day. The calendar weekend was a proxy for "free time to watch a deploy and roll back if needed," not the underlying constraint. Charter § 6 P5 needs this clarification.
+- **R9 — Session 63 git-history cleanup sandbox still pending.** Sandbox at `~/meridian-server-sandbox` (removes leaked app password + 22k-file Chrome profiles from history, 748 MB → 44 MB). Not Phase-2-scoped but must be decided *before* Phase 3: force-push, abandon, or keep deferring. Sitting there another week is fine; sitting there at the start of Phase 3 is not.
+- **Extension re-enablement sequencing.** Plan currently places extension prod cutover in Block 4 (after Blocks 1–3). If manual clipping matters during the current intensive build period, this could be hoisted earlier — the plan's P2-7 repoint is independent of Blocks 1–3, only P2-10 depends on the extension having been repointed. Trade-off is that hoisting Block 4 means a Tier 1 deploy before the alerting skeleton (Block 1) is in place, reducing P4 coverage during a week when Alex is most actively clipping. Decide in Session 66 opener.
+
+**Working context for Session 66+.**
+
+Alex is in an intensive build period, ≈6–8h/day available, no work-hours constraint for several weeks. During this window, P5's "weekends only" for Tier 1 doesn't bind in its current literal form — Tier 1 deploys can land any day provided ≥4h of monitoring time follows. The charter P5 clarification above formalises this; until that edit lands, treat this NOTES.md entry as the operational rule.
+
+Decide-more-ask-less applies with higher bandwidth: batched approvals, not step-by-step. In normal weeks Alex wants ≤30 min/session of loop time; during the intensive period more is tolerable because he's around, but default to batching.
+
+**Files created/modified this session:**
+- `PHASE_2_PLAN.md` — new, 343 insertions, commit `96f5516c`.
+- `.gitignore` — four housekeeping entries added, same commit.
+- `NOTES.md` — this entry.
+
+**Session 65 retrospective.**
+
+- Ran ≈90 min of 2h budget. Under budget.
+- Two shell-bridge friction hits: (a) heredoc-with-embedded-triple-quote pattern failed (known bad pattern, documented); (b) `str_replace` on `PHASE_2_PLAN.md` returned `File not found` despite file existing and being visible via `filesystem:read_text_file` — root cause not investigated, worked around by rewriting the file via `filesystem:write_file`. Worth noting for Phase-2 shell-bridge improvements if they come up, but not load-bearing.
+- Q1/Q2 elicitation round had one miswired answer (Q1 filled with Q2 text); re-asked cleanly, answered correctly. Cost: one extra turn. Acceptable.
+
+---
+
+### Session 66 opener (use this verbatim at start of Session 66)
+
+Execution mode, not design mode. Read `CHARTER.md`, `COST_MODEL.md`, `PHASE_2_PLAN.md`, and NOTES.md Sessions 63–65 entries.
+
+Pick the next coherent batch of 3–5 steps from `PHASE_2_PLAN.md` § 8 (almost certainly Block 1 preconditions: P2-0 baseline check, P2-1 alerting skeleton, P2-2 schema migration). Tell me the scope in your first message, then proceed.
+
+Interrupt me only for:
+- Credentials / SSH / API keys / OAuth flows
+- Irreversible actions with data-loss risk
+- Product-scope decisions that contradict or extend the charter
+- Unexpected errors that fork from the plan
+
+Do NOT interrupt for: implementation choices within scope, log interpretation, diagnostic runs, deciding which of two equally-good approaches to use, minor time-box overruns, or anything genuinely covered by the plan's § 8 rollback column.
+
+Report at end of session: what landed, what's next, update NOTES.md, propose next session's scope.
+
+Batched approvals, not step-by-step. I want to be in the loop <30 min per execution session in normal weeks; possibly more during the intensive period because I'm around.
+
+**Before picking the batch, Session 66 should also decide:**
+- Whether to hoist extension cutover (Block 4) earlier in the sequence given the intensive build period (see open items above).
+- Whether to draft the charter P5 clarification this session or defer to a later session.
 
 ---
 
