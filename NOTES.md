@@ -361,9 +361,28 @@ Report at end of session: what landed, what's next, update NOTES.md, propose nex
 
 Batched approvals, not step-by-step. I want to be in the loop <30 min per execution session in normal weeks; possibly more during the intensive period because I'm around.
 
-**Before picking the batch, Session 66 should also decide:**
-- Whether to hoist extension cutover (Block 4) earlier in the sequence given the intensive build period (see open items above).
-- Whether to draft the charter P5 clarification this session or defer to a later session.
+**Session 66 pre-work (before Block 1 execution):**
+
+Apply small charter edit to `CHARTER.md` § 6, principle P5 bullet 1. Replace:
+
+> "Tier 1 — Risky / architectural / maintenance changes: weekends. More free time to monitor, roll back, iterate."
+
+with:
+
+> "Tier 1 — Risky / architectural / maintenance changes: land during a block of time with ≥4h of monitoring availability afterward. In normal weeks this means weekends; during periods of intensive dedicated work, any day qualifies. What matters is that I'm present to watch, roll back, and iterate — not which day of the week it is."
+
+Commit separately from Block 1 work:
+
+```
+git add CHARTER.md
+git commit -m "Session 66 — P5 clarification: Tier 1 gated on monitoring availability, not calendar day"
+git push origin main
+```
+
+Then proceed to Block 1.
+
+**One decision still open for Session 66 opener:**
+- Whether to hoist extension cutover (Block 4) earlier in the sequence given the intensive build period (see open items above). Not load-bearing for Block 1; can be decided at Block 4 planning time if preferred.
 
 ---
 
