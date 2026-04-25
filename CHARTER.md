@@ -114,7 +114,7 @@ Any monitoring surface — uptime, ingestion health, API cost, scoring drift —
 
 **P5 — Deployment is three-tiered, and Tier 3 alerting is what makes Tier 1 safe.**
 
-- **Tier 1 — Risky / architectural / maintenance changes: weekends.** More free time to monitor, roll back, iterate.
+- **Tier 1 — Risky / architectural / maintenance changes: land during a block of time with ≥4h of monitoring availability afterward.** In normal weeks this means weekends; during periods of intensive dedicated work, any day qualifies. What matters is that I'm present to watch, roll back, and iterate — not which day of the week it is.
 - **Tier 2 — Quick fixes (under 15 min, low risk, easy rollback): anytime.** Trivial corrections do not wait three days.
 - **Tier 3 — Reliability-breaking incidents: alert immediately, any day, any hour.** A stopped source, a failing bookmark pipeline, a broken newsletter sync — these surface to me the moment they're detected, not at the next weekend review.
 
