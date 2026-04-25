@@ -31,6 +31,11 @@ SECRETS_FILE = "/etc/meridian/secrets.env"
 SMTP_HOST = "smtp.mail.me.com"
 SMTP_PORT = 587
 
+# Where alerts are delivered. Auth (From:) is always the iCloud account; the
+# To: address can be anywhere. Gmail is the active inbox — alerts land where
+# Alex actually reads. Override per-call by passing recipient= to send_alert.
+DEFAULT_RECIPIENT = "alex.dakers@gmail.com"
+
 
 def _load_secrets_env():
     """Populate os.environ from secrets file if not already set."""
@@ -50,7 +55,7 @@ def _load_secrets_env():
                 os.environ[k] = v
 
 
-def send_alert(subject, body, severity="tier3"):
+def send_alert(subject, body, severity="tier3", recipient=None):
     """
     Send a Meridian alert email.
 
@@ -65,6 +70,7 @@ def send_alert(subject, body, severity="tier3"):
             "ICLOUD_EMAIL / ICLOUD_APP_PASSWORD not set; "
             "check /etc/meridian/secrets.env"
         )
+    to_addr = recipient or DEFAULT_RECIPIENT
 
     hostname = socket.gethostname()
     timestamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -82,7 +88,7 @@ def send_alert(subject, body, severity="tier3"):
     msg = MIMEText(full_body, _charset="utf-8")
     msg["Subject"] = full_subject
     msg["From"] = sender
-    msg["To"] = sender
+    msg["To"] = to_addr
     msg["Date"] = formatdate(localtime=False)
     msg["Message-ID"] = make_msgid(domain="meridianreader.com")
 
@@ -91,7 +97,7 @@ def send_alert(subject, body, severity="tier3"):
         smtp.starttls()
         smtp.ehlo()
         smtp.login(sender, password)
-        smtp.sendmail(sender, [sender], msg.as_string())
+        smtp.sendmail(sender, [to_addr], msg.as_string())
 
     return True
 
@@ -123,7 +129,7 @@ def main(argv=None):
         print(f"alert.py: send failed: {e}", file=sys.stderr)
         return 2
 
-    print(f"alert.py: sent ({args.severity}) to iCloud", file=sys.stderr)
+    print(f"alert.py: sent ({args.severity}) to {DEFAULT_RECIPIENT}", file=sys.stderr)
     return 0
 
 
