@@ -1542,6 +1542,43 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
       }catch(e){}
     })();
     </script>
+    <!-- ENRICHMENT RETRY TILES (P2-4): retry-job observability -->
+    <div id="sp-enrich-tiles" style="display:none;margin-bottom:12px;display:flex;gap:8px;font-family:'IBM Plex Sans',sans-serif">
+      <div id="sp-tile-retry" title="Articles with body text that failed enrichment and are eligible for the nightly retry job (02:30 UTC). Mirrors the cron's own eligibility filter." style="flex:1;border:1px solid rgba(0,0,0,.1);border-radius:6px;padding:8px 12px;background:#fff">
+        <div style="font-size:9px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:#888;margin-bottom:3px">Needing retry</div>
+        <div style="display:flex;align-items:baseline;gap:6px">
+          <div id="sp-tile-retry-n" style="font-size:18px;font-weight:700;color:#1a1a1a;line-height:1">–</div>
+          <div style="font-size:11px;color:#888">articles</div>
+        </div>
+      </div>
+      <div id="sp-tile-failed" title="Articles that hit the 3-retry cap and are now permanently parked at status='enrichment_failed'. Each cap-hit triggers a Tier-3 alert." style="flex:1;border:1px solid rgba(0,0,0,.1);border-radius:6px;padding:8px 12px;background:#fff">
+        <div style="font-size:9px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:#888;margin-bottom:3px">Permanently failed</div>
+        <div style="display:flex;align-items:baseline;gap:6px">
+          <div id="sp-tile-failed-n" style="font-size:18px;font-weight:700;color:#1a1a1a;line-height:1">–</div>
+          <div style="font-size:11px;color:#888">articles</div>
+        </div>
+      </div>
+    </div>
+    <script>
+    (async function(){
+      try{
+        const r=await fetch((window.SERVER||'http://localhost:4242')+'/api/health/enrichment');
+        const d=await r.json();
+        const need=Number(d.articles_needing_retry||0);
+        const fail=Number(d.articles_permanently_failed||0);
+        const wrap=document.getElementById('sp-enrich-tiles');
+        const nEl=document.getElementById('sp-tile-retry-n');
+        const fEl=document.getElementById('sp-tile-failed-n');
+        nEl.textContent=need;
+        fEl.textContent=fail;
+        // Colour cues: needing-retry amber if >0, failed red if >0
+        if(need>0){nEl.style.color='#c4783a';}
+        if(fail>0){fEl.style.color='#c0392b';}
+        // Tiles always visible once data loads — zero state is itself useful info
+        wrap.style.display='flex';
+      }catch(e){}
+    })();
+    </script>
     <!-- HEALTH CHECK ROW: Option C layout -->
   <div id="sp-health-row" style="border:1px solid rgba(0,0,0,.1);border-radius:6px;overflow:hidden;margin-bottom:14px">
     <!-- Header bar -->

@@ -1668,6 +1668,23 @@ def health_enrichment():
             "SELECT status, COUNT(*) as cnt FROM articles GROUP BY status"
         ).fetchall()
         status_breakdown = {r['status']: r['cnt'] for r in statuses}
+        # Phase 2 P2-4: retry-job observability.
+        # Mirrors the eligibility filter in enrich_retry.py exactly so panel
+        # and cron agree on what "needs retry" means.
+        articles_needing_retry = cx.execute(
+            """
+            SELECT COUNT(*) FROM articles
+            WHERE status='title_only'
+              AND saved_at < datetime('now','-24 hours')
+              AND url NOT IN (SELECT url FROM unfetchable_urls)
+              AND COALESCE(enrichment_retries, 0) < 3
+              AND body IS NOT NULL
+              AND LENGTH(body) >= 200
+            """
+        ).fetchone()[0]
+        articles_permanently_failed = cx.execute(
+            "SELECT COUNT(*) FROM articles WHERE status='enrichment_failed'"
+        ).fetchone()[0]
     return jsonify({
         "ok": total_unenriched == 0,
         "total_articles": total,
@@ -1675,6 +1692,8 @@ def health_enrichment():
         "unenriched_by_source": by_source,
         "status_breakdown": status_breakdown,
         "last_syncs": sync_info,
+        "articles_needing_retry": articles_needing_retry,
+        "articles_permanently_failed": articles_permanently_failed,
     })
 
 @app.route("/api/enrich-remaining", methods=["POST"])
