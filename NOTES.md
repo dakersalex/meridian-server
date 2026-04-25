@@ -892,3 +892,5 @@ Then proceed to Block 1.
 - **Never install a scheduler before its alert path is end-to-end verified in the inbox.** Code-path execution ≠ inbox confirmation. Sequence: deploy → force-fail → confirm email → install cron.
 
 **Standing approval for S69 opener (added end of S68):** Alex pre-approved the `max_tokens=1000` → `2000` bump in `enrich_article_with_ai` (server.py L298). Cost impact verified ≈ flat (Anthropic bills generated tokens, not the ceiling; prompt bounds output naturally). Execute the S69 opener block as the first thing in S69 — no re-elicitation needed.
+
+**Standing approval for S69 opener (added end of S68):** Alex pre-approved the max_tokens 1000 to 2000 bump in enrich_article_with_ai (server.py L298). Cost impact verified flat (Anthropic bills generated tokens, not the ceiling; prompt bounds output naturally). Execute the S69 opener block as the first thing in S69 — no re-elicitation needed.
