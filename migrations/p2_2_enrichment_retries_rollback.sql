@@ -1,0 +1,46 @@
+-- Phase 2, P2-2 ROLLBACK: drop enrichment_retries column from articles
+-- Date prepared: 2026-04-25 (Session 66)
+--
+-- SQLite < 3.35 didn't support DROP COLUMN. Modern SQLite (3.35+) does,
+-- but using the safer table-recreate pattern as the canonical rollback
+-- to be portable. Both forms provided.
+--
+-- ============================================================
+-- Form A (modern SQLite, 3.35+) — direct DROP COLUMN
+-- ============================================================
+-- ALTER TABLE articles DROP COLUMN enrichment_retries;
+--
+-- ============================================================
+-- Form B (canonical, portable) — table-recreate
+-- ============================================================
+-- BEGIN TRANSACTION;
+--
+-- 1. Capture current schema for verification (manual step):
+--    sqlite3 db ".schema articles" > /tmp/articles_schema_pre_rollback.sql
+--
+-- 2. Recreate articles table without the column.
+--    The exact column list below MUST be regenerated from the live schema
+--    at rollback time — do not trust this template's column list to match
+--    a future schema. This file documents the SHAPE of the rollback.
+--
+-- CREATE TABLE articles_new ( ... all columns EXCEPT enrichment_retries ... );
+-- INSERT INTO articles_new SELECT ... FROM articles;
+-- DROP TABLE articles;
+-- ALTER TABLE articles_new RENAME TO articles;
+-- -- Recreate any indexes that existed on articles
+--
+-- COMMIT;
+--
+-- ============================================================
+-- Recommended rollback in practice (for THIS migration):
+-- ============================================================
+-- 1. sqlite3 /opt/meridian-server/meridian.db "ALTER TABLE articles DROP COLUMN enrichment_retries;"
+-- 2. Verify: sqlite3 db "PRAGMA table_info(articles);" | grep -i enrichment_retries
+--    -- expect no output
+-- 3. If application code already references the column, revert that code
+--    in lockstep (Block 2 P2-3 hasn't shipped yet at this point of the plan,
+--    so application code does not yet depend on this column).
+--
+-- Backup pre-migration DBs available at:
+--   VPS: /opt/meridian-backups/vps_pre_p2_2_<TS>.db
+--   Mac: ~/meridian-server/db_backups/mac_pre_p2_2_<TS>.db
