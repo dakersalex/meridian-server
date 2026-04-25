@@ -1,6 +1,22 @@
 # Meridian — Technical Notes
-Last updated: 21 April 2026 (Session 65 — Phase 2 plan committed; see PHASE_2_PLAN.md. CHARTER.md remains product source of truth)
+Last updated: 25 April 2026 (Session 66 — Block 1 of Phase 2 landed)
 
+
+## Pre-Session 66 Environment Update (25 April 2026)
+
+Three failed Session 66 start attempts on 24 April due to MCP staleness and Mac performance issues. Nothing committed in any failed attempt.
+
+**Environment state going into the real Session 66 (25 April morning):**
+
+- **Mac rebooted clean this morning.** Pre-reboot symptoms: mouse sluggish, swap 317 MB used, memory used 7.03 GB / 8 GB, compressed memory 3.32 GB. Post-reboot (8 min in): swap 0 MB, 1-min load 2.50, no thermal warnings.
+- **Root cause identified:** Claude.app renderer process leaked to ~634 MB RSS / 32–43% CPU after long Meridian sessions. Compressed-memory pressure (3.32 GB on 8 GB machine) drove the sluggishness, not Shortcuts/mobileassetd/scraper processes. Deleting long Claude.ai chats does NOT free renderer memory — only quitting Claude.app reclaims it. **New principle:** on this 8 GB M1 Air, quit and reopen Claude.app between long sessions.
+- **macOS:** No update was installed today. Microsoft AutoUpdate flagged its Intel-only component will break under a future macOS — non-urgent, fix by running Office's "Check for Updates" later.
+- **Shell bridge re-injected** post-reboot in fresh Chrome tab; Flask responding on :4242.
+- **No code, schema, or charter changes** during the failed attempts or this triage. Session 66 starts from the same git state as Session 65 close.
+
+**Open items below ("Open items handed to Session 66" inside the Session 65 entry) remain authoritative — read them.**
+
+---
 
 ## Collaboration Protocol (added Session 63)
 
@@ -293,6 +309,80 @@ Previously 2h/15min/5 respectively. Reduced to cut background tab noise — syst
 ---
 
 ---
+
+### 25 April 2026 (Session 66 — Phase 2 Block 1 landed)
+
+**Goal:** Execute PHASE_2_PLAN.md Block 1 (preconditions): pre-work P5 charter edit, P2-0 baseline check, P2-1 alerting skeleton, P2-2 schema migration. Stop after P2-2.
+
+**Outcome:** All four items landed cleanly. Two commits pushed.
+
+**Commits:**
+- `7aecc53f` — P5 charter clarification (Tier 1 gated on monitoring availability, not calendar day). Single-file commit per Session 65 instruction.
+- `87f1b14b` — Block 1: `alert.py` + `migrations/p2_2_enrichment_retries.sql` + rollback template.
+
+**P2-0 baseline check (read-only).**
+Full report at `~/meridian-server/logs/p2_0_baseline_report.md`. Headline: no gaps that fork from PHASE_2_PLAN. Mac `wake_and_sync.sh` carries 5 push-paths (articles, images, newsletters, interviews, health) that VPS `wake_sync_vps.sh` does not — this is correct: VPS doesn't push to itself, and the Mac push-paths are the transitional artefacts that retire at P2-10. Mac IMAP sync is still running via `wake_and_sync.sh` 2x/day; will retire at P2-10. Both Mac IMAP and VPS IMAP have been running in parallel since Session 63, and Mac pushes have been returning `0 upserted, 153 skipped` for newsletters — confirms VPS is already authoritative for newsletter ingestion.
+
+**Cosmetic finding:** Mac `newsletter_poller.py` launchd job (`com.alexdakers.meridian.newsletter`) is broken — fails on every poll with `FileNotFoundError: token.json`. This is leftover from an old Gmail-based design (Meridian doesn't use Gmail; uses iCloud IMAP). The launchd job exits 1 every hour and spams the log (1.3 MB and growing). Not load-bearing on anything. Recommend unloading the plist as part of Block 5 cleanup, alongside the `wakesync` plist.
+
+**P2-1 alerting skeleton.**
+`/opt/meridian-server/alert.py` deployed on VPS (3928 bytes, 0755). Reads `ICLOUD_EMAIL` + `ICLOUD_APP_PASSWORD` from `/etc/meridian/secrets.env`, sends via `smtp.mail.me.com:587` with STARTTLS. Importable as `send_alert(subject, body, severity)`; CLI mode for cron one-liners (`alert.py "subj" "body" --severity tier3`). Both From and To are the same iCloud address — Meridian alerts to self.
+
+End-to-end test alert sent from VPS — SMTP returned exit 0, alert delivered to iCloud inbox (confirmed by user). Subject: `[Meridian TIER3] P2-1 skeleton test`.
+
+This satisfies P4: every new surface ships with a working alert. Block 2's retry job will use `from alert import send_alert`.
+
+**P2-2 schema migration.**
+`articles.enrichment_retries INTEGER DEFAULT 0` applied on:
+- VPS: 1114 rows, all populated with 0, column index 15. Pre-migration backup at `/opt/meridian-backups/vps_pre_p2_2_20260425_061352.db` (45.6 MB).
+- Mac: 1061 rows, all populated with 0, column index 15. Pre-migration backup at `~/meridian-server/db_backups/mac_pre_p2_2_20260425_061352.db` (37.7 MB).
+
+DEFAULT 0 propagated to all existing rows during ALTER. Row counts unchanged. VPS/Mac drift remains 53 articles — expected per Phase 1 architecture, not blocking.
+
+Migration files committed to `migrations/`:
+- `p2_2_enrichment_retries.sql` — the applied DDL.
+- `p2_2_enrichment_retries_rollback.sql` — portable rollback template (form A: `ALTER TABLE … DROP COLUMN`; form B: table-recreate). The recommended in-practice rollback is form A, since target SQLite is ≥ 3.35.
+
+**Unexpected items / surprises:**
+
+- **filesystem MCP `create_file` is sandboxed to `/Users/alexdakers/meridian-server`**, NOT writing to host filesystem outside that path. An earlier attempt to write `alert.py` to `/tmp/alert.py` reported "File created successfully" but the file was inside MCP's own sandbox, invisible to the host shell. Workaround: write to a path inside the allowed directory (e.g. `~/meridian-server/alert.py`), then bridge to VPS from there. **New ops rule (added below).**
+- Session ended at the tool-use cap mid-P2-1 in the first turn; resumed cleanly in the second turn. No state lost. The `alert.py` file had to be re-written on resume because the first-turn `create_file` had landed in the MCP sandbox, not on the host — same root cause as the bullet above.
+
+**Open items handed to Session 67:**
+
+- **R9 git-history cleanup** — still pending, unchanged from Session 65 hand-off. Decision needed before Phase 3.
+- **Block 4 hoist decision** — still open. Not load-bearing for Block 2; can be decided at Block 4 planning time.
+- **Mac launchd cleanup** — add to Block 5: unload `com.alexdakers.meridian.newsletter` (broken) alongside `com.alexdakers.meridian.wakesync` (intentional retirement). Defunct `newsletter_poller.py` + 1.3 MB log can be archived too.
+
+**Files created/modified this session:**
+- `CHARTER.md` — P5 bullet 1 reworded (commit `7aecc53f`).
+- `alert.py` — new, 131 lines (commit `87f1b14b`).
+- `migrations/p2_2_enrichment_retries.sql` — new (commit `87f1b14b`).
+- `migrations/p2_2_enrichment_retries_rollback.sql` — new (commit `87f1b14b`).
+- VPS DB — `enrichment_retries` column added (1114 rows).
+- Mac DB — `enrichment_retries` column added (1061 rows).
+- `NOTES.md` — this entry (next commit).
+
+**Session 66 retrospective.**
+
+- Wall time: ~45 min effective work (across the tool-use cap). Well under the 90-120 min target.
+- The tool-use cap, not session time, was the limiting factor. Useful to know for sizing future sessions — a denser plan could fit a single conversation comfortably; an execution-heavy session with lots of bridge round-trips will hit the cap before time.
+- Filesystem MCP sandbox surprise cost ~15 min and one false-positive (`File created successfully` when nothing was written to host). Now documented (see Rules below).
+- Plan held cleanly. No scope creep. No unexpected forks. Health green throughout.
+
+**Proposed Session 67 scope:**
+
+Block 2 of Phase 2 (PHASE_2_PLAN.md § 8). Three steps:
+
+- **P2-3 — Enrich retry job.** Write `/opt/meridian-server/enrich_retry.py`; cron entry `30 2 * * *` (02:30 UTC). Cap at 3 retries; on cap hit, set `status='enrichment_failed'` and call `alert.py` (Tier-3 alert). Idempotent. Logs to `/var/log/meridian/enrich_retry.log`.
+- **P2-4 — Health panel metrics.** Extend `/api/health/enrichment` with `articles_needing_retry` and `articles_permanently_failed` counts. Add panel tiles in `meridian.html`.
+- **P2-5 — Wire enrich_retry alerts.** Conditions § 6 (1) and (2) from plan. Force-fail test to confirm alert fires.
+
+Tier 2 throughout (anytime). Estimate 1 session, 90-120 min. Same shape as Session 66.
+
+---
+
+
 
 ### 21 April 2026 (Session 65 — Phase 2 plan)
 
@@ -589,3 +679,4 @@ Then proceed to Block 1.
 - Re-inject shell bridge into Tab A after every Flask restart
 - **Never ask Alex to run Terminal commands** — all shell operations go through the shell bridge
 - Chrome MCP is blocked from navigating to / executing JS on economist.com; use DevTools + `copy()` on the user side for Economist inspection
+- **filesystem MCP is sandboxed to `/Users/alexdakers/meridian-server`.** Writes to paths *inside* that directory land on the host normally. Writes to paths *outside* that directory (e.g. `/tmp/foo.py`) report success but land in the MCP's own sandbox — invisible to the host shell and to scp. Always write to a path inside `meridian-server` if the file needs to leave the Mac (e.g. for scp to VPS), and verify with `ls` via the shell bridge before assuming.
