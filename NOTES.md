@@ -1,5 +1,5 @@
 # Meridian — Technical Notes
-Last updated: 26 April 2026 (Session 69 closed — P2-6 fix specimen-confirmed and committed)
+Last updated: 28 April 2026 (Session 69 fully closed — cleanup landed, watchdog healthy, S70 = Block 4)
 
 
 ## Pre-Session 66 Environment Update (25 April 2026)
@@ -408,6 +408,39 @@ The "specimen-confirmed" outcome promised for S70's opener actually landed overn
 - **Cron path doubles as verify path.** Worth noting for future Phase 2 fixes: when the failure mode is captured by the existing retry job, sometimes the cleanest verify is to ship the fix and let the cron run it overnight. Not a substitute for in-session testing on tight loops, but a free correctness check when timing aligns.
 - **server.py committed.** `f7c8eb95` on origin/main — standalone single-line commit. The earlier S69 NOTES commit `3980790f` was made before the cron's overnight run produced the specimen-confirmed result, so its body says "verify deferred to S70" — this addendum corrects that.
 - **Carry-over list to S70 unchanged from main S69 entry above** (Iran-specimen retry no longer on it; everything else still open: untracked `server.py.vps`, Block 4 hoist decision, broken `meridian.newsletter` plist, L3850 `max_tokens=1000` review, watchdog first-run log inspection).
+
+**S69 cleanup pass (added 28 Apr, end-of-session):**
+
+Returned to S69 on 28 Apr to clear the cheap carry-overs and lock in the S70 plan. All four items below landed in one ~15-min cleanup pass with two commits.
+
+- **Watchdog first-run inspection — healthy.** Three production fires now logged at `/var/log/meridian/enrich_retry_watchdog.log`:
+  - 25 Apr 14:30 UTC: heartbeat age 5h51m, fresh, no alert
+  - 26 Apr 14:30 UTC: 12h00m, fresh, no alert
+  - 27 Apr 14:30 UTC: 12h00m, fresh, no alert
+  Heartbeat parsing works, 36h threshold respected, no false-positive Tier-3 alerts. Full P2-3/P2-4/P2-5 observability chain validated end-to-end in production. Cron environment, log file paths, parse logic, timezone handling all correct on first try.
+- **`server.py.vps` deleted.** S67 untracked scratch backup (193,874 bytes). Safe to remove — if a fresh VPS server.py snapshot is ever needed, scp on demand. No commit needed (was untracked).
+- **Newsletter plist cleanup — four-step removal, one commit.**
+  1. `launchctl unload ~/Library/LaunchAgents/com.alexdakers.meridian.newsletter.plist` — confirmed gone via `launchctl list | grep newsletter` (returns empty).
+  2. 1.3 MB spam log archived to `db_backups/newsletter_poller.log.archived_20260428` (gitignored, kept for forensics).
+  3. `~/Library/LaunchAgents/com.alexdakers.meridian.newsletter.plist` deleted.
+  4. `git rm newsletter_poller.py` — 110 lines of dead Gmail-OAuth code removed from repo. Commit `27ad6a58`. Pre-removal `grep -l newsletter_poller *.py *.sh *.plist` returned no matches — confirmed nothing in the codebase still depended on it. Newsletter ingestion in production runs through `newsletter_sync.py` (Mac via `wake_and_sync.sh`, VPS via `wake_sync_vps.sh`), distinct from the dead poller.
+  5. Two stale cruft files also cleaned: `tmp_patch_newsletters.py` (S62 carry-over) and `newsletter_sync.py.bak_presecfix_20260420_151828` (S63 backup). Both gitignored, deleted locally without commit.
+  Hourly `FileNotFoundError: token.json` permanently silenced.
+- **Block 4 hoist decision — LOCKED IN. S70 = Block 4 / P2-7 extension repoint.** Reasoning: original sequencing concern (Block 4 landing before alerting was mature) is moot now that Blocks 1–3 are done and watchdog has 3 days of clean production fires. Extension being disabled has been an active cost since S63 — RSS pick is a narrower funnel than FT/Economist/FA auto-sync + manual clip. Block 4 unblocks Block 5 (Mac scheduler retire). Intensive build period gives the Tier 1 monitoring window the charter P5 clarification (S66) requires. Decision: hoist no longer needed — just execute Block 4 next.
+- **S70 pre-flight check passed.** Before locking S70 plan, validated VPS endpoint readiness for the extension repoint:
+  - `https://meridianreader.com/api/health/daily` — HTTP 200, 171ms, valid JSON. `ingested_24h: 25` (FT 22, FA 2, Eco 1), `last_rss_pick: 2026-04-28` — VPS healthy, RSS cron firing.
+  - **CORS preflight from `chrome-extension://abcdef` origin: PASSES.** Headers: `Access-Control-Allow-Origin: chrome-extension://abcdef`, `Access-Control-Allow-Methods: DELETE, GET, HEAD, OPTIONS, PATCH, POST, PUT`, `Access-Control-Allow-Headers: content-type`, `Vary: Origin`. Origin-reflecting CORS already configured. **The single biggest Block 4 risk — "VPS CORS not configured for chrome-extension origins" — is eliminated.**
+  - GET `/api/articles` — HTTP 200, 732 KB body, real data.
+  - Extension currently at v1.7. Bump to v1.8 during repoint.
+  - 4 localhost call sites across 3 files (`popup.js`, `background.js`, `manifest.json`). Tractable scope.
+- **S70 estimate revised down:** 30–45 min execution + 2h passive monitoring (was 60–90 min execution + 4h before pre-flight).
+
+**Updated S70 carry-over (post-cleanup):**
+
+1. **Block 4 / P2-7 — extension repoint.** Tier 1. The whole point of S70.
+2. **L3850 `max_tokens=1000` review.** S69 carry-over. Open-ended investigation of which call site this is and whether it has the same truncation profile as L298 did. Defer to S71 or later — not S70 territory.
+3. **R9 — git-history cleanup sandbox** at `~/meridian-server-sandbox` (S63). Must be decided before Phase 3, but no urgency in S70.
+4. **Block 5 — Mac scheduler retire** (Tier 1 atomic with Economist δ-path swap). Blocked on Block 4 completion.
 
 ---
 
