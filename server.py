@@ -162,6 +162,13 @@ def init_db():
         # FT Professional, Bloomberg, Eco indicators). Prevents RSS pick from re-suggesting them.
         cx.execute('CREATE TABLE IF NOT EXISTS unfetchable_urls '
                    '(url TEXT PRIMARY KEY, source TEXT, reason TEXT DEFAULT "", added_at INTEGER NOT NULL)')
+        # P2-8: Extension write-failure log — feeds Tier-3 alert via
+        # extension_failure_watchdog.py (>10% rolling-24h rate).
+        cx.execute('CREATE TABLE IF NOT EXISTS extension_write_failures '
+                   '(id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp INTEGER NOT NULL, '
+                   'url TEXT, action TEXT, error_msg TEXT, status_code INTEGER)')
+        cx.execute('CREATE INDEX IF NOT EXISTS idx_extension_write_failures_timestamp '
+                   'ON extension_write_failures(timestamp)')
         # -- Economist chart/map capture --
         cx.execute("""CREATE TABLE IF NOT EXISTS article_images (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -3145,6 +3152,40 @@ def push_images():
             upserted += 1
     log.info(f"push-images: upserted {upserted}, skipped {skipped} of {len(images)}")
     return jsonify({"ok": True, "upserted": upserted, "skipped": skipped})
+
+
+@app.route("/api/extension/write-failure", methods=["POST"])
+def log_extension_write_failure():
+    """Log an extension write failure for the Tier-3 alert pipeline (P2-8).
+
+    Accepts JSON: {url, action, error_msg, status_code}. Server timestamps
+    the row server-side (don't trust client clock). Returns ok unconditionally
+    so the extension's fire-and-forget call never blocks user-visible work.
+    """
+    try:
+        d = request.get_json(force=True, silent=True) or {}
+        url = (d.get("url") or "")[:2000]
+        action = (d.get("action") or "")[:64]
+        error_msg = (d.get("error_msg") or "")[:500]
+        status_code = d.get("status_code")
+        if status_code is not None:
+            try:
+                status_code = int(status_code)
+            except (TypeError, ValueError):
+                status_code = None
+        ts = int(time.time() * 1000)
+        with sqlite3.connect(DB_PATH) as cx:
+            cx.execute(
+                "INSERT INTO extension_write_failures "
+                "(timestamp, url, action, error_msg, status_code) VALUES (?, ?, ?, ?, ?)",
+                (ts, url, action, error_msg, status_code),
+            )
+        log.info(f"extension write-failure logged: action={action} status={status_code} url={url[:80]}")
+        return jsonify({"ok": True})
+    except Exception as e:
+        log.error(f"write-failure logging failed: {e}")
+        # Still return 200: we don't want the extension to retry-loop on logging failures.
+        return jsonify({"ok": False, "error": str(e)}), 200
 
 
 @app.route("/api/dev/restart", methods=["POST"])
