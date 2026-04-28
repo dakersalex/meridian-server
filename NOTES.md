@@ -1,5 +1,5 @@
 # Meridian — Technical Notes
-Last updated: 25 April 2026 (Session 69 — P2-6 fix deployed; verify deferred to Session 70)
+Last updated: 26 April 2026 (Session 69 closed — P2-6 fix specimen-confirmed and committed)
 
 
 ## Pre-Session 66 Environment Update (25 April 2026)
@@ -398,6 +398,16 @@ It's a P2-5 alert-pipeline test tool — it bumps `enrichment_retries` and skips
 - Lesson: when an opener block is more than a few sessions old (S68 → S69 next-day is fine, but assumptions about flags can drift), spot-check the actual CLI before invoking. 30 seconds of `--help` or source read would have prevented this.
 - The adjacent FA article succeeding under the 2000 cap is genuine evidence the fix helps, but it's not the same article structurally as the Iran specimen (different source, different body length, different prompt-fill). The hypothesis remains structurally supported but not specimen-confirmed.
 - No charter or plan deviation. Phase 2 still on track.
+
+**S69 closing addendum (added 26 Apr after specimen verified):**
+
+The "specimen-confirmed" outcome promised for S70's opener actually landed overnight on the natural cron path — no S70 work needed for it.
+
+- **02:30 UTC 26 Apr** — nightly `enrich_retry.py` cron picked up `f2c7eb27f7089f1d` on its final (3/3) retry slot under the patched 2000-token code. Result: `OK summary_len=398`. Status → `enriched`. Full payload populated: summary 398 chars, key_points 1181 chars, highlights 1081 chars, tags 121 chars. Same article that failed at 07:43 UTC on 25 Apr with `Unterminated string at char 5326` under 1000 tokens.
+- **Specimen confirmation criteria met.** Same article, same prompt, same model: 1000 → truncation, 2000 → clean enrichment. P2-6 hypothesis closed: structurally supported (S68) → specimen-confirmed (S69). The token-cap was the proximate cause; the fix resolves it.
+- **Cron path doubles as verify path.** Worth noting for future Phase 2 fixes: when the failure mode is captured by the existing retry job, sometimes the cleanest verify is to ship the fix and let the cron run it overnight. Not a substitute for in-session testing on tight loops, but a free correctness check when timing aligns.
+- **server.py committed.** `f7c8eb95` on origin/main — standalone single-line commit. The earlier S69 NOTES commit `3980790f` was made before the cron's overnight run produced the specimen-confirmed result, so its body says "verify deferred to S70" — this addendum corrects that.
+- **Carry-over list to S70 unchanged from main S69 entry above** (Iran-specimen retry no longer on it; everything else still open: untracked `server.py.vps`, Block 4 hoist decision, broken `meridian.newsletter` plist, L3850 `max_tokens=1000` review, watchdog first-run log inspection).
 
 ---
 
