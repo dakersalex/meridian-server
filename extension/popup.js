@@ -1,5 +1,22 @@
 const SERVER = 'https://meridianreader.com';
 
+// Fire-and-forget: log a write failure to the VPS for the Tier-3 alert pipeline (P2-8).
+// Never throws, never awaits in the user-visible path — swallows its own errors.
+function reportWriteFailure(action, url, errorMsg, statusCode) {
+  try {
+    fetch(SERVER + '/api/extension/write-failure', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        url: url || '',
+        action: action || '',
+        error_msg: (errorMsg || '').toString().slice(0, 500),
+        status_code: (typeof statusCode === 'number') ? statusCode : null,
+      }),
+    }).catch(() => {});
+  } catch (e) { /* never let logging errors leak */ }
+}
+
 const BOOKMARKS_PAGES = {
   'economist.com/for-you/bookmarks': { source: 'The Economist', key: 'eco' },
   'ft.com/myft/saved-articles':      { source: 'Financial Times', key: 'ft' },
@@ -149,15 +166,22 @@ async function syncBookmarks(source) {
     let added = 0;
     for (const art of newArticles) {
       const id = 'bm_' + Math.abs(art.url.split('').reduce((a, c) => (a << 5) - a + c.charCodeAt(0), 0)).toString(16).slice(0, 12);
-      await fetch(SERVER + '/api/articles', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id, url: art.url, title: art.title,
-          body: '', source, status: 'title_only',
-          saved_at: Date.now(), fetched_at: Date.now(), pub_date: '',
-        })
-      });
+      try {
+        const resp = await fetch(SERVER + '/api/articles', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id, url: art.url, title: art.title,
+            body: '', source, status: 'title_only',
+            saved_at: Date.now(), fetched_at: Date.now(), pub_date: '',
+          })
+        });
+        if (!resp.ok) {
+          reportWriteFailure('post_article_bookmark', art.url, 'HTTP ' + resp.status, resp.status);
+        }
+      } catch (e) {
+        reportWriteFailure('post_article_bookmark', art.url, e && e.message, null);
+      }
       added++;
     }
 
@@ -213,7 +237,10 @@ async function clipArticle() {
       if (resp.ok) {
         status.textContent = '✓ Updated "' + match.title.slice(0, 40) + '..."';
         status.className = 'success';
-      } else { throw new Error('Update failed'); }
+      } else {
+        reportWriteFailure('patch_article_clip', tab.url, 'HTTP ' + resp.status, resp.status);
+        throw new Error('Update failed');
+      }
     } else {
       const id = 'clip_' + Date.now();
       const resp = await fetch(SERVER + '/api/articles', {
@@ -229,9 +256,16 @@ async function clipArticle() {
       if (resp.ok) {
         status.textContent = '✓ Saved new article';
         status.className = 'success';
-      } else { throw new Error('Save failed'); }
+      } else {
+        reportWriteFailure('post_article_clip', url, 'HTTP ' + resp.status, resp.status);
+        throw new Error('Save failed');
+      }
     }
   } catch (err) {
+    // Network/CORS errors arrive here too; log to the failure pipeline.
+    if (err && err.message && err.message !== 'Update failed' && err.message !== 'Save failed') {
+      reportWriteFailure('clip_article', tab && tab.url, err.message, null);
+    }
     status.textContent = 'Error: ' + err.message;
     status.className = 'error';
     btn.disabled = false;

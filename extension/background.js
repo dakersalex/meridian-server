@@ -1,6 +1,23 @@
 const SERVER = 'https://meridianreader.com';
 const BODY_FETCH_INTERVAL_MINUTES = 360; // 6 hours
 
+// Fire-and-forget: log a write failure to the VPS for the Tier-3 alert pipeline (P2-8).
+// Never throws, never awaits in the user-visible path — swallows its own errors.
+function reportWriteFailure(action, url, errorMsg, statusCode) {
+  try {
+    fetch(SERVER + '/api/extension/write-failure', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        url: url || '',
+        action: action || '',
+        error_msg: (errorMsg || '').toString().slice(0, 500),
+        status_code: (typeof statusCode === 'number') ? statusCode : null,
+      }),
+    }).catch(() => {});
+  } catch (e) { /* never let logging errors leak */ }
+}
+
 function extractText() {
   const url = location.href;
   const title = document.title;
@@ -420,7 +437,7 @@ async function autoSyncSaves() {
         for (const art of newLinks) {
           const id = 'sync_' + Math.abs(art.url.split('').reduce((a, c) => (a << 5) - a + c.charCodeAt(0), 0)).toString(16).slice(0, 12);
           try {
-            await fetch(SERVER + '/api/articles', {
+            const resp = await fetch(SERVER + '/api/articles', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
@@ -429,9 +446,13 @@ async function autoSyncSaves() {
                 saved_at: Date.now(), fetched_at: Date.now(), pub_date: '',
               })
             });
+            if (!resp.ok) {
+              reportWriteFailure('post_article_autosync', art.url, 'HTTP ' + resp.status, resp.status);
+            }
             existingUrls.add(art.url); // prevent dupes across pages
             totalNew++;
           } catch(e) {
+            reportWriteFailure('post_article_autosync', art.url, e && e.message, null);
             console.error(`Meridian auto-sync: save failed for ${art.title}:`, e);
           }
         }
