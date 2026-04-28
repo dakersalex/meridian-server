@@ -1,4 +1,4 @@
-const SERVER = 'http://localhost:4242';
+const SERVER = 'https://meridianreader.com';
 const BODY_FETCH_INTERVAL_MINUTES = 360; // 6 hours
 
 function extractText() {
@@ -50,7 +50,7 @@ async function harvestAndSaveCookies(url, pubKey) {
     const cookieStr = cookies.map(c => `${c.name}=${c.value}`).join('; ');
 
     // Send to Meridian server
-    const resp = await fetch('http://localhost:4242/api/cookies', {
+    const resp = await fetch(SERVER + '/api/cookies', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ publication: pubKey, cookies: cookieStr })
@@ -200,33 +200,36 @@ async function fetchBodyForArticle(art) {
   // Open in background tab
   const tab = await chrome.tabs.create({ url: art.url, active: false });
 
-  // Wait for page to load
-  await new Promise(resolve => {
-    const listener = (tabId, changeInfo) => {
-      if (tabId === tab.id && changeInfo.status === 'complete') {
+  let results;
+  try {
+    // Wait for page to load
+    await new Promise(resolve => {
+      const listener = (tabId, changeInfo) => {
+        if (tabId === tab.id && changeInfo.status === 'complete') {
+          chrome.tabs.onUpdated.removeListener(listener);
+          resolve();
+        }
+      };
+      chrome.tabs.onUpdated.addListener(listener);
+      // Timeout after 20s
+      setTimeout(() => {
         chrome.tabs.onUpdated.removeListener(listener);
         resolve();
-      }
-    };
-    chrome.tabs.onUpdated.addListener(listener);
-    // Timeout after 20s
-    setTimeout(() => {
-      chrome.tabs.onUpdated.removeListener(listener);
-      resolve();
-    }, 20000);
-  });
+      }, 20000);
+    });
 
-  // Extra wait for JS rendering
-  await new Promise(r => setTimeout(r, 3000));
+    // Extra wait for JS rendering
+    await new Promise(r => setTimeout(r, 3000));
 
-  // Extract text
-  const results = await chrome.scripting.executeScript({
-    target: { tabId: tab.id },
-    func: extractText
-  });
-
-  // Close the tab
-  try { await chrome.tabs.remove(tab.id); } catch(e) {}
+    // Extract text
+    results = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: extractText
+    });
+  } finally {
+    // Always close the tab, even if executeScript throws
+    try { await chrome.tabs.remove(tab.id); } catch(e) {}
+  }
 
   const { title, text, url, pubDate } = results[0].result;
 
@@ -367,41 +370,46 @@ async function autoSyncSaves() {
   let totalNew = 0;
 
   for (const page of SYNC_PAGES) {
+    let tab;
     try {
       console.log(`Meridian auto-sync: opening ${page.source} saves...`);
-      const tab = await chrome.tabs.create({ url: page.url, active: false });
+      tab = await chrome.tabs.create({ url: page.url, active: false });
 
-      // Wait for load
-      await new Promise(resolve => {
-        const listener = (tabId, changeInfo) => {
-          if (tabId === tab.id && changeInfo.status === 'complete') {
-            chrome.tabs.onUpdated.removeListener(listener);
-            resolve();
+      let results;
+      try {
+        // Wait for load
+        await new Promise(resolve => {
+          const listener = (tabId, changeInfo) => {
+            if (tabId === tab.id && changeInfo.status === 'complete') {
+              chrome.tabs.onUpdated.removeListener(listener);
+              resolve();
+            }
+          };
+          chrome.tabs.onUpdated.addListener(listener);
+          setTimeout(() => { chrome.tabs.onUpdated.removeListener(listener); resolve(); }, 25000);
+        });
+
+        // Extra wait for JS rendering
+        await new Promise(r => setTimeout(r, 4000));
+
+        // Scroll to load more content
+        await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          func: () => {
+            window.scrollTo(0, document.body.scrollHeight);
           }
-        };
-        chrome.tabs.onUpdated.addListener(listener);
-        setTimeout(() => { chrome.tabs.onUpdated.removeListener(listener); resolve(); }, 25000);
-      });
+        });
+        await new Promise(r => setTimeout(r, 2000));
 
-      // Extra wait for JS rendering
-      await new Promise(r => setTimeout(r, 4000));
-
-      // Scroll to load more content
-      await chrome.scripting.executeScript({
-        target: { tabId: tab.id },
-        func: () => {
-          window.scrollTo(0, document.body.scrollHeight);
-        }
-      });
-      await new Promise(r => setTimeout(r, 2000));
-
-      // Extract links
-      const results = await chrome.scripting.executeScript({
-        target: { tabId: tab.id },
-        func: page.extract
-      });
-
-      await chrome.tabs.remove(tab.id);
+        // Extract links
+        results = await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          func: page.extract
+        });
+      } finally {
+        // Always close the tab, even if executeScript throws
+        if (tab) { try { await chrome.tabs.remove(tab.id); } catch(e) {} }
+      }
 
       const links = results[0].result || [];
       const newLinks = links.filter(l => !existingUrls.has(l.url));

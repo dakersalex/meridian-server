@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Meridian Clipper",
-  "version": "1.7",
+  "version": "1.8",
   "description": "Save full article text to Meridian",
   "permissions": [
     "cookies",
@@ -12,7 +12,7 @@
     "alarms"
   ],
   "host_permissions": [
-    "http://localhost/*",
+    "https://meridianreader.com/*",
     "https://www.bloomberg.com/*",
     "https://www.economist.com/*",
     "https://www.ft.com/*",

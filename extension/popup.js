@@ -1,4 +1,4 @@
-const SERVER = 'http://localhost:4242';
+const SERVER = 'https://meridianreader.com';
 
 const BOOKMARKS_PAGES = {
   'economist.com/for-you/bookmarks': { source: 'The Economist', key: 'eco' },
