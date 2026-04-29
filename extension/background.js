@@ -1,6 +1,33 @@
 const SERVER = 'https://meridianreader.com';
 const BODY_FETCH_INTERVAL_MINUTES = 360; // 6 hours
 
+// ── Service-worker lock around tab-creation operations (S72) ─────────────────
+// fetchPendingBodies and autoSyncSaves both call chrome.tabs.create. If they
+// run concurrently (cold-start race: alarms fire 10s/30s after Chrome restart;
+// or alarm-coincidence on the 6h cadence) tabs accumulate faster than they
+// close and the FT/Eco/FA pages choke under the load — popup Sync Bookmarks
+// then hangs at scrollAndExtract because its target page never settles.
+// Fix: a module-level Promise the callers chain off so only one tab-creation
+// operation is in flight at a time. Each caller wraps its full body, not just
+// per-tab, so a 10-article body-fetch run holds the lock end-to-end before
+// auto-sync starts.
+let tabOpsLock = Promise.resolve();
+function withTabLock(label, fn) {
+  const prev = tabOpsLock;
+  let release;
+  tabOpsLock = new Promise(r => { release = r; });
+  return (async () => {
+    await prev;
+    console.log('Meridian tabOpsLock: ' + label + ' acquired');
+    try {
+      return await fn();
+    } finally {
+      console.log('Meridian tabOpsLock: ' + label + ' released');
+      release();
+    }
+  })();
+}
+
 // Fire-and-forget: log a write failure to the VPS for the Tier-3 alert pipeline (P2-8).
 // Never throws, never awaits in the user-visible path — swallows its own errors.
 function reportWriteFailure(action, url, errorMsg, statusCode) {
@@ -174,6 +201,7 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
 // using the user's logged-in browser session (bypasses paywalls naturally).
 
 async function fetchPendingBodies() {
+  return withTabLock('fetchPendingBodies', async () => {
   try {
     const resp = await fetch(SERVER + '/api/articles/pending-body?limit=10');
     if (!resp.ok) return;
@@ -197,6 +225,7 @@ async function fetchPendingBodies() {
   } catch(e) {
     console.error('Meridian body-fetch: failed to get pending list:', e);
   }
+  });
 }
 
 async function fetchBodyForArticle(art) {
@@ -371,6 +400,7 @@ const SYNC_PAGES = [
 ];
 
 async function autoSyncSaves() {
+  return withTabLock('autoSyncSaves', async () => {
   console.log('Meridian auto-sync: starting bookmarks sync');
   
   // Get existing article URLs for dedup
@@ -466,6 +496,7 @@ async function autoSyncSaves() {
   }
 
   console.log(`Meridian auto-sync: done — ${totalNew} new articles saved`);
+  });
 }
 
 // Set up periodic alarms
