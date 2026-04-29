@@ -1,5 +1,5 @@
 # Meridian — Technical Notes
-Last updated: 28 April 2026 (Session 71 closed — Block 4 / P2-8 extension write-failure logging + Tier-3 alert wiring live, v1.9 built, alert path Gmail-confirmed, **extension currently disabled in Chrome pending S72 reload**)
+Last updated: 28 April 2026 (Session 71 closed — Block 4 / P2-8 extension write-failure logging + Tier-3 alert wiring live, v1.9 built, alert path Gmail-confirmed, **extension currently disabled in Chrome pending S72 reload**; startup sequence amended to require deferred-tool verification before any work, after S72 fresh-chat hit degraded-mode failure mid-opener)
 
 
 ## 28 April 2026 (Session 71 — Block 4 / P2-8: extension write-failure logging + Tier-3 alert)
@@ -1170,11 +1170,20 @@ Then proceed to Block 1.
 ---
 
 ## Session startup — CRITICAL ORDER
-1. `tabs_context_mcp` with `createIfEmpty:true`
-2. Read NOTES.md
-3. Navigate Tab A to localhost:8080 (if not already open)
-4. Inject shell bridge
-5. Health check via `/api/health/daily`
+1. **Verify deferred tools loaded.** Call `tool_search` with queries: `"filesystem write file edit"`, `"browser tabs javascript chrome"`, `"shell command bash"`. Confirm the following tool families are available before proceeding:
+   - **filesystem** with write/edit capability (`filesystem:edit_file`, `filesystem:write_file`) — NOT just read-only
+   - **Claude in Chrome** (`tabs_context_mcp`, `javascript_tool`, `browser_batch`)
+   - The shell bridge target (Flask on :4242) is reachable
+
+   **If filesystem write/edit OR Chrome MCP is missing, STOP and tell Alex** — do not proceed in degraded mode. Cause is usually that the chat was started outside the Meridian project, or the project's MCPs failed to load. Fix is to close the chat and start a new one from inside the Meridian project (Projects → Meridian News Aggregator → New chat). Do not work around missing tools by asking Alex to paste files or run commands manually for a real session — that's only acceptable for tiny ad-hoc questions, not Tier-1/Tier-2 execution work.
+
+   Note: the *first* response in a new chat may falsely claim a tool is unavailable because Claude hasn't run `tool_search` yet — the deferred-tool registry isn't visible without searching it. Always search before concluding a tool is missing. If `tool_search` returns the tool family, the tool is genuinely available; proceed.
+
+2. `tabs_context_mcp` with `createIfEmpty:true`
+3. Read NOTES.md
+4. Navigate Tab A to localhost:8080 (if not already open)
+5. Inject shell bridge
+6. Health check via `/api/health/daily`
 
 ## Rules
 - Never edit Chrome extension files without warning Alex it needs a reload — batch extension changes
