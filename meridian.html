@@ -1642,7 +1642,13 @@ body { font-family: 'IBM Plex Sans', sans-serif; background: var(--paper); color
 
     <!-- Col 2: Swim lanes — AI picks vs my saves by source, 14 days -->
     <div style="padding-left:24px;padding-right:24px;border-right:1px solid rgba(0,0,0,.07);display:flex;flex-direction:column">
-      <div style="font-size:9px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:#8a8a8a;border-bottom:1px solid rgba(0,0,0,.1);padding-bottom:5px;margin-bottom:9px;flex-shrink:0">AI picks vs my saves — by source, last 14 days</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid rgba(0,0,0,.1);padding-bottom:5px;margin-bottom:9px;gap:8px;flex-shrink:0">
+        <div style="font-size:9px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:#8a8a8a" id="sp-swim-title">AI picks vs my saves — by source, last 14 days</div>
+        <div id="sp-date-toggle" style="display:flex;font-size:9px;font-weight:600;letter-spacing:.5px;text-transform:uppercase;border:1px solid rgba(0,0,0,.12);border-radius:3px;overflow:hidden;flex-shrink:0">
+          <button type="button" data-mode="saved" class="sp-dm-btn sp-dm-active" style="background:#1a1a1a;color:#faf8f4;border:none;padding:3px 8px;cursor:pointer;font-family:inherit;font-size:9px;letter-spacing:.5px">Saved at</button>
+          <button type="button" data-mode="pub" class="sp-dm-btn" style="background:transparent;color:#8a8a8a;border:none;padding:3px 8px;cursor:pointer;font-family:inherit;font-size:9px;letter-spacing:.5px;border-left:1px solid rgba(0,0,0,.12)">Published</button>
+        </div>
+      </div>
       <div id="sp-swim-lanes" style="flex-shrink:0"></div>
       <div id="sp-swim-legend" style="display:flex;gap:14px;flex-wrap:wrap;padding-top:8px;flex-shrink:0;justify-content:center"></div>
     </div>
@@ -4029,6 +4035,39 @@ async function updateActivityBar() {
       const srcShort = {'Financial Times':'FT','The Economist':'Economist','Foreign Affairs':'FA','Bloomberg':'Bloomberg'};
       const srcColor = {'Financial Times':'#1e4d8c','The Economist':'#8b1a1a','Foreign Affairs':'#2a7a5a','Bloomberg':'#555','Other':'#999'};
 
+      // ── Date-mode toggle state (per-session, default 'saved') ─────────
+      // Set on window so other panels could read it; per-session only — no
+      // localStorage persistence by S74 design.
+      if(typeof window.spDateMode === 'undefined') window.spDateMode = 'saved';
+
+      // Resolve an article to its YYYY-MM-DD attribution date based on mode.
+      // 'saved' — use saved_at (millisecond timestamp). Always a clean integer
+      //          in the DB, no parsing risk. This is the system-health view.
+      // 'pub'   — use pub_date. Tolerates three known formats:
+      //   - ISO timestamp 'YYYY-MM-DDTHH:MM:SS.sssZ' (Economist scraper)
+      //   - ISO date 'YYYY-MM-DD' (FA primary path, FT)
+      //   - 'Month DD, YYYY' string (FA author-URL path, e.g. 'April 29, 2026')
+      // Returns '' (empty string) when nothing usable. Empty-string articles
+      // never match a day key, so they drop out of the chart cleanly.
+      function articleDay(a) {
+        if(window.spDateMode === 'saved') {
+          if(!a.saved_at) return '';
+          var d = new Date(typeof a.saved_at === 'number' ? a.saved_at : Number(a.saved_at));
+          if(isNaN(d.getTime())) return '';
+          // Use UTC slice — saved_at is stored as ms since epoch.
+          return d.toISOString().slice(0,10);
+        }
+        // pub mode
+        var raw = (a.pub_date||'').toString().trim();
+        if(!raw) return '';
+        // ISO prefix path (handles both 'YYYY-MM-DD' and 'YYYY-MM-DDTHH:...')
+        if(/^\d{4}-\d{2}-\d{2}/.test(raw)) return raw.slice(0,10);
+        // 'Month DD, YYYY' fallback — let Date parse it; if parseable, format.
+        var d2 = new Date(raw);
+        if(!isNaN(d2.getTime())) return d2.toISOString().slice(0,10);
+        return '';
+      }
+
       // ── Headline numbers ──────────────────────────────────────────────
       const total = allArts.length;
       const aiPicksN = allArts.filter(a=>a.auto_saved).length;
@@ -4045,7 +4084,8 @@ async function updateActivityBar() {
       }
 
       // ── Source split bars (col 3): swim-lane style, 14d per source ────
-      (function renderSplitBars() {
+      // Honors window.spDateMode via articleDay() for the 14d window check.
+      function renderSplitBars() {
         var el = se('sp-split-bars');
         if(!el) return;
         var t14d = isoDateDaysAgo(14);
@@ -4058,7 +4098,11 @@ async function updateActivityBar() {
         var LANE_H = 40;
         var globalMax = 1;
         var srcData = sources.map(function(s) {
-          var arts = allArts.filter(function(a){ return a.source===s.name && (a.pub_date||'')>=t14d; });
+          var arts = allArts.filter(function(a){
+            if(a.source !== s.name) return false;
+            var day = articleDay(a);
+            return day !== '' && day >= t14d;
+          });
           var total = arts.length;
           var ai = arts.filter(function(a){ return a.auto_saved; }).length;
           var my = total - ai;
@@ -4123,7 +4167,9 @@ async function updateActivityBar() {
             +'</div>'
             +'</div>';
         }
-      }());
+      }
+      // initial render of split bars
+      renderSplitBars();
 
       // ── Curation split bars: all time / 30d / 7d ─────────────────────
       const now = new Date();
@@ -4151,7 +4197,8 @@ async function updateActivityBar() {
       }).join('');
 
       // ── Swim lanes: AI picks vs my saves by source, last 14 days ───────
-      (function renderSwimLanes() {
+      // Honors window.spDateMode via articleDay() for date attribution.
+      function renderSwimLanes() {
         var swEl = se('sp-swim-lanes');
         var swLeg = se('sp-swim-legend');
         if(!swEl) return;
@@ -4163,7 +4210,7 @@ async function updateActivityBar() {
         var swData = {};
         swSrc.forEach(function(s){
           swData[s] = days14sw.map(function(d){
-            var arts = allArts.filter(function(a){return a.source===s && (a.pub_date||'').substring(0,10)===d;});
+            var arts = allArts.filter(function(a){return a.source===s && articleDay(a)===d;});
             var ai = arts.filter(function(a){return a.auto_saved===1||a.auto_saved===true;}).length;
             return {total:arts.length, ai:ai};
           });
@@ -4257,6 +4304,42 @@ async function updateActivityBar() {
          +'</div>AI selected</div>'
          +'<div style="display:flex;align-items:center;gap:4px;font-size:10px;color:#6a6a6a"><div style="width:8px;height:8px;border-radius:1px;background:#1a1a1a;opacity:.18"></div>My saves</div>'
          +'<div style="display:flex;align-items:center;gap:4px;font-size:10px;color:#6a6a6a"><div style="width:12px;height:3px;border-radius:1px;background:#fee2e2"></div>Zero that day</div>';
+      }
+      // initial render of swim lanes
+      renderSwimLanes();
+
+      // ── Wire date-mode toggle (per-session, no localStorage) ────────────
+      // Re-renders both split bars and swim lanes whenever the user picks a
+      // different mode. Buttons live in the swim-lane column header (sp-date-toggle).
+      (function wireDateToggle() {
+        var toggle = se('sp-date-toggle');
+        if(!toggle) return;
+        // Avoid double-binding if renderNewStats runs more than once
+        if(toggle.dataset.bound === '1') return;
+        toggle.dataset.bound = '1';
+        toggle.addEventListener('click', function(ev) {
+          var btn = ev.target.closest('.sp-dm-btn');
+          if(!btn) return;
+          var mode = btn.dataset.mode;
+          if(mode !== 'saved' && mode !== 'pub') return;
+          if(mode === window.spDateMode) return;
+          window.spDateMode = mode;
+          // Visual state: active button gets dark fill, inactive is muted.
+          [...toggle.querySelectorAll('.sp-dm-btn')].forEach(function(b){
+            if(b.dataset.mode === mode) {
+              b.classList.add('sp-dm-active');
+              b.style.background = '#1a1a1a';
+              b.style.color = '#faf8f4';
+            } else {
+              b.classList.remove('sp-dm-active');
+              b.style.background = 'transparent';
+              b.style.color = '#8a8a8a';
+            }
+          });
+          // Re-render both date-driven panels.
+          renderSplitBars();
+          renderSwimLanes();
+        });
       }());
 
       // ── Row 2: By source ──────────────────────────────────────────────
