@@ -70,14 +70,63 @@ function scrollAndExtract(existingUrls) {
     const maxClicks = firstSync ? 20 : 3;
     const consecutiveThreshold = firstSync ? Infinity : 3;
 
+    // INLINED helpers — chrome.scripting.executeScript only serialises the
+    // top-level function body; sibling top-level functions (getLinks,
+    // clickLoadMore) are NOT bundled and would be ReferenceErrors in the
+    // page context. Keep these definitions inside scrollAndExtract.
+    const getLinks = () => {
+      const links = [];
+      document.querySelectorAll('a[href]').forEach(a => {
+        const href = a.href;
+        const title = a.textContent.trim();
+        if (href.includes('/20') && title.length > 20 && !href.includes('/for-you')) {
+          links.push({ url: href, title });
+        }
+      });
+      const seen = new Set();
+      return links.filter(l => { if (seen.has(l.url)) return false; seen.add(l.url); return true; });
+    };
+
+    const clickLoadMore = () => {
+      const btn = Array.from(document.querySelectorAll('button, a')).find(el => {
+        const t = el.textContent.trim().toLowerCase();
+        return (t === 'load more' || t === 'show more' || t === 'load older' || t === 'show older') && el.offsetParent !== null;
+      });
+      if (btn) { btn.click(); return true; }
+      return false;
+    };
+
+    // Bounded polling loop. FAST-PATH exit: 3 consecutive ticks at bottom
+    // (Economist Load More flow converges in ~2.1s here). HARD CAP: 12 scroll
+    // attempts OR 10000ms wall time, whichever first — protects against pages
+    // that lazy-render cards as you scroll (FT UUID-paginated saved-articles)
+    // where scrollHeight keeps growing and the stable-count never settles.
     const scrollToBottom = () => new Promise(res => {
       let stable = 0;
+      let attempts = 0;
+      const maxAttempts = 12;
+      const maxWallMs = 10000;
+      const startedAt = Date.now();
       const t = setInterval(() => {
         window.scrollBy(0, 800);
+        attempts++;
+        const elapsed = Date.now() - startedAt;
         if (window.scrollY + window.innerHeight >= document.body.scrollHeight - 200) {
           stable++;
-          if (stable >= 3) { clearInterval(t); res(); }
-        } else { stable = 0; }
+          if (stable >= 3) {
+            clearInterval(t);
+            console.log(`Meridian sync: scrollToBottom — stable (${attempts} attempts, ${elapsed}ms)`);
+            res();
+            return;
+          }
+        } else {
+          stable = 0;
+        }
+        if (attempts >= maxAttempts || elapsed >= maxWallMs) {
+          clearInterval(t);
+          console.log(`Meridian sync: scrollToBottom — bounded stop (attempts=${attempts}, elapsed=${elapsed}ms, stable=${stable})`);
+          res();
+        }
       }, 700);
     });
 
