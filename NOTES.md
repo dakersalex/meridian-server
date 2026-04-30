@@ -1,6 +1,50 @@
 # Meridian — Technical Notes
-Last updated: 28 April 2026 (Session 71 closed — Block 4 / P2-8 extension write-failure logging + Tier-3 alert wiring live, v1.9 built, alert path Gmail-confirmed, **extension currently disabled in Chrome pending S72 reload**; startup sequence amended to require deferred-tool verification before any work, after S72 fresh-chat hit degraded-mode failure mid-opener)
+Last updated: 29 April 2026 (Session 72 closed — extension v1.10 deployed with service-worker lock around tab-creation operations, ig.ft.com host_permissions added, commit 7a32e044 pushed; tab-spam concurrency fix confirmed by visual smoke test (FT/Eco/FA bookmarks opened sequentially); popup-sync hang on FT bookmarks page identified as separate bug — scrollToBottom polling never settles — carried to S73)
 
+
+## 29 April 2026 (Session 72 — Tier-2 cleanup: extension v1.10 service-worker lock)
+
+**Goal:** Land the popup-sync concurrency hang fix from S71 carry-over (service-worker lock around tab-creation operations) + ig.ft.com host_permissions gap from S70. Tier 2. Unblocks Block 5 path by stabilising extension behaviour.
+
+**Outcome:** Extension v1.10 deployed and reloaded in Chrome. Lock works as designed — confirmed by visual observation of FT/Eco/FA bookmark pages opening sequentially (one tab at a time) on auto-sync run, where v1.8 produced 11+ leaked tabs in S70 and ~14 leaked tabs mid-S71. `extension_write_failures` stayed at 0 throughout. One commit pushed (`7a32e044`). v1.9 skipped in production (built S71, never reloaded — toggle jumped active-v1.8 → active-v1.10).
+
+**Files landed (commit `7a32e044`):**
+- `extension/background.js` — added module-level `tabOpsLock` Promise + `withTabLock(label, fn)` helper at top of file (after SERVER constant, before reportWriteFailure). `fetchPendingBodies` and `autoSyncSaves` each wrap their full body in `withTabLock(...)`, so a 10-article body-fetch run holds the lock end-to-end before auto-sync's 3-page loop starts. Both alarm handlers and both cold-start `setTimeout` calls route through the wrapped functions automatically.
+- `extension/manifest.json` — `https://ig.ft.com/*` added to `host_permissions` (one line). `"version": "1.9"` → `"1.10"`.
+
+**Design decision — lock at function level, not per-tab.** Per-tab locking would still allow interleaving at tab granularity (still 13 tabs sequentially-but-fast). Function-level locking means `fetchPendingBodies` claims the lock for its whole 10-article loop; `autoSyncSaves` claims it for its 3-page loop. The S71 spec said "the three callers await before chrome.tabs.create" — popup's `scrollAndExtract` doesn't actually call `chrome.tabs.create` (it runs in the user's foreground tab via `executeScript`). So strictly only two callers create tabs; two-caller lock is the correct reading. Skipped the popup→service-worker message bridge that a literal three-caller version would need — saves ~15 lines and a chrome.runtime.sendMessage failure surface, addresses the same race.
+
+**Smoke test — passed for primary fix, exposed separate bug:**
+
+1. Reload v1.9 → v1.10 at chrome://extensions: clean, no permission prompt (ig.ft.com same eTLD as already-approved ft.com), version card showed 1.10.
+2. Cold-start `setTimeout(fetchPendingBodies, 10000)` + `setTimeout(autoSyncSaves, 30000)` fired post-reload. Lock messages would have shown in service worker console (not directly inspected — service workers don't appear in MCP tab context). Net effect: zero new `sync_*` articles in 15 min after reload (auto-sync ran a no-op cycle because nothing new in any of the three bookmark pages). `extension_write_failures` = 0.
+3. Active test: navigated to FT `/myft/saved-articles/197493b5-7e8e-4f13-8463-3c046200835c`, clicked Meridian Clipper popup → Sync Bookmarks. Observed: page scrolled to bottom (popup-foreground work), then FT, Eco, FA tabs each opened and closed in sequence (auto-sync running behind the lock). **Three tabs total, never more than one open at a time.** Tab-spam fix confirmed.
+4. `extension_write_failures` total still 0 after test.
+
+**The popup hang on FT bookmarks page is a separate bug (deferred to S73).** Status text stuck at "Scrolling and loading all bookmarks..." indefinitely. Cause: `scrollAndExtract`'s `scrollToBottom` polling loop in popup.js needs three consecutive 700ms ticks where you've reached `document.body.scrollHeight - 200`. On FT's bookmarks page, scroll height keeps growing as cards lazy-render — the "stable >= 3" condition never settles. This is structurally different from the concurrency hang the lock fixes. Symptom is the same as what S70/S71 attributed to the concurrency race; turns out they were two separate bugs with overlapping symptoms. **Fix for S73:** replace setInterval polling with a bounded scroll-attempts counter (e.g. max 10 scrolls or 8s elapsed, whichever first), and detect FT's UUID-paginated layout (page indicator buttons "1", "2", etc.) as a separate stop condition. URL pattern observed: `/myft/saved-articles/<uuid>`, with footer pagination (`<button>1</button>` and arrows), no Load More button.
+
+**Operational notes:**
+- The `v1.9 → v1.10` jump: v1.9 (built S71, never loaded in Chrome) is now stale. Local working tree had v1.10 patched directly over v1.9 source — diff is purely the lock additions + manifest version + ig.ft.com line. v1.9's content (write-failure logging from P2-8) was already in the v1.8-loaded codepath because v1.9 was committed but never reloaded; v1.10 inherits v1.9's content + adds the lock + ig.ft.com.
+- Bridge filter blocked `grep withTabLock` output containing the word "cookie" (in code, not in output) — same friction documented S64+. Workaround: avoided routing source through bridge stdout, used `filesystem:read_multiple_files` for visual check.
+- Decision-of-the-session: catching that the popup hang and the concurrency hang are two bugs with one symptom. Without the smoke test producing the popup hang in isolation (no concurrent tab-creation on the same page), they would have stayed conflated. Worth flagging for S73: the fix in S72 was a real fix, just for a different bug than the popup hang the user was hitting.
+- Time budget: 75-min box. Actual ~40 min. Well under. 75% flag was not needed.
+
+**State at session end:**
+- Extension v1.10 active in Chrome. Toggle on. ID hajdjjmpbfnbjkfabjjlkhafldnlomci (unchanged).
+- `extension_write_failures` = 0 rows.
+- Repo at `7a32e044` on origin/main.
+- VPS health green: ingested_24h=46, last_rss_pick=2026-04-29, no Tier-3.
+- **Recommend keeping extension toggled OFF until S73 fixes the popup hang.** The auto-sync loop runs cleanly; the popup Sync Bookmarks button will hang on FT's saved-articles page every time until S73 lands. Manual clip button still works fine. Auto-clip on `?meridian_autoclip=1` still works fine.
+
+**S73 carry-over:**
+1. **Popup-sync hang fix (Tier-2, ~30 min)** — replace `scrollToBottom` setInterval polling with bounded scroll-attempts counter; detect FT's UUID-paginated layout as separate stop condition. Re-enable extension after this lands.
+2. **Block 5 atomic** — P2-9 (Economist δ) + P2-10 (Mac write authority dropped). Tier 1, weekend. Now actually unblocked: extension behaviour stable enough that running auto-sync in production is a calculated bet not a gamble.
+3. **L3850 `max_tokens=1000` review** — S69 carry-over, still open. Not urgent.
+4. **R9 — git-history cleanup sandbox** at `~/meridian-server-sandbox` (S63). Must be decided before Phase 3.
+
+**Standing approvals held:** All four S72 standing approvals (lock implementation, manifest changes, reload prompt, commit + push if smoke test clean) executed without re-elicitation. Interrupt conditions (tab-spam recurrence, write_failures landing, permission warnings, FT bug needing real diagnosis) all clear — though the FT bug *did* surface, it was the right call to log for S73 rather than fix mid-session per the standing instruction.
+
+---
 
 ## 28 April 2026 (Session 71 — Block 4 / P2-8: extension write-failure logging + Tier-3 alert)
 
@@ -1187,7 +1231,8 @@ Then proceed to Block 1.
 
 ## Rules
 - Never edit Chrome extension files without warning Alex it needs a reload — batch extension changes
-- **The extension's auto-sync (`autoSyncSaves`) and body-fetcher (`fetchPendingBodies`) alarms can produce visible tab-spam (10+ background tabs) if they race the popup `Sync Bookmarks` or each other on Chrome startup.** Pre-existing, surfaced S70/S71. Fix is a service-worker lock around tab-creation — carried as Tier-2 in S72. Mitigation until then: keep extension toggled off when not actively using it; reload only when Alex is at the desk to monitor.
+- **The extension's tab-creation race (auto-sync vs body-fetcher) was fixed in S72** via a module-level Promise lock in background.js (`tabOpsLock` / `withTabLock`). Both alarm callers serialize cleanly. Verified by visual smoke test S72 — FT/Eco/FA bookmark pages now open one at a time. v1.10 active.
+- **Separate bug: popup Sync Bookmarks hangs on FT's UUID-paginated saved-articles page** (`/myft/saved-articles/<uuid>`). `scrollAndExtract`'s `scrollToBottom` setInterval polls until three consecutive 700ms ticks find scroll position at `scrollHeight - 200`; FT lazy-renders cards as you scroll, so scrollHeight keeps growing and the "stable >= 3" condition never settles. Status text stays "Scrolling and loading all bookmarks..." indefinitely. Pre-existing, was misattributed to the concurrency hang in S70/S71. Fix carried as Tier-2 in S73 — replace setInterval polling with bounded scroll-attempts counter; detect FT's pagination layout (`<button>1</button>` style) as a separate stop condition. Mitigation until S73: keep extension toggled OFF or avoid the popup Sync Bookmarks button against FT (auto-sync alarm path still works fine; manual clip still works fine; auto-clip via `?meridian_autoclip=1` still works fine).
 - Never use `enrich_from_title_only` or generate summaries without real article body text
 - Always verify `grep -c "<html lang" meridian.html` returns 1 before deploying
 - Always `ast.parse()` server.py before writing
