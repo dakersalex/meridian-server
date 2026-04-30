@@ -35,18 +35,34 @@ function detectSource(url) {
   return 'Unknown';
 }
 
-// Extract all article links currently visible in DOM
+// Extract all article links currently visible in DOM.
+// Two strategies, combined and deduped:
+//  1. FT myFT teaser collection (modern saved-articles UUID page) — scoped
+//     to .myft-collection__item-teaser containers, captures /content/<uuid>
+//     anchors. Each card has 3 anchors (heading, standfirst, image); dedupe
+//     by URL keeps the heading anchor (first in DOM order per card).
+//  2. Legacy heuristic — date-pathed URLs like /20YY/MM/DD/ used by
+//     Economist (/for-you/2026/...) and FT's older non-UUID layout.
+// title.length < 10 filter drops empty image anchors that would otherwise
+// win the dedupe race for the FT path (image anchor has no text).
 function getLinks() {
-  const links = [];
-  document.querySelectorAll('a[href]').forEach(a => {
-    const href = a.href;
-    const title = a.textContent.trim();
-    if (href.includes('/20') && title.length > 20 && !href.includes('/for-you')) {
-      links.push({ url: href, title });
-    }
+  const ftCards = [...document.querySelectorAll('.myft-collection__item-teaser a[href*="/content/"]')];
+  const legacy = [...document.querySelectorAll('a[href]')].filter(a => {
+    const h = a.href, t = a.textContent.trim();
+    return h.includes('/20') && t.length > 20 && !h.includes('/for-you');
   });
+  const all = [...ftCards, ...legacy];
+  const links = [];
   const seen = new Set();
-  return links.filter(l => { if (seen.has(l.url)) return false; seen.add(l.url); return true; });
+  for (const a of all) {
+    const href = a.href.split('?')[0];
+    const title = a.textContent.trim();
+    if (title.length < 10) continue;
+    if (seen.has(href)) continue;
+    seen.add(href);
+    links.push({ url: href, title });
+  }
+  return links;
 }
 
 // Click Load more button if visible, return true if clicked
@@ -74,17 +90,25 @@ function scrollAndExtract(existingUrls) {
     // top-level function body; sibling top-level functions (getLinks,
     // clickLoadMore) are NOT bundled and would be ReferenceErrors in the
     // page context. Keep these definitions inside scrollAndExtract.
+    // Body must mirror the top-level getLinks exactly (S74 selector retune).
     const getLinks = () => {
-      const links = [];
-      document.querySelectorAll('a[href]').forEach(a => {
-        const href = a.href;
-        const title = a.textContent.trim();
-        if (href.includes('/20') && title.length > 20 && !href.includes('/for-you')) {
-          links.push({ url: href, title });
-        }
+      const ftCards = [...document.querySelectorAll('.myft-collection__item-teaser a[href*="/content/"]')];
+      const legacy = [...document.querySelectorAll('a[href]')].filter(a => {
+        const h = a.href, t = a.textContent.trim();
+        return h.includes('/20') && t.length > 20 && !h.includes('/for-you');
       });
+      const all = [...ftCards, ...legacy];
+      const links = [];
       const seen = new Set();
-      return links.filter(l => { if (seen.has(l.url)) return false; seen.add(l.url); return true; });
+      for (const a of all) {
+        const href = a.href.split('?')[0];
+        const title = a.textContent.trim();
+        if (title.length < 10) continue;
+        if (seen.has(href)) continue;
+        seen.add(href);
+        links.push({ url: href, title });
+      }
+      return links;
     };
 
     const clickLoadMore = () => {
