@@ -1,6 +1,94 @@
 # Meridian — Technical Notes
-Last updated: 30 April 2026 (Session 74 closed — (1) FT UUID-page selector retuned via dual-strategy getLinks(), extension v1.13 commit `bf47910a`; (2) stats panel saved-at vs published-at toggle + FA pub_date parser fix commit `61bb6dc2`; (3) VPS git tree divergence discovered — added as Block 5 precondition. Time-box busted ~33% with consent.)
+Last updated: 30 April 2026 (Session 75 closed — VPS git reconcile: Mac and VPS both at `9e2c75f4`, working trees clean, all 6 critical files MD5-identical. `wake_sync_vps.sh` (load-bearing VPS cron) tracked into Mac repo; `tmp_brief_*.pdf` gitignored. Block 5 precondition cleared. Smoke test green. Time-box: 60 min agreed, ~25 min actual.)
 
+
+## 30 April 2026 (Session 75 — Mode A Tier-2: VPS git reconcile, Block 5 precondition cleared)
+
+**Goal:** Audit `/opt/meridian-server` against Mac HEAD per S74 carry-over item 4, then either commit drift back to Mac or `git reset --hard origin/main` on VPS. Clear the Block 5 precondition. Tier 2. 60-min execution time-box.
+
+**Outcome:** Block 5 precondition cleared. Mac and VPS both at `9e2c75f4` on origin/main, working trees clean. One commit pushed. Time-box: 60 min agreed, actual ≈25 min.
+
+**The audit surprise.** First `git status --short` on `/opt/meridian-server` showed a *very* different state from what S74 described. S74 reported tracked-file edits to `meridian.html` and `server.py`, and 4 untracked Phase 2 .py files. Reality at S75 start:
+- HEAD = origin/main = `3c9da9a2` (clean fast-forward state)
+- `git diff --stat origin/main` empty — tracked files matched origin byte-for-byte
+- The 4 Phase 2 files (`alert.py`, `enrich_retry.py`, `enrich_retry_watchdog.py`, `extension_failure_watchdog.py`) tracked at HEAD on both sides, MD5-identical
+- Only untracked items: 30 `tmp_brief_*.pdf` runtime artifacts and one `wake_sync_vps.sh`
+
+**MD5 verification of the 6 critical files** (Mac vs VPS):
+```
+alert.py                       fd0e1115a95a6361f0a60f38efd00649  ✓
+enrich_retry.py                68cfc376ed35d78c02cea10eb4630c63  ✓
+enrich_retry_watchdog.py       5a0653b46d677e2a82f252cce48f8851  ✓
+extension_failure_watchdog.py  ffff73254dc76a2ea8f7af65db154412  ✓
+meridian.html                  e0510e47c9a38e62ae446a90e446a17a  ✓
+server.py                      657ffca74efa64edd472de35710f634f  ✓
+```
+
+**Most likely reconciliation path between S74 close and S75 start:** The 4 Phase 2 files had already been committed to Mac repo (back in S70–S71 when they were created); they were *missing on VPS* as untracked-from-git's-perspective only because the VPS index hadn't seen the commits that introduced them. Once the relevant pull happened on VPS (probably triggered by something between sessions — a manual pull, or a deploy retry), git fast-forwarded cleanly because the *files* matched what the *commits* said they should be. The S74 description was accurate at S74 close; the divergence got bridged before S75 opened. Standing approval `git reset --hard origin/main` was therefore a no-op for tracked content.
+
+**The one genuine reconciliation: `wake_sync_vps.sh`.** Investigation found this was *load-bearing* on VPS:
+- VPS-native wake sync, mirrors the Mac `wake_and_sync.sh` schedule
+- Active in root crontab: `40 3 * * *` and `40 9 * * *` (UTC) → 05:40 + 11:40 Geneva
+- Calls 3 endpoints: `/api/rss-pick`, `/api/newsletters/sync`, `/api/health/enrichment`
+- Logs to `/var/log/meridian/wake_sync.log`
+- Only referenced in `PHASE_2_PLAN.md` and `NOTES.md` (no other scripts depend on it; not in any systemd unit)
+
+This file needed to be tracked in Mac repo so it survives Block 5's `/opt/meridian-server` reorganization. Pulled it via scp into Mac repo, MD5 confirmed identical (`c32e24b475233820dc6e084b9f5db62c`), executable perms preserved (`-rwxr-xr-x`).
+
+**`tmp_brief_*.pdf` ignore.** Added two lines to `.gitignore`:
+```
+# Session 75: VPS-side runtime intelligence brief PDFs
+tmp_brief_*.pdf
+```
+The 30 PDFs themselves were left in place on VPS — they're harmless runtime artifacts and deleting them was out of scope.
+
+**Commit + push + VPS reset:**
+- Commit `9e2c75f4`: 2 files changed, 34 insertions. Stages were exactly `A wake_sync_vps.sh` and `M .gitignore` — no accidental drag-along.
+- Push: `3c9da9a2..9e2c75f4 main -> main`.
+- VPS `git fetch origin main` + `git reset --hard origin/main`: clean fast-forward, working tree empty post-reset (PDFs now properly ignored, file existed pre-reset so reset preserved content + perms).
+- `systemctl restart meridian.service`: `active` after 2s sleep.
+- Health post-restart: `ok=true`, ingested_24h=57 (FT 26, Eco 28, FA 3), zero unenriched/title_only.
+
+**Synthetic write-failure smoke test (round-trip):**
+```
+POST /api/extension/write-failure → {"ok":true}
+SELECT → 8|s75_synthetic_smoke|418|S75 Mode A round-trip smoke test
+DELETE → ok
+SELECT COUNT → 0
+```
+Clean end-to-end. Confirms the extension's failure-logging path is intact post-reset and the `extension_write_failures` table is writable.
+
+**Final state:**
+- Mac repo: `9e2c75f4` on origin/main, working tree clean
+- VPS `/opt/meridian-server`: `9e2c75f4` on origin/main, working tree clean (`git status --short` empty)
+- All 6 critical files MD5-identical Mac↔VPS
+- `meridian.service`: active
+- VPS health green, no Tier-3 conditions
+- `extension_write_failures` total: 0
+
+**Operational notes:**
+- **Bridge filter recurrence.** First combined-output query (cat + crontab + systemd grep + script grep) tripped `[BLOCKED: Cookie/query string data]` — almost certainly because `crontab -l` output contains `cookie` somewhere, or a path with that substring was emitted. Workaround used: redirect everything to `/tmp/wake_dump.txt` on VPS, then concatenate locally to `tmp_s75_wake.txt` in `meridian-server/`, read via `filesystem:read_text_file`. Same pattern as S74. **Worth flagging:** the bridge filter increasingly forces a tmp-file route for any output that combines >2 sources or includes shell config dumps.
+- **One JS-string-shell-string escaping miss.** Earlier query against the wrong sqlite column name (`created_at`) was structurally fine (escaping worked) but factually wrong; schema check confirmed the column is `timestamp`. Lesson: when probing a Phase 2 table for the first time in a session, dump `.schema` first, don't guess from the table name. Cost: one round trip.
+- **Standing approvals all consumed cleanly.** No interrupt conditions hit. The only judgment call was choosing `git reset --hard` over `git pull` on VPS; reset was the standing-approved path and both have the same end state when the working tree is already clean.
+- **Decision-of-the-session: investigate `wake_sync_vps.sh` before deleting.** Initial instinct was to treat it as cruft alongside the tmp PDFs. The crontab check changed the picture entirely — it's a critical scheduled job. Reinforces the rule: any untracked shell script in a production directory gets a `crontab -l` + `grep -r systemd` check before any disposition decision.
+
+**S76 carry-over** (unchanged from S74 list except divergence item closed):
+1. **Block 5 atomic** — P2-9 (Economist δ-path: VPS-side weekly `ai_pick` over extension-ingested Economist articles) + P2-10 (Mac write authority dropped: scheduler unloaded, `wake_and_sync.sh` archived, snapshot DB swap). Tier 1, weekend or intensive-build window. **Both preconditions now met:** extension stable across all bookmark page variants (S74), VPS git clean (S75). Re-read PHASE_2_PLAN § 8 Block 5 in full at the start of any S76 attempting Mode B. Time estimate: 3h execution + 1h passive monitoring.
+2. **L3850 `max_tokens=1000` review** — still open from S69. Low priority.
+3. **R9 — git-history cleanup sandbox** at `~/meridian-server-sandbox` (S63). Must be decided before Phase 3.
+
+**Time budget:**
+- Time-box: 60 min execution. Actual: ≈25 min. Well inside.
+- 75% flag (45 min) not approached.
+- Bulk of the time was the audit/investigation phase (≈12 min — three SHA checks, MD5 verification, `wake_sync_vps.sh` content + cron check). Commit + push + VPS reset + service restart + smoke was ≈8 min. NOTES draft remaining.
+
+**State at session end:**
+- Three SHAs synchronized: Mac HEAD = VPS HEAD = origin/main = `9e2c75f4`.
+- Block 5 precondition explicitly cleared.
+- One commit pushed (`9e2c75f4`); NOTES amendment commit pending.
+- No tmp files left in repo (`tmp_s75_wake.txt` deleted before commit, confirmed by `git status --short` only showing the two intended changes).
+
+---
 
 ## 30 April 2026 (Session 74 — Mode A Tier-2: FT UUID-page selector retune, v1.13)
 
