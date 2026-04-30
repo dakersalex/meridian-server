@@ -1499,20 +1499,34 @@ Then proceed to Block 1.
 ---
 
 ## Session startup — CRITICAL ORDER
-1. **Verify deferred tools loaded.** Call `tool_search` with queries: `"filesystem write file edit"`, `"browser tabs javascript chrome"`, `"shell command bash"`. Confirm the following tool families are available before proceeding:
-   - **filesystem** with write/edit capability (`filesystem:edit_file`, `filesystem:write_file`) — NOT just read-only
-   - **Claude in Chrome** (`tabs_context_mcp`, `javascript_tool`, `browser_batch`)
-   - The shell bridge target (Flask on :4242) is reachable
 
-   **If filesystem write/edit OR Chrome MCP is missing, STOP and tell Alex** — do not proceed in degraded mode. Cause is usually that the chat was started outside the Meridian project, or the project's MCPs failed to load. Fix is to close the chat and start a new one from inside the Meridian project (Projects → Meridian News Aggregator → New chat). Do not work around missing tools by asking Alex to paste files or run commands manually for a real session — that's only acceptable for tiny ad-hoc questions, not Tier-1/Tier-2 execution work.
+**Step 0 (literal first action, before any prose response): call `tool_search`.** The deferred-tool registry is invisible until you search it. Until you've searched, you don't know what tools you have. Period. Run all three queries in your first turn:
+- `tool_search(query="filesystem write file edit")`
+- `tool_search(query="browser tabs javascript chrome")`
+- `tool_search(query="shell command bash")`
 
-   Note: the *first* response in a new chat may falsely claim a tool is unavailable because Claude hasn't run `tool_search` yet — the deferred-tool registry isn't visible without searching it. Always search before concluding a tool is missing. If `tool_search` returns the tool family, the tool is genuinely available; proceed.
+**Forbidden first-turn behaviors** (these are common failure modes — do not do any of them):
+- ❌ "I'm in the Anthropic sandbox, not your Mac" — wrong; you have host filesystem access via the filesystem MCP, you just haven't loaded it yet.
+- ❌ "Paste NOTES.md so I can see context" — wrong; NOTES.md lives at `/Users/alexdakers/meridian-server/NOTES.md` and is readable via `filesystem:read_text_file` once you've loaded the MCP. Pasting it would only let you pretend you have tools you don't.
+- ❌ "I don't have access to your project files" — wrong; you do, via filesystem MCP. Search for it first.
+- ❌ Asking Alex to run any Terminal command for you — the shell bridge is the right path; it's reachable via the Chrome MCP after Step 0.
+- ❌ Concluding any tool is missing without first running `tool_search` for it.
 
-2. `tabs_context_mcp` with `createIfEmpty:true`
-3. Read NOTES.md
-4. Navigate Tab A to localhost:8080 (if not already open)
-5. Inject shell bridge
-6. Health check via `/api/health/daily`
+The right behavior, after running the three `tool_search` calls in your first turn, is one of:
+  - **All three return relevant tools** → MCPs are loaded. Proceed to Step 1. Don't narrate the search step — just do the work.
+  - **One or more returns nothing relevant** → MCPs genuinely failed to load. STOP. Tell Alex which query came back empty and recommend closing the chat + reopening from inside the Meridian project (Projects → Meridian News Aggregator → New chat). Do not proceed in degraded mode. Do not ask Alex to paste files. Do not improvise a workaround for "tiny" tasks — if MCPs failed, the chat is broken, full stop.
+
+Why this is hard-coded: an instance under tool-cap pressure or in a confused first-turn state can otherwise default to "no tools, must ask user." That failure mode burns a session and Alex's time. The `tool_search`-first rule is unconditional.
+
+---
+
+**Step 1.** Tools verified — proceed.
+
+1. `tabs_context_mcp` with `createIfEmpty:true`
+2. Read NOTES.md from `/Users/alexdakers/meridian-server/NOTES.md` via `filesystem:read_text_file`
+3. Navigate Tab A to localhost:8080 (if not already open)
+4. Inject shell bridge
+5. Health check via `/api/health/daily`
 
 ## Rules
 - Never edit Chrome extension files without warning Alex it needs a reload — batch extension changes
