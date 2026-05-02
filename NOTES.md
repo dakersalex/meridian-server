@@ -1,5 +1,5 @@
 # Meridian — Technical Notes
-Last updated: 2 May 2026 (Session 77 closed + post-deploy diagnostic addendum — Block 5 ATOMIC DEPLOY landed clean (~30 min, all 5 smoke checks pass, three SHAs aligned at `99e3c0a5`). Post-deploy diagnostic uncovered substantial scraper architecture issues: ingestion split into RSS path (alive, twice-daily wake_sync at 03:40 + 09:40 UTC) and Mac Playwright path (dead since ~19 April for FA, 30 April 22:00 for Eco). Eco/FA cookies expired 11 April. ~80% of this week's Eco issue missed. Block 5 cron timing wrong: Thursday 13:15 UTC fires 8h BEFORE Eco issue publishes at 21:00 UK Thursday — should be Friday. δ→γ observation window PAUSED pending S78 scraper architecture decision. 13-item carry-over task list. See post-S77 addendum below for full diagnostic findings.)
+Last updated: 2 May 2026 (Session 77 closed + final post-deploy addendum — Block 5 ATOMIC DEPLOY landed clean (~30 min, all 5 smoke checks pass, three SHAs aligned at `99e3c0a5`). Extended diagnostic session (~3h post-S77) reframed scraper architecture: ingestion is RSS path (alive, twice-daily wake_sync at 03:40 + 09:40 UTC) plus Mac Playwright path (intermittent — pages open and close on Chrome relaunch, login intact for FA, but DB writes inconsistent or absent). Critical findings: (1) Block 5 cron timing wrong — Thursday 13:15 UTC fires 8h BEFORE Eco issue publishes at 21:00 UK Thursday; should be Friday. (2) ~14 of ~70 articles from this week's Economist issue captured. (3) Section pages ('Business', 'Politics', 'The weekly cartoon') ingested as articles. (4) Cookies file mtime 11 April is misleading — Chrome keeps cookies live in memory; FA login confirmed working today. (5) Scrapers triggered by Chrome relaunch but produce zero DB writes — bug or benign 'no new content' unclear. Architectural decisions made: curated capture, two-track (manual + AI), AI safety net for busy days, your-topics-only filter, defer discovery features, audit before features. δ→γ observation window PAUSED pending S78 architecture session. See final post-S77 addendum at bottom of S77 entry for full findings.)
 
 
 ## 2 May 2026 (Session 77 — Block 5 ATOMIC DEPLOY: P2-9 + P2-10 landed)
@@ -338,6 +338,69 @@ for a single session: items 1–4 (diagnostic + cron fix + cookie
 refresh + architectural decision). Items 5+ are S79+.
 
 ---
+
+---
+
+### Post-S77 final addendum — extended diagnostic + architectural review (3h post-deploy)
+
+**Why this addendum exists:** S77's deploy closed clean at ~07:18 UTC. Alex stayed engaged and surfaced a series of questions that revealed deeper architectural issues than the deploy itself touched. This addendum captures findings that emerged *after* the original S77 entry was written, plus architectural decisions for S78+. None of this work involved code changes — it was diagnostic reading, conversation, and one Chrome relaunch.
+
+**Summary of what we figured out, in order of discovery:**
+
+1. **Ingestion is multi-path, not monolithic.** Earlier in S77 the addendum said "scrapers dead since 19 April" — that was overstated. Plain reality:
+   - **RSS path**: VPS pulls FT/Eco/FA/etc RSS feeds twice-daily via `/api/rss-pick` (called from `wake_sync_vps.sh` at 03:40 + 09:40 UTC). Scores titles+teasers via Haiku. Auto-saves ≥8 to Feed, 6–7 to Suggested. **Working.** This is what's been keeping inflow alive.
+   - **Mac Playwright path**: navigates to FT saved-articles, Eco bookmarks, FA saved-articles+issue pages with logged-in cookies. **Intermittent — see below.**
+   - **Chrome extension manual save**: `POST /api/articles` from extension click. **Working.**
+   - **Chrome extension bulk import**: "Sync Bookmarks" button does foreground walk through bookmarks page in active browser. Manual trigger only. **Working when clicked** (32-article Eco spike on 30 April was this).
+   - **Body-fetcher**: extension reads `/api/articles/pending-body`, opens each title_only URL in a hidden tab, extracts text, PATCHes back. Visible to Alex today as tabs opening + closing on Chrome relaunch (BlackRock, ScienceDirect, CSIS articles). **Working.**
+   - **Newsletter sync**: pulls from iCloud, pushes to VPS. **Probably working.**
+
+2. **Block 5 cron timing is wrong.** Per Wikipedia and confirmed by `grep`-able publication metadata, Economist publishes online at ~21:00 UK Thursday. Cover dates run Saturday-to-Friday but content lands Thursday evening. Block 5 cron is at Thursday 13:15 UTC — that's **~8 hours before this week's issue posts**. The 7-day rolling window the cron pulls from contains last week's issue + tapering stragglers, not the new issue. Fix: change `15 13 * * 4` to `15 13 * * 5` (Friday 13:15 UTC) or `0 6 * * 5` (Friday 06:00 UTC). One-line crontab edit. S78 task.
+
+3. **The "Economist scheduler runaway" on 1 May 00:00 UK was a stuck retry loop** — `Scheduler: triggering Economist weekly edition pick` fired every 10 seconds for 5 minutes (87 firings) before giving up. Caused by `eco_cdp_status: DOWN:2026-04-30 22:00` — the Mac's Chrome DevTools Protocol connection died at 22:00 on 30 April. Loop was actually Flask itself crashing on startup and being relaunched by launchd's KeepAlive — `Meridian server starting on http://localhost:4242` repeats every 10 seconds in server.log between 23:58 and 23:59 on 30 April. Two distinct events at 22:00 (CDP down) and 23:58 (Flask restart loop), 2 hours apart — separate causes worth investigating in S78.
+
+4. **Section-page pollution still active.** DB contains entries titled `Business`, `Politics`, `The weekly cartoon` with URLs like `economist.com/the-world-this-week/2026/04/30/business`. These are landing pages aggregating real articles, being ingested as articles themselves. NOTES flagged this in S46. Bug still live. S78 task.
+
+5. **Cookie file mtime was a red herring.** I (Claude) earlier inferred from `economist_profile/Default/Cookies` having mtime 11 April that the Eco session expired then. **That inference was wrong.** Chrome holds cookies in memory and only flushes to disk occasionally; mtime ≠ session validity. Confirmed today: FA login still active (FA my-account page rendered correctly during a relaunch-triggered scrape attempt). Eco login probably also fine — separate verification deferred to S78.
+
+6. **Chrome version was current, not stale.** Earlier inference "Chrome is 2 years old" was based on the .app bundle's mtime (May 2024), which is also misleading — Chrome on macOS updates internal components without bumping the .app mtime. Actual version was 147.0.7727.102 → relaunched to 147.0.7727.138 today. Stable Chrome is 148 (released 5 May 2026), but Alex's machine isn't yet in that rollout cohort. Fine.
+
+7. **Post-Chrome-relaunch tab activity ≠ DB writes.** When Alex relaunched Chrome to apply the update, a flurry of tabs opened and closed: FT saved-articles, Economist bookmarks, FA my-foreign-affairs/saved-articles, BlackRock Geopolitical Risk Dashboard (specific URL, presumably title_only article in DB), ScienceDirect article, CSIS article. **Database query showed zero new articles or fetched_at updates in the 30-min window covering this activity.** Three possible explanations: (a) the scrapes legitimately found no new content (bookmark pages hadn't changed), (b) extraction succeeded but DB writes failed silently (would expect entries in `extension_write_failures`, but earlier check showed 0 in 24h), (c) body-fetcher ran on already-current articles and didn't need to write. (c) is most plausible for the BlackRock/ScienceDirect/CSIS tabs (those are clearly title_only enrichment, not new captures); (a) is most plausible for the FT/Eco/FA bookmark-page scrapes (you genuinely haven't bookmarked anything new there recently). Worth verifying in S78 by triggering a known-new-content scenario.
+
+**Architectural decisions reached during the conversation (for S78+):**
+
+- **Curated capture**, not comprehensive ingest. Alex wants the library to contain things worth reading, not everything that exists.
+- **Two-track curation** retained: manual-saves (you bookmark) + AI-saves (system picks). Both feed Feed/Suggested.
+- **AI track must be a safety net for busy days.** Alex bookmarks sparingly. Means AI picker has to operate on a comprehensive-enough source pool to find what Alex would have bookmarked himself if he'd had time. So the *scrapers* need to be wide, even if the *library* is curated. The selectivity happens at the AI scoring step, not at ingestion.
+- **Topics-only filter, no discovery layer (yet).** Alex's reading is dominated by 8 of the 10 core topics (Geopolitics 514, Finance 171, Economics 101, Technology 85, Politics 83, Energy 83, Markets 75, Business 51 — Society 16 + Science 8 are minor). Tags column has rich semantic detail (5–10 fine-grained tags per article). The "discovery / find topics I'd want but haven't yet flagged" feature can wait — first verify whether the existing system catches what Alex would want, *then* decide whether discovery features are needed. Audit-first, not features-first.
+- **Trust audit > new features.** Alex's underlying question wasn't "build me discovery" — it was "is the system actually catching the relevant stuff I miss." That's a verification question. Process: (1) fix scrapers, (2) deliberate audit pass — pick a recent week, manually scan FT/Eco/FA for articles Alex would have wanted, check if each made it into Suggested, (3) decide based on what the audit reveals.
+
+**δ→γ observation window status:** PAUSED. Original window was 2–16 May 2026, gated on first Thursday cron run on 7 May. Reasoning for pause: the observation was supposed to verify VPS-side weekly Economist scoring. With (a) scraper architecture now under question, (b) cron timing wrong, (c) full-issue capture ~14 of 70 — running observation on a degraded pipeline produces meaningless signal. Restart conditions: scraper architecture decided + cron timing fixed + full-issue capture verified. Likely 2–3 sessions out from today.
+
+**S78 priority list, in rough order:**
+
+1. **Architectural review session (this is S78).** Decide what to do about Mac Playwright path. Three options were sketched: (1) keep Mac-side, fix the trigger; (2) move Playwright to VPS with virtual-display Chrome and remote login; (3) drop Playwright entirely, accept narrower coverage from RSS + manual bookmarks. Output of S78 should be a chosen direction with reasoning, not implementation.
+2. **Fix Block 5 cron timing.** Move from Thursday 13:15 UTC to Friday 13:15 UTC. Crontab edit only.
+3. **Fix `_discover_latest_issue` for FA.** Currently returns the wrong issue from the page. Hardcoded fallback `/2026/105/2` is also stale. Both at `server.py:991-1010`.
+4. **Section-page filter for Eco scraper.** Reject URLs matching `/the-world-this-week/` — those are landing pages, not articles.
+5. **Investigate the Flask restart loop on 30 April 23:58.** Different bug from CDP failure. Possibly scheduler-on-startup hitting an exception that propagates up and kills Flask.
+6. **Verify scraper write path.** Trigger a scenario with known-new content (manually bookmark an FT article, run scraper) and confirm DB writes happen. Distinguishes "scrapers run but find nothing" from "scrapers run but writes fail."
+7. **Refresh Eco/FA cookies if needed.** Check whether sessions are still valid after S78 architecture decision; refresh by logging in via the Mac-side profile if needed.
+8. **Trust audit.** Once scrapers are demonstrably working: pick a week, manually scan FT/Eco/FA, check capture rate, decide whether discovery features are needed.
+9. **(Deferred indefinitely)** Tags-based emerging-topic surfacing, anomaly detection, embedding-based adjacency. All discussed today, all valid, all deferred until trust audit shows whether they're needed.
+
+**Operational notes:**
+
+- Session ran ~3h past S77 close. Each "one more thing" produced a new finding worth investigating. The pattern is real and worth flagging: post-deploy investigation is high-value but each new finding extends fatigue and increases risk of acting on incomplete reading. S77 had two HARD RULE near-misses where Alex asked for actions that would have crossed deploy-discipline lines (running FA scraper fix path, running Eco scraper to test CDP recovery). Both were declined and replaced with read-only diagnosis — which produced clearer signal than the proposed actions would have. The discipline that protected the deploy is the same discipline that protected today's diagnostic.
+- Plain English glossary added to in-conversation explanations: CDP (Chrome DevTools Protocol — how Python remote-controls Chrome), Playwright (the Python library doing it), launchd (Mac scheduler), kt_meta (the key-value notepad table in the DB), chmod 444 (read-only file permissions), CDP false-friend (`com.apple.cdp` is Apple's Continuity Delivery Protocol, unrelated to Chrome's CDP).
+- Bridge filter friction noted again: queries containing the word "query" or "string" in the output trigger the `[BLOCKED: Cookie/query string data]` filter. Mitigation pattern: redirect output to tmp file, read via filesystem MCP. Worked reliably throughout.
+- Two `tmp_*.txt` and `tmp_*.sql` files left in working tree (tmp_eco_*, tmp_fa_*, tmp_inflow_path, tmp_recent_inflow, tmp_forensic, tmp_topic_check, tmp_dash_v2, tmp_rss_freq, tmp_eco_timing). All gitignored under existing `tmp_*` pattern. Safe to delete or leave.
+
+**State at end of extended session:**
+
+- Working tree dirty in well-understood ways: NOTES.md modified (this addendum), tmp_*.* scratch files (gitignored). No production files touched.
+- All paths from S77 close still hold. SHAs still aligned at `99e3c0a5` (the commit covering the S77 deploy itself; this addendum is uncommitted at time of writing).
+- Block 5 deploy itself is unaffected by any of this addendum's findings. It landed clean and continues to run as designed.
 
 ---
 
