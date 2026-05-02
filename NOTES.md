@@ -1,6 +1,113 @@
 # Meridian — Technical Notes
-Last updated: 1 May 2026 (Session 76 closed — Block 5 PREP only, no execution. Pool size 50 total / 29 unscored Economist articles in last 7 days — comfortably above the 15-floor δ→γ threshold, lean δ. Seven deliverables landed under `deploy/` + repo root, all syntax-clean. No commits, no VPS mutations, no launchctl mutations. One open decision flagged for Alex: whether to disable `ai_pick_economist_weekly()` in server.py before cutover. Time-box: 2h execution, ~55 min actual.)
+Last updated: 2 May 2026 (Session 77 closed — Block 5 ATOMIC DEPLOY landed. δ→γ observation window opens 2 May 2026; week-2 decision date 16 May 2026. P2-9 cron installed (Thursday 13:15 UTC, first run 7 May), P2-10 cutover ran clean (snapshot + integrity_check ok, wakesync unloaded, wake_and_sync.sh archived, VPS health 200). Both optional follow-ons also landed: refresh launchd plist installed (first nightly run 4 May 04:00 Geneva); Mac DB mirrored to VPS via launchctl start, chmod 444. Total execution: ~30 min. See deploy/BLOCK5_DEPLOYED.md for literal copy-paste-ready commands.)
 
+
+## 2 May 2026 (Session 77 — Block 5 ATOMIC DEPLOY: P2-9 + P2-10 landed)
+
+> **δ→γ observation window: opens 2 May 2026 → re-evaluate 16 May 2026.**
+> First Thursday cron run: 7 May 2026 13:15 UTC. Second: 14 May 2026 13:15 UTC.
+> First nightly Mac DB refresh: 4 May 2026 04:00 Geneva (= 02:00 UTC).
+
+**Goal:** Execute Block 5 atomic deploy. P2-9 (deploy economist_weekly_pick.py + install Thursday cron on VPS) + P2-10 (Mac write authority dropped via deploy/block5_cutover.sh). This is the cutover S76 prepped for. Time-box: 3h execution + 1h passive monitoring per PHASE_2_PLAN § 9.
+
+**Outcome:** Both P2-9 and P2-10 landed cleanly. Both optional follow-ons (refresh launchd plist install + immediate Mac DB mirror to chmod 444) also landed. Total execution time: ~30 min, well inside the 3h budget. Full deliverable with literal copy-paste-ready commands: `deploy/BLOCK5_DEPLOYED.md`.
+
+**Pre-flight: all 7 PASS.** Three SHAs aligned at `39c83ce6`. extension_write_failures last 24h = 0. wakesync plist loaded under correct `.wakesync` label. Working tree clean (no production-file drift since S76). All 7 deliverables present and byte-identical Mac↔VPS. Pool: 50 total / 29 unscored, well above the 15-floor δ→γ threshold. VPS health `ok=true` (cleaner than S76's info/warning state). One pre-flight slip: first pool query used wrong column name `s.article_id` on `suggested_articles` (real schema joins by `s.url`); recovered immediately by reading `.schema`, re-ran with correct join.
+
+**Open decision (resolved at session start):** Whether to disable `ai_pick_economist_weekly()` in `server.py` before cutover. Surfaced to Alex before any deploy step ran. **Decision: Option A — do nothing.** Per S76 recommendation in `BLOCK5_READY.md`: Mac function will fail silently on the chmod-444 DB, self-limiting, no server.py touch needed. If log noise becomes annoying, take it out as a follow-up Tier-2.
+
+**P2-9 (Economist weekly pick on VPS) — landed at ~07:12 UTC:**
+- scp `economist_weekly_pick.py` to VPS: parity confirmed (Mac 11806 = VPS 11806 bytes).
+- VPS-side `--dry-run`: pool size 25 candidates, no DB writes, no API calls, exit 0. (Pool-size delta from pre-flight 29 → 25 is the script's own filter being slightly tighter; both well above the 5-article internal floor.) One harmless `DeprecationWarning` on `datetime.utcnow()` — cosmetic.
+- Cron line installed: `15 13 * * 4 /opt/meridian-server/venv/bin/python3 /opt/meridian-server/economist_weekly_pick.py >> /var/log/meridian/economist_weekly.cron.log 2>&1` (Thursday 13:15 UTC). Verified one and only one match for `economist_weekly_pick` in crontab; existing five entries unchanged.
+- HARD RULE for proceeding to P2-10 satisfied: cron installed AND dry-run clean.
+
+**P2-10 (cutover) — landed at ~07:13 UTC.** `bash deploy/block5_cutover.sh` ran clean, all 5 steps:
+1. Mac DB snapshot via `.backup` → `db_backups/meridian_pre_block5_20260502_0913.db` (37,969,920 bytes)
+2. `PRAGMA integrity_check`: `ok`
+3. `launchctl unload com.alexdakers.meridian.wakesync`: confirmed unloaded
+4. `wake_and_sync.sh` → `archive/wake_and_sync_20260502.sh` (5405 bytes), original location empty
+5. VPS health: HTTP 200, `ok=true`, alerts=[]
+
+In-script timing: ~5 seconds elapsed (started 09:13:42 CEST, completed same minute). Mac Flask never went down — script doesn't touch it.
+
+**All 5 mandatory smoke checks PASS:** wakesync unloaded; `wake_and_sync.sh` missing; archive present; snapshot integrity ok; VPS health 200. Plus bonus: Mac Flask still LISTEN on :4242 throughout.
+
+**Optional follow-on A (refresh launchd plist install) — landed at 09:26 CEST.** `cp deploy/com.alexdakers.meridian.refresh.plist ~/Library/LaunchAgents/`, `plutil -lint` OK, `launchctl load`, label visible in `launchctl list`. Schedule: 04:00 Geneva nightly.
+
+**Optional follow-on B (immediate Mac DB mirror) — landed at 09:37:08 CEST. One deviation from planned sequence:**
+
+First attempt: `bash refresh_mac_db.sh` invoked via shell bridge in foreground. The bridge `fetch` returned `Failed to fetch` immediately — the bridge handshake didn't survive Flask going down in step 4 of the script. Reading the partial log showed steps 1–3 (snapshot, scp, integrity_check) had completed cleanly but the script aborted at the Flask unload, leaving an orphaned `meridian.db.refresh.79051` on disk. **Original Mac DB untouched at 644 — no corruption, clean partial state.**
+
+Recovery via the now-installed launchd job (`launchctl start com.alexdakers.meridian.refresh`) — fire-and-forget, runs in its own process tree, bridge survival irrelevant. Job completed in ~15 seconds:
+- Step 1: VPS `.backup` → `/tmp/meridian_snapshot_79220.db` (47,927,296 bytes)
+- Step 2: scp to Mac as `meridian.db.refresh.79220`
+- Step 3: integrity_check `ok`
+- Step 4: Flask unload had `Unload failed: 5: Input/output error` (known macOS quirk for KeepAlive=true plists; script handles via fallthrough to orphan-PID kill on :4242 — killed PID 79061 cleanly), swap done, perms now `-r--r--r--` (chmod 444)
+- Step 5: HTTP 200 smoke check passed
+
+**New Mac DB:** 47,927,296 bytes (matches VPS source exactly), chmod 444. Mac Flask respawned by launchd at PID 79241, LISTEN on :4242, HTTP 200.
+
+The `Unload failed: 5: Input/output error` log line *looks* alarming but is expected behavior — `KeepAlive=true` makes launchd refuse a clean unload-followed-by-kill, but the script's belt-and-braces orphan-kill path then handles the actual process termination. The script's existing `|| echo "(already unloaded — continuing)"` fallback handles this case.
+
+**Operational notes:**
+
+- **NEW NOTES rule (added below):** When a shell-bridge-driven script kills Flask as part of its work, prefer `launchctl start <label>` over direct invocation. The launchd-spawned process tree is independent of the bridge; logs land in a known file. Direct `bash` invocation has a race with the bridge fetch returning before Flask dies. This is the cleanest pattern for `refresh_mac_db.sh` going forward — invoke via the launchd label, not via `bash`.
+- **Bridge filter friction was light.** One readback truncation when reading the refresh log via the bridge (likely matched a substring), recovered by reading the file directly via `filesystem:read_text_file`. Same S64+ workaround pattern.
+- **Tab freeze during refresh.** The localhost:8080 page (Tab A in this session) hung for ~30 seconds while Flask was down mid-refresh — the page's background fetches blocked. Tab unfroze automatically once Flask was back. Worth knowing: if Flask gets restarted at any point during a session, expect Tab A to freeze briefly, then recover. No action needed.
+- **Pre-flight pool query schema mismatch.** First attempt at the unscored-articles query used `s.article_id` (a column that doesn't exist on `suggested_articles` — the real schema joins by `s.url`). Caught on first run by SQLite returning `no such column`. Reading the schema before guessing is the right pattern, reinforced from S75. Net cost: one extra round trip (~30 sec).
+- **filesystem MCP timed out once mid-session** (~4 min inactivity) — userMemories pattern. Recovered by retrying the same write call; no impact on deploy state since no write was in flight.
+
+**Time budget:**
+- Time-box: 3h execution + 1h passive monitoring. Actual execution: ~30 min. Far inside.
+- 75% flag (2h15) not approached.
+- Bulk of the time was the optional refresh follow-on (~15 min including the bridge-failure recovery). P2-9 + P2-10 + smoke + plist install were ~10 min combined.
+
+**State at session end:**
+
+- Mac and VPS git: still at `39c83ce6` on origin/main.
+- Mac DB: VPS mirror, chmod 444, 47.9 MB, mtime 09:37:08 CEST.
+- VPS DB: unchanged (canonical writer).
+- Mac wakesync: unloaded.
+- Mac refresh job: loaded, scheduled 04:00 Geneva.
+- VPS cron: 6 entries (was 5; Block 5 cron added).
+- VPS health: `ok=true`, ingested_24h=19, alerts=[].
+- VPS service `meridian.service`: active.
+- extension_write_failures total: 0.
+- Working tree dirty in well-understood ways (deploy/ deliverables now in production, deserve commit; archive/ move; tmp_s77_* audit trail under tmp_* gitignore).
+
+**`git status --short` at session end (uncommitted):**
+```
+ D wake_and_sync.sh
+?? archive/
+?? deploy/
+?? economist_weekly_pick.py
+?? refresh_mac_db.sh
+?? deploy/BLOCK5_DEPLOYED.md
+?? tmp_s77_*.{txt,sh,sql,py}
+?? logs/refresh_mac_db.log
+```
+
+The `deploy/`, `economist_weekly_pick.py`, and `refresh_mac_db.sh` were S76 untracked deliverables; they ran live in S77 and now warrant their first commit. `tmp_s77_*` and `logs/refresh_mac_db.log` are audit trail (gitignored under `tmp_*` and `logs/` patterns). Recommended single commit at S78 opener:
+```
+git rm wake_and_sync.sh
+git add deploy/ economist_weekly_pick.py refresh_mac_db.sh archive/wake_and_sync_20260502.sh
+git add NOTES.md
+git commit -m "Session 77 — Block 5 deploy: P2-9 cron + P2-10 cutover landed; refresh job installed; Mac DB mirrored read-only"
+git push origin main
+```
+
+**S78 carry-over:**
+
+1. **Commit the working tree** per the split above. ~5 min S78 opener task.
+2. **First nightly refresh log inspection** — Monday 4 May 2026 04:00 Geneva. Should produce a 5-step run logged to `~/meridian-server/logs/refresh_mac_db.log` similar to today's manual run.
+3. **First Thursday cron run review** — Thursday 7 May 2026 13:15 UTC. Watch `/var/log/meridian/economist_weekly.cron.log` and inspect the new auto-saved Economist articles in Feed afterward (or in `suggested_articles` if scores landed in 6-7 range).
+4. **`ai_pick_economist_weekly()` log-noise cleanup** (Option B retroactively, Tier-2). Defer until Mac Flask logs become noticeably annoying. ~5 lines in `server.py`.
+5. **L3850 `max_tokens=1000` review** — still open from S69. Low priority.
+6. **R9 — git-history cleanup sandbox** at `~/meridian-server-sandbox` (S63). Must be decided before Phase 3.
+7. **δ→γ week-2 decision: Saturday 16 May 2026.** By that date, two real cron runs (7 May, 14 May) will have landed. Compare candidate quality, pool freshness, and Suggested-tile review activity. If healthy → stay δ. If thin → fall back to γ per § 7.
+
+---
 
 ## 1 May 2026 (Session 76 — Mode A Tier-2: Block 5 prep, code + scripts staged, no execution)
 
