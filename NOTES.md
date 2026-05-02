@@ -1,5 +1,5 @@
 # Meridian — Technical Notes
-Last updated: 2 May 2026 (Session 77 closed — Block 5 ATOMIC DEPLOY landed. δ→γ observation window opens 2 May 2026; week-2 decision date 16 May 2026. P2-9 cron installed (Thursday 13:15 UTC, first run 7 May), P2-10 cutover ran clean (snapshot + integrity_check ok, wakesync unloaded, wake_and_sync.sh archived, VPS health 200). Both optional follow-ons also landed: refresh launchd plist installed (first nightly run 4 May 04:00 Geneva); Mac DB mirrored to VPS via launchctl start, chmod 444. Total execution: ~30 min. See deploy/BLOCK5_DEPLOYED.md for literal copy-paste-ready commands.)
+Last updated: 2 May 2026 (Session 77 closed + post-deploy diagnostic addendum — Block 5 ATOMIC DEPLOY landed clean (~30 min, all 5 smoke checks pass, three SHAs aligned at `99e3c0a5`). Post-deploy diagnostic uncovered substantial scraper architecture issues: ingestion split into RSS path (alive, twice-daily wake_sync at 03:40 + 09:40 UTC) and Mac Playwright path (dead since ~19 April for FA, 30 April 22:00 for Eco). Eco/FA cookies expired 11 April. ~80% of this week's Eco issue missed. Block 5 cron timing wrong: Thursday 13:15 UTC fires 8h BEFORE Eco issue publishes at 21:00 UK Thursday — should be Friday. δ→γ observation window PAUSED pending S78 scraper architecture decision. 13-item carry-over task list. See post-S77 addendum below for full diagnostic findings.)
 
 
 ## 2 May 2026 (Session 77 — Block 5 ATOMIC DEPLOY: P2-9 + P2-10 landed)
@@ -106,6 +106,238 @@ git push origin main
 5. **L3850 `max_tokens=1000` review** — still open from S69. Low priority.
 6. **R9 — git-history cleanup sandbox** at `~/meridian-server-sandbox` (S63). Must be decided before Phase 3.
 7. **δ→γ week-2 decision: Saturday 16 May 2026.** By that date, two real cron runs (7 May, 14 May) will have landed. Compare candidate quality, pool freshness, and Suggested-tile review activity. If healthy → stay δ. If thin → fall back to γ per § 7.
+
+---
+
+### S77 post-deploy addendum — extended diagnostic session (~3h after cutover)
+
+The session continued past S77's deploy close into an extended diagnostic /
+architectural conversation. No code changes, no commits during this period
+(deferred to S78). All findings + decisions captured below for handoff.
+
+**Architectural decisions (Alex):**
+
+1. **Curated capture model** (Q1=B). Library should contain only articles
+   likely to matter, not a comprehensive firehose archive. Selectivity over
+   completeness.
+2. **Two-track curation** (Q2=C). Manual saves go straight to Feed; AI picks
+   go to Suggested for review. Both contribute, Alex has final say on AI picks.
+3. **Bookmark sparingly** (Q3=B). System should not depend on Alex being
+   diligent. Manual track is genuinely thin; AI track must do the heavy
+   lifting on busy days.
+4. **Time-pressure safety net** (clarification mid-interview). System must
+   capture comprehensively (especially for FT, where homepage rotation moves
+   articles out of view fast) so that on busy days Alex can come back to
+   "what was published while I wasn't looking" via the library archive.
+5. **Topics-only filter, no discovery features (yet)**. The 10 core topics
+   already cover ~94% of recent reading. Society/Science thin but matches
+   actual interests. Don't build embedding-based discovery (Q6/Q7); use the
+   existing `tags` column for any future "trending topics" capability —
+   it's already a richer semantic surface than the topic field.
+6. **Process: fix scrapers first, audit ingestion quality after**.
+   Observation window deferred until pre-conditions hold (scrapers
+   demonstrably working, full-issue capture restored or formally retired).
+
+**Diagnostic findings:**
+
+The original framing — "RSS pull is the only path, scrapers are dead" —
+was wrong. There are FIVE distinct ingestion paths feeding the swim lanes,
+working at different levels of health:
+
+1. **Chrome extension manual save** (Path 1) — `POST /api/articles` from
+   the bookmark button. Working. `auto_saved=0`.
+2. **RSS-based AI pick** (Path 2) — `rss_ai_pick.py` runs twice daily via
+   the wake_sync cron at 03:40 + 09:40 UTC. Pulls public RSS feeds for
+   FT/Eco/FA, scores titles+teasers with Haiku, ingests ≥6, surfaces ≥8
+   to Feed and 6–7 to Suggested. **WORKING, post-Block 5.** This is what
+   has kept inflow alive.
+3. **Mac Playwright scrapers** (Path 3) — full-issue scrape for Eco/FA,
+   bookmarks-page scrape for FT. Used cookied Chrome on Mac.
+   **DEAD since ~19 April for FA, since 30 April 22:00 for Eco.**
+   Block 5 unloaded the trigger but the path was already broken.
+4. **Chrome extension "Sync Bookmarks" button** (Path 4) — manual bulk
+   import, runs in foreground browser when Alex clicks it. Working when
+   triggered. Source of the 32-article Eco spike on 30 April.
+5. **Newsletter ingestion** (Path 5) — iCloud → wake_sync push to VPS.
+   Probably working, not deeply verified.
+
+**Path 3 root cause analysis (Eco specifically):**
+
+- `eco_cdp_status: DOWN:2026-04-30 22:00` in kt_meta.
+- `last_sync_economist: 2026-04-19T11:44:09` in kt_meta — last successful
+  Eco sync.
+- Cookies file `economist_profile/Default/Cookies` last modified
+  2026-04-11 19:24:56 — Eco session expired ~3 weeks ago, scraper has
+  been hitting unauthenticated Cloudflare since then.
+- Server log on 30 April 23:58–23:59 shows Flask in a tight restart loop
+  (10s cadence, "Meridian server starting on http://localhost:4242"
+  every 10 seconds) — Flask itself crashing on startup, launchd KeepAlive
+  restarting it. Possibly the threading.Timer scheduler firing the Eco
+  weekly trigger during startup, hitting an exception, killing Flask.
+- Chrome version: 147.0.7727.138 (then 147.0.7727.102 → relaunched
+  during this session). Within a few weeks of stable. NOT a 2-year-old
+  installation as I incorrectly initially claimed (the .app mtime is
+  misleading; only the version number matters).
+- Cloudflare-not-flagged confirmed: Alex can log into economist.com
+  manually without challenge. The 30 April 22:00 event is local-cause,
+  not account-level.
+
+**Path 3 root cause analysis (FA):**
+
+- Logs show repeated "FA: latest issue: /2026/105/2 — issue unchanged —
+  skipping" on 18, 19 April runs. The `_discover_latest_issue` parser
+  returns the WRONG issue (March/April /105/2) even when May/June /105/3
+  exists. First link matching `/issues/20` on the FA `/issues` landing
+  page is not the latest issue.
+- `_discover_latest_issue` fallback URL hardcoded to `/issues/2026/105/2`
+  (server.py:1007). Even if discovery throws an exception, fallback
+  produces the same wrong answer.
+- `kt_meta.fa_last_issue_url` doesn't exist (only `last_sync_fa` exists).
+  So the cache check `if _last_issue and ...` is False, scraper falls
+  into the else branch and tries to scrape /105/2 every time. Returns 0
+  articles each run because /105/2's bookmarks have already all been
+  ingested — but never tries /105/3.
+- May/June 2026 FA issue (/105/3) released ~21 April. Of the cover
+  features and ~12+ essays in the issue, only 7 articles made it into
+  the DB — all on 22 April, all via Path 1 (Alex's manual bookmarks),
+  not Path 3.
+
+**Issue-level coverage gap (Eco):**
+
+This week's Economist issue (cover-dated 2 May 2026) contains roughly
+70 articles. DB contains ~14 of them. ~80% miss rate.
+Hits: Oil markets, Kalshi, Kevin Warsh, DeepSeek, Trumpify Federal
+Reserve, several others — concentrated in Leaders / Briefing /
+Finance & economics / Business / By Invitation.
+Misses: most regional reporting (Britain, Europe, Middle East & Africa,
+Asia, US, Americas), Letters, Indicators, Obituary, Culture.
+
+This pattern is consistent with the strong-prior hypothesis: RSS feeds
+preferentially carry sections publishers promote. Regional reporting
+gets badly under-served by RSS. **Diagnostic to definitively confirm
+this** — compare the full URL list of /weeklyedition/2026-05-02 against
+DB — was scoped but not run during S77 (deferred to S78).
+
+**Section-page pollution bug:**
+
+Three Eco articles in DB titled `Business`, `Politics`, `The weekly
+cartoon` — all with URL pattern `economist.com/the-world-this-week/
+2026/04/30/`. These are landing pages, not articles. Path 3 or Path 4
+is treating them as articles. NOTES S46 flagged this concern. Bug
+unfixed.
+
+**Block 5 cron timing bug (newly identified):**
+
+The Block 5 deploy installed `15 13 * * 4` (Thursday 13:15 UTC) for
+`economist_weekly_pick.py`. Per Wikipedia (citing The Economist
+directly): "The Economist posts each week's new content online at
+approximately 21:00 Thursday evening UK time." Thursday 13:15 UTC =
+14:15 UK / 14:15 Geneva CET — **8 hours BEFORE the issue is published**.
+
+Implication: the first Thursday cron run on 7 May fires at 13:15 UTC
+against a 7-day pool that contains LAST week's issue + stragglers. The
+NEW issue won't be visible until the Friday 03:40 UTC RSS pull at
+earliest.
+
+**Recommended fix:** change cron to `15 13 * * 5` (Friday 13:15 UTC).
+By Friday afternoon, the Thursday-evening issue post has been ingested
+by both Friday RSS pulls (03:40 + 09:40 UTC), giving the cron's
+7-day-rolling pool the full issue content. One-line edit, no code
+change. Add to S78.
+
+**Pub_date data quality drift (newly identified):**
+
+- FT articles store pub_date as full ISO timestamps (`2026-04-28T03:16:56.772Z`),
+  not the `YYYY-MM-DD` format NOTES says they should. Each timestamp
+  groups separately, breaking date-bucketed queries.
+- One FT pub_date is `2026-05-07T12:00:00.000Z` — five days in the future.
+  Almost certainly a parser bug grabbing the wrong field or an FT-side
+  malformed date.
+- Two FA articles have `Published on April 1, 2026` and `Published on
+  March 31, 2026` as raw scraped strings, never parsed.
+- Add to S78 as a low-priority cleanup.
+
+**Dashboard observation (newly identified):**
+
+The "BY TOPIC" panel in the stats dashboard shows top-5 topics only,
+all-time totals, no time-window selector. Hides the long tail of 40+
+"invented" one-off topics that the AI prompt's "or invent a max-2-word
+topic if none fit" clause produces. Tighten the prompt to MUST pick
+from the 10 core topics (no exceptions). Add window selector
+(All time | 30d | 14d | 7d) to the panel. Add to S78 as low-priority
+UI improvement.
+
+---
+
+### Decisions deferred to S78 / S79
+
+| Decision | Direction | Notes |
+|---|---|---|
+| Path 3 (Mac Playwright scraper) future | UNDECIDED | 3 options: keep on Mac with new trigger; migrate to VPS with remote browser; retire entirely. Cookie problem is the architectural crux. |
+| Cron timing (Thursday → Friday) | RECOMMENDED FIX | One-line crontab edit on VPS during S78. |
+| FA `_discover_latest_issue` parser | NEEDS FIX if Path 3 kept | If Path 3 is retired, this becomes irrelevant. |
+| Hardcoded `/2026/105/2` fallback URL | NEEDS REMOVAL if Path 3 kept | Same conditional as above. |
+| Section-page pollution filter | NEEDS FIX regardless | Even RSS path may have similar issues. |
+| Tighten AI scoring prompt to enforce 10 core topics | OPTIONAL | Stops layer-2 noise. |
+| pub_date format consistency | LOW PRIORITY | Cleanup task, no functional impact. |
+| Full-issue coverage diagnostic (RSS vs issue URL list) | RECOMMENDED FIRST STEP IN S78 | Definitively answers "is full-issue scraping worth restoring." |
+| Reset Eco/FA cookies regardless of Path 3 decision | YES | Cookies last touched 11 April, definitely stale. |
+
+### δ→γ observation window: PAUSED
+
+Original window: 2 May → 16 May 2026.
+Status: **DEFERRED INDEFINITELY** until pre-conditions hold:
+- Path 3 decision made (keep / migrate / retire)
+- Whatever path is kept demonstrably ingesting full Eco issues weekly
+- Section-page pollution fix applied
+- One clean Thursday cron run on the corrected Friday schedule
+
+Reasoning: the window's purpose is to verify the new VPS-side weekly
+Eco scoring produces good picks. With Path 3 dead and 80% of issue
+content missing from the DB, the cron will score a degraded pool and
+the resulting pick quality won't reflect the real architecture's
+capability. Better to fix the inputs first.
+
+S78 will not auto-restart the window — Alex makes that call once
+pre-conditions hold.
+
+### Carry-over task list for S78
+
+In rough priority order:
+
+1. **Run the issue-coverage diagnostic** — for the 70 articles in
+   /weeklyedition/2026-05-02, check how many URLs are in the DB.
+   Definitive answer to "is full-issue scraping worth restoring."
+   ~15 min, read-only, no code.
+2. **Fix the cron timing** — `15 13 * * 4` → `15 13 * * 5` on VPS
+   crontab. One line. ~5 min.
+3. **Refresh Eco + FA cookies** — manual login session in fresh Chrome,
+   regardless of Path 3 decision. Last touched 11 April. ~5 min per
+   source.
+4. **Decide Path 3 architecture** — keep on Mac (fix trigger), migrate
+   to VPS, or retire. Architectural decision based on (1).
+5. **Investigate Flask restart loop on 30 April 23:58** — separate
+   from CDP failure. Read server.log around scheduler startup logic.
+6. **Section-page pollution filter** — exclude `the-world-this-week/`
+   URLs from article ingestion at scraper level.
+7. **`_discover_latest_issue` parser fix** (if Path 3 kept) — parse
+   the FA issues page properly to find latest issue, not first match.
+8. **Remove hardcoded /2026/105/2 fallback** (if Path 3 kept).
+9. **Tighten AI scoring prompt** to enforce 10 core topics. Stops
+   layer-2 noise (40+ one-off topics).
+10. **Fix pub_date format drift** — FT ISO timestamps and FA raw strings
+    normalised to YYYY-MM-DD.
+11. **Dashboard window selector** for BY TOPIC panel.
+12. Once 1–8 done: **manually backfill** the May/June 2026 FA issue
+    (/105/3) and the 2 May Eco issue (/weeklyedition/2026-05-02).
+13. Once 1–12 done and one clean Thursday cron run: **restart δ→γ
+    observation window** with a fresh start date.
+
+S78 should NOT attempt all of this in one session. Realistic scope
+for a single session: items 1–4 (diagnostic + cron fix + cookie
+refresh + architectural decision). Items 5+ are S79+.
+
+---
 
 ---
 
