@@ -1,0 +1,32 @@
+# P2-9 — Economist weekly AI pick (option δ)
+#
+# This is the cron line Alex appends to the VPS root crontab during
+# Block 5 deploy. Do NOT install during S76 prep — install live during
+# the deploy session (after economist_weekly_pick.py has been scp'd to
+# /opt/meridian-server/ and the script's --dry-run has been verified
+# against live VPS DB).
+#
+# Schedule: Thursday 13:15 UTC (= 14:15 / 15:15 Geneva CET/CEST).
+#
+# Rationale for time slot:
+#   - Clear of 02:30 UTC (enrich_retry.py)
+#   - Clear of 03:40 UTC (wake_sync_vps.sh)
+#   - Clear of 09:40 UTC (wake_sync_vps.sh)
+#   - Clear of 14:30 UTC (enrich_retry_watchdog.py)
+#   - Clear of all minute-0 slots (extension_failure_watchdog.py runs hourly at :00)
+#   - Thursday is the natural weekly cadence: Economist's print edition
+#     ships Thursday, so by Thursday afternoon UTC the week's content
+#     has been ingesting via Chrome-extension bookmark sync long enough
+#     to score against. (PHASE_2_PLAN § 7 originally proposed Thursday
+#     22:00 UTC; afternoon is fine — script is idempotent within the
+#     ISO week, so a single weekly trigger time anywhere on Thursday
+#     produces identical results.)
+#   - 13:15 chosen specifically: minute 15 keeps the slot clear of
+#     hourly :00 watchdog, hour 13 is mid-day Geneva (Alex tends to
+#     glance at the dashboard around then) so a fresh Suggested batch
+#     coincides with normal review activity.
+#
+# Idempotency: script holds an ISO-week gate in kt_meta. Running twice
+# on the same Thursday is a no-op. Safe to retry by hand.
+
+15 13 * * 4 /opt/meridian-server/venv/bin/python3 /opt/meridian-server/economist_weekly_pick.py >> /var/log/meridian/economist_weekly.cron.log 2>&1

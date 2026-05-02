@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  com.alexdakers.meridian.refresh.plist
+
+  Per PHASE_2_PLAN.md § 3:
+    "A Mac launchd job runs once per night (e.g. 04:00 Geneva, after the
+     VPS 03:40 UTC cron has produced a fresh authoritative DB)"
+
+  Schedule: 04:00 Geneva. Geneva is CET (UTC+1) in winter and CEST (UTC+2)
+  in summer; launchd's StartCalendarInterval interprets times in the
+  Mac's local timezone, so 04:00 here means 04:00 Geneva year-round.
+  That puts it 20 minutes after the VPS 03:40 UTC cron in winter and
+  1h20m after it in summer — both safe gaps for the snapshot to land.
+
+  Installation (NOT done in S76 prep — run during Block 5 deploy):
+    cp deploy/com.alexdakers.meridian.refresh.plist ~/Library/LaunchAgents/
+    launchctl load ~/Library/LaunchAgents/com.alexdakers.meridian.refresh.plist
+
+  Uninstall:
+    launchctl unload ~/Library/LaunchAgents/com.alexdakers.meridian.refresh.plist
+    rm ~/Library/LaunchAgents/com.alexdakers.meridian.refresh.plist
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.alexdakers.meridian.refresh</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/alexdakers/meridian-server/refresh_mac_db.sh</string>
+    </array>
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>4</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+    <key>StandardOutPath</key>
+    <string>/Users/alexdakers/meridian-server/logs/refresh_mac_db.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/alexdakers/meridian-server/logs/refresh_mac_db.log</string>
+    <key>RunAtLoad</key>
+    <false/>
+</dict>
+</plist>

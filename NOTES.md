@@ -1,6 +1,91 @@
 # Meridian — Technical Notes
-Last updated: 30 April 2026 (Session 75 closed — VPS git reconcile: Mac and VPS both at `9e2c75f4`, working trees clean, all 6 critical files MD5-identical. `wake_sync_vps.sh` (load-bearing VPS cron) tracked into Mac repo; `tmp_brief_*.pdf` gitignored. Block 5 precondition cleared. Smoke test green. Time-box: 60 min agreed, ~25 min actual.)
+Last updated: 1 May 2026 (Session 76 closed — Block 5 PREP only, no execution. Pool size 50 total / 29 unscored Economist articles in last 7 days — comfortably above the 15-floor δ→γ threshold, lean δ. Seven deliverables landed under `deploy/` + repo root, all syntax-clean. No commits, no VPS mutations, no launchctl mutations. One open decision flagged for Alex: whether to disable `ai_pick_economist_weekly()` in server.py before cutover. Time-box: 2h execution, ~55 min actual.)
 
+
+## 1 May 2026 (Session 76 — Mode A Tier-2: Block 5 prep, code + scripts staged, no execution)
+
+**Goal:** Prep work for Block 5 (Tier-1 cutover Alex runs in person later). Write code + stage deploy scripts so the working tree is one review-and-commit away from a Block 5 deploy. Hard rules: no commits, no pushes, no VPS mutations, no launchctl mutations, no cron edits, no script execution, no chmod/archive/move of production files, no edits to server.py / meridian.html / manifest.json. Time-box: 2h execution.
+
+**Outcome:** Seven deliverables landed clean. No HARD RULE temptation. Pool size healthy (50 total / 29 unscored Economist articles in last 7 days — well above the 15-article δ→γ threshold). One open decision flagged for Alex (server.py question — see "Open decision" below). Time: ~55 min actual.
+
+**Pre-flight (read-only audit) — all PASS with one cosmetic correction:**
+1. `/api/health/daily`: `ok=false` but info+warning only (30 title_only pending, 31 unenriched). Same `ok=false` pattern S74/S75 documented as acceptable; no Tier-3 conditions, no errors. **PASS.**
+2. `extension_write_failures` last 24h: 0 (column is `timestamp` not `saved_at_ms`; first query failed, retry succeeded). **PASS.**
+3. Three SHAs aligned at `9de386dec06c946be69179e4c04e92c4b54e86e1` — Mac HEAD = VPS HEAD = origin/main. **PASS.** This is one commit ahead of S75's `9e2c75f4` close — that commit was the NOTES amendment S75 flagged as pending.
+4. Mac sync plist loaded — but **the actual label is `com.alexdakers.meridian.wakesync`, not `com.alexdakers.meridian.sync`** as the brief stated. The S76 brief had the older naming. There's an inert `com.alexdakers.meridian.sync.plist.disabled` from way back in `~/Library/LaunchAgents/`, but it's not loaded. The brief's literal "launchctl unload ~/Library/LaunchAgents/com.alexdakers.meridian.sync.plist" command would have been a no-op. All deliverables corrected to use `.wakesync`. **PASS.**
+5. `wake_sync_vps.sh` tracked at `9e2c75f4` on both Mac and VPS, MD5-identical (per S75 close). **PASS.**
+
+**Pool dry-run (the δ→γ signal):**
+```sql
+SELECT COUNT(*) FROM articles
+WHERE source='The Economist'
+  AND saved_at > strftime('%s','now')*1000 - 7*86400000;
+-- 50
+
+-- Of those, unscored (not yet in suggested_articles):
+-- 29
+
+-- Distribution by saved date (last 7 days):
+-- 2026-04-25 |  1
+-- 2026-04-27 |  1
+-- 2026-04-28 |  9
+-- 2026-04-29 |  2
+-- 2026-04-30 | 32
+-- 2026-05-01 |  5
+
+-- 14-day Economist total: 91
+-- All-time Economist total: 434
+```
+Pool comfortably above the 15-floor δ→γ threshold. **No interrupt fired. Lean δ.**
+
+**Deliverables:**
+
+| # | File | Purpose | Status |
+|---|---|---|---|
+| A | `economist_weekly_pick.py` | P2-9 weekly Economist scoring over VPS-ingested articles | Already in place (untracked from prior session, ~30 Apr). AST-clean. Behavior matches S76 spec on all six points (query, scoring, log path, Suggested-floor insert, ISO-week idempotency, dry-run flag). Per brief's "modify in place" guidance: no changes written. |
+| B | `deploy/block5_cron_addition.txt` | Literal cron line for VPS root crontab | Written, NOT installed. Schedule: `15 13 * * 4` (Thursday 13:15 UTC). Clear of all five existing cron slots (02:30, 03:40, 09:40, 14:30 UTC + hourly :00 watchdog). |
+| C | `deploy/block5_cutover.sh` | P2-10 deploy script | Written, NOT executed. `bash -n` clean. 5 steps: snapshot via `.backup`, integrity_check, launchctl unload, mv to archive, VPS health verify. `set -e -u -o pipefail`, idempotent where possible, fail-loud where not. |
+| D | `refresh_mac_db.sh` (repo root) | § 3 nightly DB mirror | Written, NOT executed. `bash -n` clean. ssh→sqlite `.backup`→scp→integrity_check→stop/swap-to-444/start Flask→smoke. Belt-and-braces: kills any orphan PID on :4242 before swap (R7 launchd double-spawn pattern). |
+| E | `deploy/com.alexdakers.meridian.refresh.plist` | Mac launchd template | Written, NOT installed. `plutil -lint` clean. Triggers refresh_mac_db.sh nightly at 04:00 Geneva (= 20-min gap after VPS 03:40 UTC wake_sync_vps in winter, 1h20m in summer). |
+| F | `deploy/block5_rollback.sh` | Inverse of cutover | Written, NOT executed. `bash -n` clean. Restore wake_and_sync.sh from latest archive, launchctl load wakesync, verify, parse-check restored script. <2 min per § 2. Includes git-history fallback hint. |
+| G | `deploy/BLOCK5_READY.md` | Human-facing summary | The first thing Alex reads when back. Pool size, pre-flight results, file-by-file rationale, literal deploy + rollback command sequences, surprises, the open server.py decision. |
+
+**Open decision (flagged loudly in BLOCK5_READY.md, decide before running cutover):**
+
+Should P2-10 disable `ai_pick_economist_weekly()` in `server.py`? The function still exists at `server.py:2328`, called from the threading scheduler at `server.py:2959` and the `/api/ai-pick-economist-weekly` endpoint at `server.py:1343`. With the wakesync agent unloaded by the cutover script, the *external* trigger is gone, but the internal Flask threading.Timer still fires once per day. After P2-10 the Mac DB is chmod 444 — Mac-side function would fail at SQLite write with `attempt to write a readonly database`. Self-disabling via failure but log-noisy. The PHASE_2_PLAN § 8 P2-9 atomic-rollback note implies the cutover *does* disable it ("re-enable Mac `ai_pick_economist_weekly()`" appears in the rollback half), implying an implicit step missing from both the brief and the plan. S76's hard rule said no server.py edits. Recommendation in BLOCK5_READY.md: **do nothing — let it fail silently on read-only DB**. Self-limiting, lower risk than a hard-rule exception inside the Block 5 window. If log noise becomes annoying, take it out in a follow-up Tier-2.
+
+**Operational notes:**
+- **Bridge filter friction was light this session.** The trick was redirecting all multi-source output to a single tmp file and reading via `filesystem:read_text_file` — same S74/S75 pattern. No `[BLOCKED:]` hits. The one near-miss was the first column-name guess on `extension_write_failures` (`saved_at_ms` instead of `timestamp`) — schema dump on retry resolved it instantly. Lesson reinforced from S75: when probing a Phase 2 table for the first time in a session, run `.schema` first.
+- **Brief vs. reality, label drift.** The S76 brief used `com.alexdakers.meridian.sync` and `~/Library/LaunchAgents/com.alexdakers.meridian.sync.plist` — neither is the actual loaded plist. Real label is `.wakesync` (per S75 NOTES, but apparently not propagated to the brief's preflight section). The brief is a snapshot; reality is live. Low-friction recovery — just used the right label in the deliverables — but worth flagging because if Alex ran the brief's preflight commands literally, item 4 would have looked like a fail when it was actually fine.
+- **The 15-vs-5 threshold confusion.** Brief says <15 → loud flag for Alex (δ→γ decision). The existing `economist_weekly_pick.py` aborts at <5 (per-run "is this run worth API spend?"). Different layers, both correct. Worth noting in BLOCK5_READY because reading them side-by-side is confusing.
+- **Decision-of-the-session: leave existing economist_weekly_pick.py alone.** The brief's "modify in place rather than duplicating" guidance applies even when "in place" means "already written by a prior session and AST-clean and matching the spec exactly." It does. So zero edits. The only thing left for Alex is to commit it as part of the Block 5 review pass. Cost saved: ~20 min that would have gone to writing a script that already existed. (Discovery cost: ~3 min to read the existing file and verify its behavior matches the spec point-by-point.)
+- **Standing approvals all consumed cleanly.** Read-only commands on Mac and VPS, file writes inside `~/meridian-server/` (anywhere except production files), `ast.parse()` on Python, `bash -n` on shell, `plutil -lint` on plist. No interrupt conditions hit. The only judgment call was choosing not to disable `ai_pick_economist_weekly()` — surfaced as an Alex-decision rather than acted on, per the brief's "interrupt me for: Anything that requires modifying server.py".
+
+**Time budget:**
+- Time-box: 2h execution. Actual: ~55 min. Well inside (~45% of budget used).
+- 75% flag (90 min) not approached.
+- Bulk of the time was investigation: pre-flight + `economist_weekly_pick.py` discovery + crontab inspection + ai_pick_economist_weekly references in server.py + figuring out the wakesync-vs-sync label difference (~25 min). File writing was ~25 min (six new files + one Markdown summary). Final sanity sweep was ~5 min.
+
+**State at session end:**
+- `git status --short`:
+  ```
+  ?? deploy/
+  ?? economist_weekly_pick.py
+  ?? refresh_mac_db.sh
+  ```
+- All repo invariants from S75 close still hold: Mac HEAD = VPS HEAD = origin/main = `9de386de…`, 6 critical files unchanged, meridian.service active on VPS, extension_write_failures = 0.
+- No commits, no pushes, no VPS state changes, no launchctl mutations, no cron edits.
+- Pre-flight scratch files (`tmp_s76_preflight.txt`, `tmp_s76_preflight2.txt`, `tmp_s76_pool.txt`, `tmp_s76_old_paths.txt`) left in repo as audit trail — auto-gitignored under `tmp_*.txt` (line 41 of .gitignore).
+- Backup `NOTES.md.bak_s76` created before splicing this entry.
+
+**S77 carry-over:**
+1. **Block 5 atomic deploy** — Alex executes in person. P2-9 (scp economist_weekly_pick.py, append cron, dry-run verify) → P2-10 (`bash deploy/block5_cutover.sh`) → optional install of refresh launchd job. Literal command sequence in `deploy/BLOCK5_READY.md`. Decide the server.py question first.
+2. **`ai_pick_economist_weekly()` cleanup in server.py** — outcome of the open decision above. Either nothing (let it fail silently on chmod-444 DB) or a minimal early-return patch in a follow-up Tier-2.
+3. **Two-week δ→γ observation window** starts after first successful cron-driven Thursday run. If picks dry up or quality drops, fall back to γ per § 7.
+4. **L3850 `max_tokens=1000` review** — still open from S69. Low priority.
+5. **R9 — git-history cleanup sandbox** at `~/meridian-server-sandbox` (S63). Must be decided before Phase 3.
+
+---
 
 ## 30 April 2026 (Session 75 — Mode A Tier-2: VPS git reconcile, Block 5 precondition cleared)
 
