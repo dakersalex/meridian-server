@@ -105,7 +105,12 @@ S78 priorities to tackle this session. The list from NOTES is:
 6. Verify scraper write path with a controlled test
 7. Refresh Eco/FA cookies if needed
 8. Trust audit: spot-check capture rate against a recent week
-9. (Deferred) Discovery features
+9. Chrome extension body-fetcher manifest fix (late S77 finding —
+   extension retries failed body-fetches every 5s for articles
+   whose domains aren't in manifest. Inspect chrome://extensions/
+   ?errors=hajdjjmpbfnbjkfabjjlkhafldnlomci. Two fixes: widen
+   manifest + mark articles unfetchable on perm error. ~1-2h.)
+10. (Deferred) Discovery features
 
 Expected: Alex picks 2–4 items. Items 2 + 4 are 5-min wins. Item 1 is
 the load-bearing decision that gates 3, 6, 7. Item 8 is meaningful
