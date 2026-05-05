@@ -1595,19 +1595,44 @@ def _save_enriched_article(art):
 @app.route("/api/articles/pending-body")
 def pending_body():
     """Return title_only articles that need body text fetched by Chrome extension.
-    Extension will open each URL, extract text, and PATCH it back."""
+    Extension will open each URL, extract text, and PATCH it back.
+
+    Filtered by URL host to only those the extension's manifest.json
+    host_permissions allows. Articles from other hosts would trigger
+    'Cannot access contents of url' permission errors in the extension
+    and be retried forever. Hosts here MUST stay in sync with
+    extension/manifest.json -> host_permissions. Both www. and bare-domain
+    variants included — bare domains 301-redirect to www. but the filter
+    runs on stored URL strings, not post-redirect, so silent drops would
+    otherwise occur. (S78 fix; single-source via manifest parsing
+    deferred to S79+.)"""
     source = request.args.get("source", "")
     limit = int(request.args.get("limit", 10))
+    # SQL-level host filter: explicit URL prefixes mirroring manifest.json.
+    # Verbose vs. a Python post-filter, but keeps SQL LIMIT honest (no
+    # over-fetch + truncate dance).
+    host_clause = (
+        "(url LIKE 'https://www.ft.com/%' "
+        "OR url LIKE 'https://ft.com/%' "
+        "OR url LIKE 'https://ig.ft.com/%' "
+        "OR url LIKE 'https://professional-monetary-policy-radar.ft.com/%' "
+        "OR url LIKE 'https://www.economist.com/%' "
+        "OR url LIKE 'https://economist.com/%' "
+        "OR url LIKE 'https://www.foreignaffairs.com/%' "
+        "OR url LIKE 'https://foreignaffairs.com/%' "
+        "OR url LIKE 'https://www.bloomberg.com/%' "
+        "OR url LIKE 'https://bloomberg.com/%')"
+    )
     with sqlite3.connect(DB_PATH) as cx:
         cx.row_factory = sqlite3.Row
         if source:
             rows = cx.execute(
-                "SELECT id, url, title, source FROM articles WHERE status IN ('title_only','agent') AND url!='' AND source=? ORDER BY saved_at DESC LIMIT ?",
+                f"SELECT id, url, title, source FROM articles WHERE status IN ('title_only','agent') AND url!='' AND {host_clause} AND source=? ORDER BY saved_at DESC LIMIT ?",
                 (source, limit)
             ).fetchall()
         else:
             rows = cx.execute(
-                "SELECT id, url, title, source FROM articles WHERE status IN ('title_only','agent') AND url!='' ORDER BY saved_at DESC LIMIT ?",
+                f"SELECT id, url, title, source FROM articles WHERE status IN ('title_only','agent') AND url!='' AND {host_clause} ORDER BY saved_at DESC LIMIT ?",
                 (limit,)
             ).fetchall()
     return jsonify({"articles": [dict(r) for r in rows], "count": len(rows)})

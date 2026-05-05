@@ -50,6 +50,7 @@ CHARTER.html
 CHARTER.pdf
 db_backups/
 tmp_*.sh
+tmp_*.sql
 
 # Session 75: VPS-side runtime intelligence brief PDFs
 tmp_brief_*.pdf
