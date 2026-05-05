@@ -1,5 +1,102 @@
 # Meridian — Technical Notes
-Last updated: 2 May 2026 (Session 77 closed + final post-deploy addendum — Block 5 ATOMIC DEPLOY landed clean (~30 min, all 5 smoke checks pass, three SHAs aligned at `99e3c0a5`). Extended diagnostic session (~3h post-S77) reframed scraper architecture: ingestion is RSS path (alive, twice-daily wake_sync at 03:40 + 09:40 UTC) plus Mac Playwright path (intermittent — pages open and close on Chrome relaunch, login intact for FA, but DB writes inconsistent or absent). Critical findings: (1) Block 5 cron timing wrong — Thursday 13:15 UTC fires 8h BEFORE Eco issue publishes at 21:00 UK Thursday; should be Friday. (2) ~14 of ~70 articles from this week's Economist issue captured. (3) Section pages ('Business', 'Politics', 'The weekly cartoon') ingested as articles. (4) Cookies file mtime 11 April is misleading — Chrome keeps cookies live in memory; FA login confirmed working today. (5) Scrapers triggered by Chrome relaunch but produce zero DB writes — bug or benign 'no new content' unclear. Architectural decisions made: curated capture, two-track (manual + AI), AI safety net for busy days, your-topics-only filter, defer discovery features, audit before features. δ→γ observation window PAUSED pending S78 architecture session. See final post-S77 addendum at bottom of S77 entry for full findings.)
+Last updated: 5 May 2026 (Session 78 closed — items 2 (Block 5 cron Thu→Fri) and 9 (body-fetcher loop fix, server-side host filter at /api/articles/pending-body + one-shot SQL marking the 8 stuck articles unfetchable) landed in one combined commit `b0d6e5ca`. Three-checkpoint verification confirmed each layer worked independently. .gitignore amendment `tmp_*.sql` landed in same commit (S77 had inaccurately claimed SQL was already gitignored). Item 1 (architectural review of Mac Playwright path) surfaced as `deploy/S78_ITEM1_OPTIONS.md` — three options written up evenhandedly with no recommendation; decision deferred to S79 fresh-energy conversation. Items 3, 4, 5, 6, 7 reshape based on item 1's outcome. δ→γ observation window still PAUSED — earliest restart 9 May 2026 conditional on item 1 decision + first clean cron run on new Friday schedule. ~70 min session, well inside 90-min box.
+
+
+## 5 May 2026 (Session 78 — items 2 + 9 landed; item 1 surfaced for S79)
+
+**Goal:** Targeted fixes from the S77 priority list. Tier-2. 90-min time-box. Items 2 (cron Thu→Fri), 9 (body-fetcher loop fix, server-side only), and 1 (architectural review of Mac Playwright path — surface only, no decision).
+
+**Outcome:** Items 2 and 9 landed in one combined commit `b0d6e5ca`. Item 1 surfaced as `deploy/S78_ITEM1_OPTIONS.md` — three options with tradeoffs written up, explicitly no recommendation, no decision pushed. Time used: ~70 min, well inside 90-min box. 75% flag at 67 min not crossed during execution; surfacing item 1 + close ran past it but cleanly.
+
+**Pre-flight: 8/8 PASS.** VPS health `ok=true`, alerts=[], 18 ingested in 24h. extension_write_failures(24h)=0. Three SHAs aligned at `e0aae1c7` (S77 final commit). Working tree clean except `tmp_s77_pool.sql` untracked. wakesync unloaded ✓; refresh job loaded ✓; Mac DB chmod 444. Nightly refresh fired clean both 4 May and 5 May 04:00 Geneva. Block 5 Thursday cron line installed but log file empty (first run was scheduled for tomorrow Thu 7 May, before fix). Body-fetcher pending list: 8 stuck articles confirmed (the FT article from S77 had been resolved, leaving exactly the 8 long-tail-domain articles that loop on permission errors).
+
+### Item 2 — Block 5 cron timing fix (Thursday → Friday)
+
+VPS crontab field 5 changed `4 → 5`. All other 5 cron lines unchanged. Match-count for `economist_weekly_pick` = 1 after edit. `deploy/block5_cron_addition.txt` updated to match: cron line + rationale block now reflect Friday schedule, with a clear `NOTE — schedule changed in S78` block in-line explaining why (post-S77 finding that Eco publishes ~21:00 UK Thursday = 20:00 UTC Thursday, so Thursday 13:15 UTC fired ~7h BEFORE publication). First run on new schedule: **Friday 8 May 2026 13:15 UTC**.
+
+Live VPS line and canonical file are byte-identical. Verified via parity check post-edit.
+
+### Item 9 — Body-fetcher loop fix (Part A only, server-side)
+
+**Scope as agreed:** Server-side only. Do not touch `manifest.json` (deferred to S79+ post item-1 architecture decision). Goal: stop the queue retry loop without expanding extension's permissions.
+
+**Investigation finding (significant):** the `unfetchable` status path was already fully plumbed through the system — PATCH endpoint at `server.py:1215` already adds URL to `unfetchable_urls` blocklist, demotes from feed, removes from suggested. The `pending_body` endpoint at `server.py:1595` selects `WHERE status IN ('title_only','agent')`, so marking an article unfetchable already removes it from the queue. The bug was: extension's `fetchBodyForArticle()` in background.js wraps `chrome.scripting.executeScript` in a try/finally that closes the tab but lets the throw propagate to the caller's `for…of` `catch(e) { console.error(e) }`. Permission-error articles never reach the existing `PATCH status='unfetchable'` paths in the extension. Result: pending-body loop forever.
+
+**Fix path chosen:** Option B from the in-session discussion — server-side host filter at `pending_body` + one-shot SQL for the 8 already-stuck articles. Reasons over Option A (SQL only): (1) future RSS-discovered articles from non-allowlisted domains would start the same loop again, and (2) filtering at the API boundary is the correct layer once `manifest.json` is the source of truth for what the extension can fetch.
+
+**Patch:** Added a `host_clause` to both `pending_body` SQL queries — explicit URL prefix LIKE patterns mirroring `manifest.json` host_permissions. Both `www.` and bare-domain variants included for each host (FT, ig.ft.com, ft-professional, Eco, FA, Bloomberg). Docstring updated with rationale + warning that `host_clause` MUST stay in sync with `manifest.json` (single-source via manifest parsing deferred to S79+ as a 5-min add). `ast.parse` clean. Single-occurrence `str.replace` patch (per the no-line-numbers rule).
+
+**One-shot SQL** on VPS: marked the 8 articles `status='unfetchable', auto_saved=0`, added URLs to `unfetchable_urls` with reason `S78: domain outside extension manifest host_permissions`, dropped them from `suggested_articles`. Match-count: 8 articles updated, 8 blocklist entries added. Replicates exactly what the PATCH endpoint does for an `unfetchable` status update.
+
+**Three checkpoints proved each layer worked independently:**
+- **CP1 (baseline):** `pending-body` count=9 (8 long-tail + 1 FT). DB confirmed 8 non-allowlisted articles with status `agent`.
+- **CP2 (post-deploy, pre-SQL):** count=1 (FT only). 8 articles still status `agent` in DB. → **Filter is doing its job, isolated from any DB mutation.**
+- **CP3 (post-SQL):** count still=1, but DB now shows all 8 articles status `unfetchable`, auto_saved=0, 8 entries in unfetchable_urls, 0 of the 8 URLs in suggested_articles. → **SQL did its independent job without changing the queue.**
+
+VPS health remained `ok=true` throughout. Mac/VPS HEAD parity confirmed at `b0d6e5ca`.
+
+**.gitignore amendment landed in same commit:** `tmp_*.sql` added next to existing `tmp_*.sh`. S77's note that "tmp_s77_*.{txt,sh,sql,py} are auto-gitignored under tmp_*" was inaccurate — only `.py`, `.txt`, `.sh`, `.png` were ignored; `.sql` was not. Discovered when `git status` showed `tmp_s77_pool.sql` and `tmp_s78_unfetchable_oneshot.sql` as untracked at deploy time. Without the gitignore fix, `deploy.sh`'s `git add -A` would have committed both SQL scratch files into production. Fix: one-line `sed` insertion. Verified via `git check-ignore` — all three patterns (`tmp_*.sql`, `tmp_*.sh`, `tmp_*.py`) now match correctly.
+
+### Item 1 — Mac Playwright path: three architectural options surfaced
+
+Written up as `deploy/S78_ITEM1_OPTIONS.md`. Per Alex's instruction: surface only, no recommendation, no decision tonight, fresh-energy conversation in S79.
+
+**The three options as documented:**
+- **Option A — Keep on Mac, fix the trigger.** Stay where we are. Fix Playwright trigger (decoupled from retired wakesync). Fix items 3–7. Mac stays as scrape origin, VPS continues as canonical write source via `vps_push.py`. Lowest delta from current state. Cookie refresh stays interactive on Mac. Weakness: Mac availability becomes load-bearing for ingestion; trigger reliability is the recurring failure mode.
+- **Option B — Move Playwright to VPS with virtual-display Chrome.** Migrate scrape origin to VPS. Bootstrap Xvfb-Chromium + cookied profiles on Hetzner. Items 5, 6 become moot; items 3, 4 still needed but in VPS-side code. `vps_push.py` retires. Eliminates Mac-availability dependency and aligns with Block 5's VPS-as-write-source direction. Weakness: cookie refresh is the open problem (no clean answer for FT/Eco/FA session refresh on a headless box); Hetzner IP may face stricter Cloudflare bot-detection than residential IP; bootstrap is a multi-session project.
+- **Option C — Drop Playwright entirely.** Retire Mac Playwright code. Accept that ingestion comes from RSS (Path 2, working) + extension manual save + Sync Bookmarks + body-fetcher + newsletters. Items 3, 4, 5, 6, 7 vanish by deletion. Simplest by far. Weakness: FA has no usable RSS feed → FA capture drops to manual-only; Eco RSS only surfaces a subset of weekly issue content (back to the ~14-of-70 rate, but consciously chosen); cuts against the Tuesday "AI track as safety net for busy days" decision unless RSS + extension paths are sufficient.
+
+**Three pre-S79 diagnostic reads** (all read-only, ~30 min total) that would inform the decision but aren't required tonight: (1) issue-coverage diagnostic on the 2 May Eco issue — count of /weeklyedition/2026-05-02 URLs in DB; (2) FA RSS scope check — does FA publish RSS, what's coverage; (3) VPS sizing check — `htop`/`free -h` for Xvfb-Chromium feasibility on Hetzner.
+
+### Operational notes
+
+- **Bridge filter friction was light.** One readback hit at the start (`[BLOCKED: Cookie/query string data]` on a long output containing the word "query"). Same S77/S64+ workaround pattern: redirect to `~/meridian-server/logs/`, read via `filesystem:read_text_file`. Reliable.
+- **Three-checkpoint structure was load-bearing for confidence.** Without CP2, we couldn't have proven the filter worked vs. just the SQL. Worth keeping as a pattern: when two changes land back-to-back, take a measurement between them.
+- **The .gitignore find was a near-miss.** `git add -A` in deploy.sh would have committed two `tmp_*.sql` scratch files into production if I hadn't checked `git check-ignore` first. Pattern reinforced: before any commit that uses `git add -A`, run `git status --short` and confirm only intended files are staged. Auto-staging plus gitignore drift is a recurring near-miss surface.
+- **Decision discipline held.** Alex's instruction was unambiguously "surface item 1, don't push toward decision, don't ask me to choose tonight." Done. Three options written evenhandedly. Recommendation explicitly absent. The surfacing doc closes with "What's actually being decided" and three pre-S79 reading suggestions, no decision-tonight ask.
+
+### Time budget
+
+- Time-box: 90 min. Actual: ~70 min for items 2 + 9 + item 1 surfacing + close. Well inside.
+- 75% flag at 67 min not approached during execution. Item 1 surfacing + close ran past it but the surfacing is bounded (15-min budget honoured) and close is mechanical.
+- Bulk of the time was item 9 investigation (~15 min) — the existing-infrastructure finding cut the patch effort substantially since no schema change was needed.
+
+### State at session end
+
+- Three SHAs aligned at `b0d6e5ca` post item 2 + 9 deploy. Final session-close commit will follow this NOTES write.
+- VPS DB: 8 articles status flipped from `agent` to `unfetchable`. 8 entries added to `unfetchable_urls`. `pending-body` queue stable at 1 (FT only).
+- Mac DB: still chmod 444, will pick up the 8-article state on next nightly refresh (6 May 04:00 Geneva).
+- VPS health: `ok=true`, alerts=[], 20 ingested in 24h.
+- VPS service `meridian.service`: active, restarted clean during deploy.
+- VPS cron: Block 5 line now Friday 13:15 UTC. Other 5 lines unchanged.
+- extension_write_failures(24h) total: 0.
+- δ→γ observation window: still PAUSED. Restart conditions unchanged from S77 (scraper architecture decided + scrapers demonstrably working). Item 1 in S79 is the gating decision.
+
+### S79 carry-over (in priority order)
+
+1. **Item 1 architectural decision.** Read `deploy/S78_ITEM1_OPTIONS.md` at fresh energy. Optionally run the three pre-S79 diagnostic reads first (issue-coverage on 2 May Eco issue, FA RSS scope check, VPS sizing). Pick A, B, or C. Output: chosen direction with reasoning, not implementation.
+2. **Items 3, 4, 5, 6, 7 reshape based on item 1 decision.**
+   - If A: all five remain in scope, sequence them.
+   - If B: items 3, 4 port to VPS-side scraper code; items 5, 6 become moot; item 7 reshapes around VPS-side cookie refresh strategy.
+   - If C: items 3–7 collapse via code deletion. Item 8 (trust audit) becomes the next session's main work.
+3. **Item 9 Part B (extension-side fix).** Once item 1 architecture is decided, decide whether to widen `manifest.json` to cover long-tail domains. Currently deferred — server-side filter (S78) keeps the queue clean without it. May never need to land if the architectural direction makes long-tail domains rare.
+4. **Item 8 trust audit.** Pick a recent week, manually scan FT/Eco/FA, check capture rate against DB, decide if discovery features are needed. Only meaningful after items 1, 3–7 settle.
+5. **L3850 `max_tokens=1000` review** — still open from S69. Low priority.
+6. **R9 — git-history cleanup sandbox** at `~/meridian-server-sandbox` (S63). Must be decided before Phase 3.
+7. **`ai_pick_economist_weekly()` log-noise cleanup in server.py** — Tier-2 follow-up to S77 Option A decision. Defer until logs become annoying.
+8. **δ→γ observation window restart decision.** Conditional on items 1 + scrapers fixed + first clean cron run on the new Friday schedule (8 May or later). Earliest restart: 9 May 2026.
+
+### Files written this session
+
+- `deploy/S78_ITEM1_OPTIONS.md` (new) — three options write-up for item 1.
+- `deploy/block5_cron_addition.txt` (modified) — Friday schedule + S78 NOTE block.
+- `server.py` (modified) — `pending_body` host_clause filter at L1595.
+- `.gitignore` (modified) — added `tmp_*.sql` entry.
+- `NOTES.md` (modified, this entry).
+
+Audit-trail tmp files (gitignored, safe to delete or leave): `tmp_s78_patch_pending_body.py`, `tmp_s78_unfetchable_oneshot.sql`, `tmp_s77_pool.sql`, plus a handful of `logs/s78_*.txt` files documenting each checkpoint and step (also gitignored under `logs/`).
+
+---
 
 
 ## 2 May 2026 (Session 77 — Block 5 ATOMIC DEPLOY: P2-9 + P2-10 landed)
